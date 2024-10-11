@@ -3,9 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io"
-	"log"
-	"os"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -86,35 +83,15 @@ package main
 	// 準備一個 bytes.Buffer 來捕獲標準輸出和 log 輸出
 	var buf bytes.Buffer
 
-	// 暫時將 os.Stdout 和 log 的輸出重定向到 buf
-	stdout := os.Stdout
-	logOutput := log.Writer()
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	// 創建一個多重寫入器，同時寫入到 buf 和管道
-	multiWriter := io.MultiWriter(&buf, w)
-	log.SetOutput(multiWriter)
-
-	// 啟動一個 goroutine 來讀取輸出的結果到緩衝區中
-	done := make(chan struct{})
-	go func() {
-		io.Copy(&buf, r)
-		close(done)
-	}()
-
-	// 初始化 yaegi 直譯器
-	i := interp.New(interp.Options{})
+	// 初始化 yaegi 直譯器並設置 Stdout 和 Stderr
+	i := interp.New(interp.Options{
+		Stdout: &buf,
+		Stderr: &buf,
+	})
 	i.Use(stdlib.Symbols) // 加載標準庫
 
 	// 執行傳入的 Go 程式碼
 	_, err := i.Eval(code)
-	w.Close() // 結束寫入
-	<-done    // 等待緩衝區完成
-
-	// 恢復 os.Stdout 和 log 輸出到標準輸出
-	os.Stdout = stdout
-	log.SetOutput(logOutput)
 
 	if err != nil {
 		return fmt.Sprintf("執行錯誤: %v", err)
