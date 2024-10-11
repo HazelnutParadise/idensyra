@@ -7,6 +7,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/data/binding"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
@@ -30,31 +32,47 @@ func main() {
 	log.Println("這是一個 log 訊息")
 }`)
 
-	// 建立一個用於顯示結果的 widget.Entry，允許複製，但不允許刪除或新增
-	resultOutput := widget.NewMultiLineEntry()
-	resultOutput.SetPlaceHolder("執行結果將顯示在這裡...")
-	resultOutput.Wrapping = fyne.TextWrapWord
-	resultOutput.TextStyle = fyne.TextStyle{Monospace: true}
+	// 建立一個用於顯示結果的 Label，並包裹在 Scroll 容器中
+	resultBinding := binding.NewString()
+	resultLabel := widget.NewLabelWithData(resultBinding)
+	resultLabel.Wrapping = fyne.TextWrapWord
+	resultLabel.TextStyle = fyne.TextStyle{Monospace: true}
+
+	scrollResult := container.NewScroll(resultLabel)
+	scrollResult.SetMinSize(fyne.NewSize(600, 0)) // 設定最小寬度
+
+	// 建立複製按鈕
+	copyButton := widget.NewButton("複製結果", func() {
+		result, _ := resultBinding.Get()
+		if result == "" {
+			dialog.ShowInformation("複製失敗", "沒有內容可供複製。", myWindow)
+			return
+		}
+		myWindow.Clipboard().SetContent(result) // 修正此行
+		dialog.ShowInformation("複製成功", "執行結果已複製到剪貼簿。", myWindow)
+	})
 
 	// 建立執行按鈕，點擊後執行程式碼
 	runButton := widget.NewButton("執行程式碼", func() {
 		code := codeInput.Text        // 獲取使用者輸入的程式碼
 		result := executeGoCode(code) // 使用 yaegi 執行程式碼
-		resultOutput.SetText(result)  // 顯示執行結果
+		resultBinding.Set(result)     // 更新顯示結果
 	})
 
-	// 將執行按鈕放在一個 VBox 中
+	// 將執行按鈕和複製按鈕放在一個 VBox 中
 	buttonBox := container.NewVBox(
 		runButton,
+		copyButton,
 	)
 
 	// 為文字輸入框和結果輸出框添加標籤
 	codeInputLabel := widget.NewLabel("程式碼輸入:")
 	resultOutputLabel := widget.NewLabel("執行結果:")
 
-	// 將標籤和對應的文字框組合在一起
+	// 將標籤和對應的顯示容器組合在一起
 	codeInputWithLabel := container.NewBorder(codeInputLabel, nil, nil, nil, codeInput)
-	resultOutputWithLabel := container.NewBorder(resultOutputLabel, nil, nil, nil, resultOutput)
+	resultOutputWithLabel := container.NewBorder(resultOutputLabel, nil, nil, nil, scrollResult)
+
 	// 建立水平分割的區域，左邊是編輯器，右邊是結果顯示區
 	split := container.NewHSplit(
 		container.NewBorder(nil, buttonBox, nil, nil, codeInputWithLabel),
@@ -74,7 +92,7 @@ func executeGoCode(code string) string {
 	// 構建完整的 Go 程式碼
 	preCode := `
 package main
-	`
+`
 	endCode := `
 `
 
