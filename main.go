@@ -91,10 +91,7 @@ func executeGoCode(code string) string {
 	preCode := `
 package main
 `
-	endCode := `
-`
-
-	code = preCode + code + endCode
+	endCode := ``
 
 	// 準備一個 bytes.Buffer 來捕獲標準輸出和 log 輸出
 	var buf bytes.Buffer
@@ -107,10 +104,23 @@ package main
 	i.Use(stdlib.Symbols) // 加載標準庫
 
 	// 執行傳入的 Go 程式碼
-	_, err := i.Eval(code)
-
-	if err != nil {
-		return fmt.Sprintf("執行錯誤: %v", err)
+	if preCode != "" {
+		_, err := i.Eval(preCode)
+		if err != nil {
+			return fmt.Sprintf("執行預處理程式碼錯誤: %v", err)
+		}
+	}
+	if code != "" {
+		_, err := i.Eval(code)
+		if err != nil {
+			return fmt.Sprintf("執行程式碼錯誤: %v", err)
+		}
+	}
+	if endCode != "" {
+		_, err := i.Eval(endCode)
+		if err != nil {
+			return fmt.Sprintf("執行結尾程式碼錯誤: %v", err)
+		}
 	}
 
 	// 返回執行過程中的所有標準輸出與 log 輸出
