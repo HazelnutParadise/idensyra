@@ -16,7 +16,7 @@ import (
 
 func main() {
 	myApp := app.New()
-	myWindow := myApp.NewWindow("Go 程式碼編輯器")
+	myWindow := myApp.NewWindow("Idensyra")
 
 	// 建立一個多行的 widget.Entry 作為編輯器
 	codeInput := widget.NewMultiLineEntry()
