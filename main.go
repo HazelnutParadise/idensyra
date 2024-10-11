@@ -38,7 +38,6 @@ func main() {
 	resultLabel.TextStyle = fyne.TextStyle{Monospace: true}
 
 	scrollResult := container.NewScroll(resultLabel)
-	scrollResult.SetMinSize(fyne.NewSize(600, 0)) // 設定最小寬度
 
 	// 建立複製按鈕
 	copyButton := widget.NewButton("複製結果", func() {
