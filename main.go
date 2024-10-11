@@ -22,8 +22,7 @@ func main() {
 	codeInput := widget.NewMultiLineEntry()
 	codeInput.SetPlaceHolder("// 在這裡輸入 Go 程式碼...")
 	// 預設輸入
-	codeInput.SetText(`
-import (
+	codeInput.SetText(`import (
 	"fmt"
 	"log"
 )
