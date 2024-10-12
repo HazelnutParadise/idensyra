@@ -16,6 +16,12 @@ import (
 	"github.com/traefik/yaegi/stdlib"
 )
 
+// 初始化區塊，啟動程式時會自動執行
+func init() {
+	fmt.Println("正在初始化 Idensyra 編輯器...")
+	// 這裡可以進行更多初始化操作
+}
+
 func main() {
 	myApp := app.New()
 	myWindow := myApp.NewWindow("Idensyra")
@@ -29,6 +35,11 @@ func main() {
 	"log"
 	"github.com/HazelnutParadise/insyra"
 	"github.com/HazelnutParadise/insyra/stats"
+	"github.com/HazelnutParadise/insyra/parallel"
+	"github.com/HazelnutParadise/insyra/csvxl"
+	"github.com/HazelnutParadise/insyra/lpgen"
+	"github.com/HazelnutParadise/insyra/plot"
+	"github.com/HazelnutParadise/insyra/gplot"
 )
 func main() {
 	fmt.Println("Hello, World!")
@@ -83,6 +94,9 @@ func main() {
 
 	// 設置初始分割比例，左邊占比較多
 	split.SetOffset(0.55)
+
+	// 初始化時彈出一個訊息對話框
+	dialog.ShowInformation("初始化成功", "Idensyra 已經準備好使用。", myWindow)
 
 	myWindow.SetContent(split)
 	myWindow.Resize(fyne.NewSize(1200, 650))
