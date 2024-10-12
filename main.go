@@ -10,6 +10,8 @@ import (
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
+	"github.com/HazelnutParadise/idensyra/idensyra"
+
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
 )
@@ -25,6 +27,8 @@ func main() {
 	codeInput.SetText(`import (
 	"fmt"
 	"log"
+	"github.com/HazelnutParadise/insyra"
+	"github.com/HazelnutParadise/insyra/stats"
 )
 func main() {
 	fmt.Println("Hello, World!")
@@ -101,8 +105,8 @@ package main
 		Stdout: &buf,
 		Stderr: &buf,
 	})
-	i.Use(stdlib.Symbols) // 加載標準庫
-
+	i.Use(stdlib.Symbols)   // 加載標準庫
+	i.Use(idensyra.Symbols) // 加載 idensyra 套件
 	// 執行傳入的 Go 程式碼
 	if preCode != "" {
 		_, err := i.Eval(preCode)
