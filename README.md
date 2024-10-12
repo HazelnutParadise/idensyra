@@ -4,7 +4,7 @@
 
 ## [Insyra](https://github.com/HazelnutParadise/insyra) Inside: Simple? It's quite!
 
-With `Idensyra`, you can write Go code, and run it immediately, no need to install Go environment. Also, you can use [Insyra](https://github.com/HazelnutParadise/insyra)'s functions directly in Idensyra.
+With `Idensyra`, you can write Go code, and run it immediately, no need to install Go environment. Also, you can use [Insyra](https://github.com/HazelnutParadise/insyra)'s functions directly in `Idensyra`.
 
 ## Limitation
 
