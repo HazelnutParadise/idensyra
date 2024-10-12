@@ -18,7 +18,7 @@ import (
 
 // 初始化區塊，啟動程式時會自動執行
 func init() {
-	fmt.Println("正在初始化 Idensyra 編輯器...")
+	fmt.Println("starting Idensyra editor...")
 	// 這裡可以進行更多初始化操作
 }
 
@@ -28,7 +28,7 @@ func main() {
 
 	// 建立一個多行的 widget.Entry 作為編輯器
 	codeInput := widget.NewMultiLineEntry()
-	codeInput.SetPlaceHolder("// 在這裡輸入 Go 程式碼...")
+	codeInput.SetPlaceHolder("// input Go code here...")
 	// 預設輸入
 	codeInput.SetText(`import (
 	"fmt"
@@ -43,7 +43,7 @@ func main() {
 )
 func main() {
 	fmt.Println("Hello, World!")
-	log.Println("這是一個 log 訊息")
+	log.Println("this is a log message")
 }`)
 
 	// 建立一個用於顯示結果的 Label，並包裹在 Scroll 容器中
@@ -55,18 +55,18 @@ func main() {
 	scrollResult := container.NewScroll(resultLabel)
 
 	// 建立複製按鈕
-	copyButton := widget.NewButton("複製結果", func() {
+	copyButton := widget.NewButton("Copy result", func() {
 		result, _ := resultBinding.Get()
 		if result == "" {
-			dialog.ShowInformation("複製失敗", "沒有內容可供複製。", myWindow)
+			dialog.ShowInformation("Copy failed", "No content to copy.", myWindow)
 			return
 		}
 		myWindow.Clipboard().SetContent(result) // 修正此行
-		dialog.ShowInformation("複製成功", "執行結果已複製到剪貼簿。", myWindow)
+		dialog.ShowInformation("Copy success", "The result has been copied to the clipboard.", myWindow)
 	})
 
 	// 建立執行按鈕，點擊後執行程式碼
-	runButton := widget.NewButton("執行程式碼", func() {
+	runButton := widget.NewButton("Run code", func() {
 		code := codeInput.Text        // 獲取使用者輸入的程式碼
 		result := executeGoCode(code) // 使用 yaegi 執行程式碼
 		resultBinding.Set(result)     // 更新顯示結果
@@ -79,8 +79,8 @@ func main() {
 	)
 
 	// 為文字輸入框和結果輸出框添加標籤
-	codeInputLabel := widget.NewLabel("程式碼輸入:")
-	resultOutputLabel := widget.NewLabel("執行結果:")
+	codeInputLabel := widget.NewLabel("Code input:")
+	resultOutputLabel := widget.NewLabel("Result:")
 
 	// 將標籤和對應的顯示容器組合在一起
 	codeInputWithLabel := container.NewBorder(codeInputLabel, nil, nil, nil, codeInput)
@@ -94,9 +94,6 @@ func main() {
 
 	// 設置初始分割比例，左邊占比較多
 	split.SetOffset(0.55)
-
-	// 初始化時彈出一個訊息對話框
-	dialog.ShowInformation("初始化成功", "Idensyra 已經準備好使用。", myWindow)
 
 	myWindow.SetContent(split)
 	myWindow.Resize(fyne.NewSize(1200, 650))
