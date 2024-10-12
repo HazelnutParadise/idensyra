@@ -10,3 +10,4 @@ With Idensyra, you can write Go code, and run it immediately, no need to install
 
 - No third party package support (except Insyra and its dependencies).
 - Does not support `py` and `lp` package of Insyra.
+- Currently no code highlighting.
