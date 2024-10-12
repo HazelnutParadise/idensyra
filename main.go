@@ -26,6 +26,9 @@ func main() {
 	myApp := app.New()
 	myWindow := myApp.NewWindow("Idensyra")
 
+	// 建立一個資訊標籤
+	infoLabel := widget.NewLabel("Idensyra v0.0.0, with Insyra v0.0.12")
+
 	// 建立一個多行的 widget.Entry 作為編輯器
 	codeInput := widget.NewMultiLineEntry()
 	codeInput.SetPlaceHolder("// input Go code here...")
@@ -40,10 +43,15 @@ func main() {
 	"github.com/HazelnutParadise/insyra/lpgen"
 	"github.com/HazelnutParadise/insyra/plot"
 	"github.com/HazelnutParadise/insyra/gplot"
+
+	// No py and lp package support
+	// No other third party package support
 )
 func main() {
 	fmt.Println("Hello, World!")
 	log.Println("this is a log message")
+	dl := insyra.NewDataList(1, 2, 3)
+	fmt.Println("This is your data list:", dl.Data())
 }`)
 
 	// 建立一個用於顯示結果的 Label，並包裹在 Scroll 容器中
@@ -55,18 +63,18 @@ func main() {
 	scrollResult := container.NewScroll(resultLabel)
 
 	// 建立複製按鈕
-	copyButton := widget.NewButton("Copy result", func() {
+	copyButton := widget.NewButton("Copy Result", func() {
 		result, _ := resultBinding.Get()
 		if result == "" {
-			dialog.ShowInformation("Copy failed", "No content to copy.", myWindow)
+			dialog.ShowInformation("Copy Failed", "No content to copy.", myWindow)
 			return
 		}
 		myWindow.Clipboard().SetContent(result) // 修正此行
-		dialog.ShowInformation("Copy success", "The result has been copied to the clipboard.", myWindow)
+		dialog.ShowInformation("Copy Success", "The result has been copied to the clipboard.", myWindow)
 	})
 
 	// 建立執行按鈕，點擊後執行程式碼
-	runButton := widget.NewButton("Run code", func() {
+	runButton := widget.NewButton("Run Code", func() {
 		code := codeInput.Text        // 獲取使用者輸入的程式碼
 		result := executeGoCode(code) // 使用 yaegi 執行程式碼
 		resultBinding.Set(result)     // 更新顯示結果
@@ -79,7 +87,7 @@ func main() {
 	)
 
 	// 為文字輸入框和結果輸出框添加標籤
-	codeInputLabel := widget.NewLabel("Code input:")
+	codeInputLabel := widget.NewLabel("Code Input:")
 	resultOutputLabel := widget.NewLabel("Result:")
 
 	// 將標籤和對應的顯示容器組合在一起
@@ -95,7 +103,10 @@ func main() {
 	// 設置初始分割比例，左邊占比較多
 	split.SetOffset(0.55)
 
-	myWindow.SetContent(split)
+	// 將資訊標籤放在頂部，並加入分割區域
+	content := container.NewBorder(infoLabel, nil, nil, nil, split)
+
+	myWindow.SetContent(content)
 	myWindow.Resize(fyne.NewSize(1200, 650))
 	myWindow.ShowAndRun()
 }
