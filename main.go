@@ -279,11 +279,13 @@ func startServer() int {
 			}
 
 			data := struct {
+				Version     string
 				Port        int
 				DefaultCode string
 				PreCode     string
 				EndCode     string
 			}{
+				Version:     version,
 				Port:        runningPort,
 				DefaultCode: guiInputCode,
 				PreCode:     preCode,

@@ -630,6 +630,10 @@
               <label class="form-check-label" for="miniMap">Minimap</label>
             </div>
             <div class="form-check form-switch mt-2 mb-3">
+              <input class="form-check-input" type="checkbox" id="wordWrap" checked />
+              <label class="form-check-label" for="wordWrap">Word Wrap</label>
+            </div>
+            <div class="form-check form-switch mt-2 mb-3">
               <input class="form-check-input" type="checkbox" id="toggle-dark-mode" checked />
               <label class="form-check-label" for="toggle-dark-mode">Lights💡</label>
             </div>
@@ -664,7 +668,7 @@
 
 
             <h1 style="text-align: center; font-size: 23px; margin-bottom: 10px">
-              Idensyra
+              Idensyra<span style="font-size: 15px"> v{{.Version}}</span>
             </h1>
             <h6 style="text-align: center">Go IDE with Insyra</h6>
           </div>
@@ -825,11 +829,11 @@
     scrollBeyondLastLine: false, // 限制滚动超过最后一行，可减少底部空白区域
     readOnly: false,
     quickSuggestions: true, // 确保启用快速建议
-    suggestOnTriggerCharacters: true,
-    automaticLayout: true, // Enable automatic layout
-    wordWrap: "on", // 啟用自動換行
-    scrollbar: {
-    alwaysConsumeMouseWheel: false,
+      suggestOnTriggerCharacters: true,
+      automaticLayout: true, // Enable automatic layout
+      wordWrap: "on", // 啟用自動換行
+      scrollbar: {
+        alwaysConsumeMouseWheel: false,
   },
     minimap: { enabled: true },
       }
@@ -1064,7 +1068,7 @@
         loader.style.display = "none";
         runButton.classList.remove("running-btn");
         // 當數據加載完成後，將結果窗口平滑滾動到畫面中
-        resultWindow.scrollIntoView({ behavior: "smooth" });
+        // resultWindow.scrollIntoView({ behavior: "smooth" });
       });
   }
 
@@ -1082,6 +1086,14 @@
 <script>
   // document ready
   document.addEventListener("DOMContentLoaded", function () {
+    document
+      .getElementById("wordWrap")
+      .addEventListener("change", function () {
+        codeEditor.updateOptions({
+          wordWrap: event.target.checked ? "on" : "off",
+        });
+      });
+
     document
       .getElementById("downloadCodeBtn")
       .addEventListener("click", function () {
