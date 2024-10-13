@@ -54,11 +54,18 @@ func init() {
 	// 這裡可以進行更多初始化操作
 }
 
+var fyneApp *fyne.App
+var fyneWindow *fyne.Window
+
+var webuiInputCode string
+
 func main() {
 
 	var liveRun bool = false
 	myApp := app.New()
+	fyneApp = &myApp
 	myWindow := myApp.NewWindow("Idensyra")
+	fyneWindow = &myWindow
 
 	// 建立一個資訊標籤
 	infoLabel := widget.NewLabel(fmt.Sprintf("Idensyra v0.0.0, with Insyra v%s", "0.0.0")) //insyra.Version))
@@ -67,11 +74,25 @@ func main() {
 		liveRun = checked // 更新 liveRun 的值
 	})
 
+	// 建立一個多行的 widget.Entry 作為編輯器
+	codeInput := widget.NewMultiLineEntry()
+	codeInput.SetPlaceHolder("// input Go code here...")
+	// 預設輸入
+	codeInput.SetText(defaultCode)
+	go func() {
+		for {
+			if webuiInputCode != "" {
+				codeInput.SetText(webuiInputCode)
+				webuiInputCode = ""
+			}
+		}
+	}()
+
 	webUIModeButton := widget.NewButton("Switch to Web UI", func() {
 		// 切換到 Web UI 模式的邏輯
 		fmt.Println("Switching to Web UI mode...")
 		// 啟動伺服器
-		port := startServer()
+		port := startServer(codeInput.Text)
 		myWindow.Hide()
 		// 在這裡添加切換到 Web UI 的具體實現
 		fyne.CurrentApp().OpenURL(&url.URL{Scheme: "http", Host: fmt.Sprintf("localhost:%d", port)})
@@ -86,12 +107,6 @@ func main() {
 		// 打開瀏覽器前往 HazelnutParadise 頁面
 		fyne.CurrentApp().OpenURL(&url.URL{Scheme: "https", Host: "hazelnut-paradise.com"})
 	})
-
-	// 建立一個多行的 widget.Entry 作為編輯器
-	codeInput := widget.NewMultiLineEntry()
-	codeInput.SetPlaceHolder("// input Go code here...")
-	// 預設輸入
-	codeInput.SetText(defaultCode)
 
 	// 建立一個用於顯示結果的 Label，並包裹在 Scroll 容器中
 	resultBinding := binding.NewString()
@@ -237,7 +252,7 @@ var runningPort int
 var indexHTML string
 
 // startServer 啟動 Web UI 伺服器，使用可用的端口
-func startServer() int {
+func startServer(nowCode string) int {
 	go func() {
 		port, err := findAvailablePort()
 		if err != nil {
@@ -261,7 +276,7 @@ func startServer() int {
 				DefaultCode string
 			}{
 				Port:        runningPort,
-				DefaultCode: defaultCode,
+				DefaultCode: nowCode,
 			}
 
 			err = tmpl.Execute(w, data)
@@ -272,6 +287,8 @@ func startServer() int {
 		})
 
 		http.HandleFunc("/api/execute", apiHandler)
+		http.HandleFunc("/api/saveCode", saveCodeHandler)
+		http.HandleFunc("/api/backToGui", backToGuiHandler)
 
 		http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 	}()
@@ -310,4 +327,54 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 
 	result := executeGoCode(decodedCode)
 	w.Write([]byte(result))
+}
+
+// saveCode 存檔
+func saveCodeHandler(w http.ResponseWriter, r *http.Request) {
+	var requestBody struct {
+		Code string `json:"codeInput"`
+	}
+	err := json.NewDecoder(r.Body).Decode(&requestBody)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	decodedCode, err := url.QueryUnescape(requestBody.Code)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	webuiInputCode = decodedCode
+
+	// 開啟存檔對話框
+	myWindow := *fyneWindow
+	myWindow.Show()
+
+	dialog.ShowFileSave(func(uc fyne.URIWriteCloser, err error) {
+		if err == nil {
+			uc.Write([]byte(decodedCode))
+			dialog.ShowInformation("Save Success", "Your code has been saved as "+uc.URI().Path(), myWindow)
+		}
+	}, myWindow)
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func backToGuiHandler(w http.ResponseWriter, r *http.Request) {
+	var requestBody struct {
+		Code string `json:"codeInput"`
+	}
+	err := json.NewDecoder(r.Body).Decode(&requestBody)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	decodedCode, err := url.QueryUnescape(requestBody.Code)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	webuiInputCode = decodedCode
+	myWindow := *fyneWindow
+	myWindow.Show()
 }

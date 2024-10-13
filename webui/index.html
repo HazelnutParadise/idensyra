@@ -371,7 +371,7 @@
       /* Adjust the width of the expanded sidebar */
     }
 
-    #code-editor{
+    #code-editor {
       height: 600px;
       max-width: 100%;
       /* 或其他希望的高度 */
@@ -617,7 +617,7 @@
           <div class="sidebar-content" style="margin-top: 10px; margin-bottom: -10px">
             <div class="font-slider-container" lang="zh-Hant-TW">
               <label for="fontSlider">
-                <h5>Editor Font Size:<span id="nowFontSize"></span></h5>
+                <h5 style="font-size: medium;">Editor Font Size: <span id="nowFontSize"></span></h5>
               </label>
               <input type="range" class="font-slider" id="fontSlider" min="12" max="50" value="14" />
             </div>
@@ -633,10 +633,17 @@
               <input class="form-check-input" type="checkbox" id="toggle-dark-mode" checked />
               <label class="form-check-label" for="toggle-dark-mode">Lights💡</label>
             </div>
-            <!-- 存檔 -->
-             <div id="saveFile">
-              <button class="inSidebar-btn" id="saveCodeBtn">Save Code</button>
-             </div>
+            <div style="margin-bottom: 15px;">
+              <!-- 存檔 -->
+              <div id="saveFile">
+                <button class="inSidebar-btn" id="saveCodeBtn">Save Code</button>
+              </div>
+              <!-- 打開 GUI -->
+              <div id="backToGui">
+                <button class="inSidebar-btn" id="backToGuiBtn">Back to GUI</button>
+              </div>
+            </div>
+
             <!-- <span class="pro-badge">PRO</span> -->
             <!-- <div style="display: flex; height: 75px; justify-content: center" lang="zh-Hant-TW">
               <button class="inSidebar-btn" id="tempSave-btn" style="font-size: 15px; margin-right: 2px">
@@ -702,12 +709,12 @@
       </main>
     </div>
 
-    <!-- 回頁面頂端的按鈕 -->
+    <!-- 回頁面頂端的按鈕
     <a id="back-to-top" href="#" style="writing-mode: vertical-rl">
       <h6 style="padding: 10px; margin: 0; font-weight: bold">
         <i class="fas fa-arrow-up"></i>回頂端
       </h6>
-    </a>
+    </a> -->
 
     <div id="snackbar">This is a snackbar message!</div>
 
@@ -811,48 +818,48 @@
     codeEditor = monaco.editor.create(
       document.getElementById("code-editor"),
       {
-        value: {{.DefaultCode}},
-        language: "go",
-        theme: "vs",
-        lineNumbers: "on",
-        lineNumbersMinChars: 3, // 行号区域宽度
-        scrollBeyondLastLine: false, // 限制滚动超过最后一行，可减少底部空白区域
-        readOnly: false,
-        quickSuggestions: true, // 确保启用快速建议
-        suggestOnTriggerCharacters: true,
-        automaticLayout: true, // Enable automatic layout
-        wordWrap: "on", // 啟用自動換行
-        scrollbar: {
-          alwaysConsumeMouseWheel: false,
-        },
-        minimap: { enabled: true },
+        value: {{.DefaultCode }},
+    language: "go",
+    theme: "vs",
+    lineNumbers: "on",
+    lineNumbersMinChars: 3, // 行号区域宽度
+    scrollBeyondLastLine: false, // 限制滚动超过最后一行，可减少底部空白区域
+    readOnly: false,
+    quickSuggestions: true, // 确保启用快速建议
+    suggestOnTriggerCharacters: true,
+    automaticLayout: true, // Enable automatic layout
+    wordWrap: "on", // 啟用自動換行
+    scrollbar: {
+    alwaysConsumeMouseWheel: false,
+  },
+    minimap: { enabled: true },
       }
-    );
+  );
 
 
-    function setFontSize() {
-      let fontSlider = document.getElementById("fontSlider");
-      let newSize = fontSlider.value + "px";
-      let nowFontSize = document.getElementById("nowFontSize");
-      nowFontSize.textContent = newSize;
-      if (codeEditor) {
-        codeEditor.updateOptions({ fontSize: parseInt(fontSlider.value) });
-      }
+  function setFontSize() {
+    let fontSlider = document.getElementById("fontSlider");
+    let newSize = fontSlider.value + "px";
+    let nowFontSize = document.getElementById("nowFontSize");
+    nowFontSize.textContent = newSize;
+    if (codeEditor) {
+      codeEditor.updateOptions({ fontSize: parseInt(fontSlider.value) });
     }
+  }
 
-    setFontSize();
-    // 监听字体大小滑动条的变化
-    addEventListener("input", setFontSize);
+  setFontSize();
+  // 监听字体大小滑动条的变化
+  addEventListener("input", setFontSize);
 
-    // 依據電腦主題切換主題
-    if (
-      window.matchMedia &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches
-    ) {
-      document.getElementById("toggle-dark-mode").checked = false;
-      document.documentElement.setAttribute("data-theme", "dark");
-      codeEditor.updateOptions({ theme: "vs-dark" });
-    }
+  // 依據電腦主題切換主題
+  if (
+    window.matchMedia &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  ) {
+    document.getElementById("toggle-dark-mode").checked = false;
+    document.documentElement.setAttribute("data-theme", "dark");
+    codeEditor.updateOptions({ theme: "vs-dark" });
+  }
   });
 
   document
@@ -875,7 +882,7 @@
       }
     });
 
- 
+
 
   const copySchemaBtn = document.getElementById("copySchemaBtn");
   const copyQueryBtn = document.getElementById("copyQueryBtn");
@@ -1074,21 +1081,48 @@
     });
 </script>
 <script>
-  document
-    .getElementById("saveCodeBtn")
-    .addEventListener("click", function () {
-      // 存檔
-    const codeContent = codeEditor.getValue();
-    const blob = new Blob([codeContent], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'idensyra_code.go';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      showSnackbar("Code has been downloaded");
-    });
+  // document ready
+  document.addEventListener("DOMContentLoaded", function () {
+    document
+      .getElementById("saveCodeBtn")
+      .addEventListener("click", function () {
+        // 存檔
+        const codeContent = codeEditor.getValue();
+        const encodedCodeContent = encodeURIComponent(codeContent);
+        fetch("http://localhost:{{.Port}}/api/saveCode", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ codeInput: encodedCodeContent }),
+        })
+          .then(response => response.json())
+          .then(data => {
+            showSnackbar("代碼已成功保存");
+          })
+          .catch(error => {
+            console.error('Error:', error);
+            showSnackbar("保存代碼時發生錯誤");
+          });
+      });
+
+    document
+      .getElementById("backToGuiBtn")
+      .addEventListener("click", function () {
+        const codeContent = codeEditor.getValue();
+        const encodedCodeContent = encodeURIComponent(codeContent);
+        // 打開 GUI
+        fetch("http://localhost:{{.Port}}/api/backToGui", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ codeInput: encodedCodeContent }),
+        });
+        // 關閉頁面
+        window.close();
+      });
+  });
 </script>
+
 </html>
