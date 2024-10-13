@@ -12,6 +12,7 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/HazelnutParadise/idensyra/idensyra"
+	"github.com/HazelnutParadise/insyra"
 
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
@@ -33,7 +34,7 @@ func main() {
 	myWindow := myApp.NewWindow("Idensyra")
 
 	// 建立一個資訊標籤
-	infoLabel := widget.NewLabel("Idensyra v0.0.0, with Insyra v0.0.12")
+	infoLabel := widget.NewLabel(fmt.Sprintf("Idensyra v0.0.0, with Insyra v%v", insyra.Version))
 
 	liveRunCheck := widget.NewCheck("Live Run on Edit", func(checked bool) {
 		liveRun = checked // 更新 liveRun 的值
