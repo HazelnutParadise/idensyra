@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -255,6 +256,9 @@ var runningPort int
 //go:embed webui/index.html
 var indexHTML string
 
+//go:embed webui/insyra.png
+var insyraLogo []byte
+
 // startServer 啟動 Web UI 伺服器，使用可用的端口
 func startServer() int {
 	if runningPort != 0 {
@@ -280,12 +284,14 @@ func startServer() int {
 
 			data := struct {
 				Version     string
+				InsyaLogo   string
 				Port        int
 				DefaultCode string
 				PreCode     string
 				EndCode     string
 			}{
 				Version:     version,
+				InsyaLogo:   base64.StdEncoding.EncodeToString(insyraLogo),
 				Port:        runningPort,
 				DefaultCode: guiInputCode,
 				PreCode:     preCode,
