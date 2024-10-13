@@ -636,7 +636,7 @@
             <div style="margin-bottom: 15px;">
               <!-- 存檔 -->
               <div id="saveFile">
-                <button class="inSidebar-btn" id="saveCodeBtn">Save Code</button>
+                <button class="inSidebar-btn" id="downloadCodeBtn">Download Code</button>
               </div>
               <!-- 打開 GUI -->
               <div id="backToGui">
@@ -813,7 +813,6 @@
     },
   });
   let codeEditor;
-
   require(["vs/editor/editor.main"], function () {
     codeEditor = monaco.editor.create(
       document.getElementById("code-editor"),
@@ -896,134 +895,134 @@
 
 <!-- 匯入匯出功能 -->
 <script>
-  const importSQL_btn = document.getElementById("importSQL-btn");
-  const exportSQL_btn = document.getElementById("exportSQL-btn");
+//   const importSQL_btn = document.getElementById("importSQL-btn");
+//   const exportSQL_btn = document.getElementById("exportSQL-btn");
 
-  function isQuerySQL(sql) {
-    const lowerSql = sql.trim().toLowerCase();
-    return lowerSql.startsWith("select") || lowerSql.startsWith("show");
-  }
+//   function isQuerySQL(sql) {
+//     const lowerSql = sql.trim().toLowerCase();
+//     return lowerSql.startsWith("select") || lowerSql.startsWith("show");
+//   }
 
-  document
-    .getElementById("importSQL-btn")
-    .addEventListener("click", function () {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = ".sql,.txt";
-      input.onchange = function (e) {
-        const file = e.target.files[0];
-        // 拒絕非.sql或.txt檔
-        if (!file.name.endsWith(".sql") && !file.name.endsWith(".txt")) {
-          alert("請選擇.sql或.txt檔");
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = function () {
-          const sql = reader.result;
-          const lines = sql.split("\n");
-          let codeSQL = "";
-          let querySQL = "";
-          let currentSQL = "";
-          let isQuery = false;
-          let previousIsQuery = null;
-          let commentsBuffer = "";
-          let emptyLinesBuffer = "";
+//   document
+//     .getElementById("importSQL-btn")
+//     .addEventListener("click", function () {
+//       const input = document.createElement("input");
+//       input.type = "file";
+//       input.accept = ".sql,.txt";
+//       input.onchange = function (e) {
+//         const file = e.target.files[0];
+//         // 拒絕非.sql或.txt檔
+//         if (!file.name.endsWith(".sql") && !file.name.endsWith(".txt")) {
+//           alert("請選擇.sql或.txt檔");
+//           return;
+//         }
+//         const reader = new FileReader();
+//         reader.onload = function () {
+//           const sql = reader.result;
+//           const lines = sql.split("\n");
+//           let codeSQL = "";
+//           let querySQL = "";
+//           let currentSQL = "";
+//           let isQuery = false;
+//           let previousIsQuery = null;
+//           let commentsBuffer = "";
+//           let emptyLinesBuffer = "";
 
-          lines.forEach((line) => {
-            const trimmedLine = line.trim();
+//           lines.forEach((line) => {
+//             const trimmedLine = line.trim();
 
-            // 處理註釋
-            if (
-              trimmedLine.startsWith("--") ||
-              trimmedLine.startsWith("/*") ||
-              trimmedLine.endsWith("*/")
-            ) {
-              commentsBuffer += line + "\n";
-              return;
-            }
+//             // 處理註釋
+//             if (
+//               trimmedLine.startsWith("--") ||
+//               trimmedLine.startsWith("/*") ||
+//               trimmedLine.endsWith("*/")
+//             ) {
+//               commentsBuffer += line + "\n";
+//               return;
+//             }
 
-            // 當前行為空行
-            if (trimmedLine === "") {
-              emptyLinesBuffer += line + "\n";
-              return;
-            }
+//             // 當前行為空行
+//             if (trimmedLine === "") {
+//               emptyLinesBuffer += line + "\n";
+//               return;
+//             }
 
-            // 遇到以;結尾的指令
-            if (trimmedLine.endsWith(";")) {
-              currentSQL += line + "\n";
-              if (isQuerySQL(currentSQL)) {
-                querySQL += emptyLinesBuffer + commentsBuffer + currentSQL;
-                previousIsQuery = true;
-              } else {
-                codeSQL += emptyLinesBuffer + commentsBuffer + currentSQL;
-                previousIsQuery = false;
-              }
-              currentSQL = "";
-              commentsBuffer = "";
-              emptyLinesBuffer = "";
-            } else {
-              currentSQL += line + "\n";
-            }
-          });
+//             // 遇到以;結尾的指令
+//             if (trimmedLine.endsWith(";")) {
+//               currentSQL += line + "\n";
+//               if (isQuerySQL(currentSQL)) {
+//                 querySQL += emptyLinesBuffer + commentsBuffer + currentSQL;
+//                 previousIsQuery = true;
+//               } else {
+//                 codeSQL += emptyLinesBuffer + commentsBuffer + currentSQL;
+//                 previousIsQuery = false;
+//               }
+//               currentSQL = "";
+//               commentsBuffer = "";
+//               emptyLinesBuffer = "";
+//             } else {
+//               currentSQL += line + "\n";
+//             }
+//           });
 
-          // 處理剩餘的註釋和空行
-          if (commentsBuffer || emptyLinesBuffer || currentSQL) {
-            if (previousIsQuery === true) {
-              querySQL += emptyLinesBuffer + commentsBuffer + currentSQL;
-            } else {
-              codeSQL += emptyLinesBuffer + commentsBuffer + currentSQL;
-            }
-          }
+//           // 處理剩餘的註釋和空行
+//           if (commentsBuffer || emptyLinesBuffer || currentSQL) {
+//             if (previousIsQuery === true) {
+//               querySQL += emptyLinesBuffer + commentsBuffer + currentSQL;
+//             } else {
+//               codeSQL += emptyLinesBuffer + commentsBuffer + currentSQL;
+//             }
+//           }
 
-          if (!confirm("編輯區未儲存的SQL指令將被覆蓋！\n確定匯入檔案嗎？"))
-            return;
-          codeEditor.setValue(codeSQL.trim());
-          queryEditor.setValue(querySQL.trim());
-          showSnackbar(
-            `已匯入 ${file.name}<br><br>共取得 ${lines.length} 行 SQL 指令`
-          );
-        };
-        reader.readAsText(file);
-      };
-      input.click();
-    });
+//           if (!confirm("編輯區未儲存的SQL指令將被覆蓋！\n確定匯入檔案嗎？"))
+//             return;
+//           codeEditor.setValue(codeSQL.trim());
+//           queryEditor.setValue(querySQL.trim());
+//           showSnackbar(
+//             `已匯入 ${file.name}<br><br>共取得 ${lines.length} 行 SQL 指令`
+//           );
+//         };
+//         reader.readAsText(file);
+//       };
+//       input.click();
+//     });
 
-  exportSQL_btn.addEventListener("click", function () {
-    const codeInput = codeEditor.getValue().trim();
-    const querySql = queryEditor.getValue().trim();
-    const sql = codeInput + "\n" + querySql;
-    const blob = new Blob([sql], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "db-playground.sql";
-    a.click();
-    URL.revokeObjectURL(url);
-    showSnackbar("已匯出 SQL 檔至下載資料夾");
-  });
-</script>
+//   exportSQL_btn.addEventListener("click", function () {
+//     const codeInput = codeEditor.getValue().trim();
+//     const querySql = queryEditor.getValue().trim();
+//     const sql = codeInput + "\n" + querySql;
+//     const blob = new Blob([sql], { type: "text/plain" });
+//     const url = URL.createObjectURL(blob);
+//     const a = document.createElement("a");
+//     a.href = url;
+//     a.download = "db-playground.sql";
+//     a.click();
+//     URL.revokeObjectURL(url);
+//     showSnackbar("已匯出 SQL 檔至下載資料夾");
+//   });
+// </script>
 
-<script>
-  function removeSqlComments(sql) {
-    // 移除单行注释
-    sql = sql.replace(/--.*$/gm, "");
+// <script>
+//   function removeSqlComments(sql) {
+//     // 移除单行注释
+//     sql = sql.replace(/--.*$/gm, "");
 
-    // 移除多行注释
-    sql = sql.replace(/\/\*[\s\S]*?\*\//gm, "");
+//     // 移除多行注释
+//     sql = sql.replace(/\/\*[\s\S]*?\*\//gm, "");
 
-    return sql.trim();
-  }
+//     return sql.trim();
+//   }
 
-  function removeFirstLastQuotes(s) {
-    if (
-      s.length > 1 &&
-      s[0] === s[s.length - 1] &&
-      (s[0] === '"' || s[0] === "'")
-    ) {
-      return s.substring(1, s.length - 1);
-    }
-    return s;
-  }
+//   function removeFirstLastQuotes(s) {
+//     if (
+//       s.length > 1 &&
+//       s[0] === s[s.length - 1] &&
+//       (s[0] === '"' || s[0] === "'")
+//     ) {
+//       return s.substring(1, s.length - 1);
+//     }
+//     return s;
+//   }
 
   let originalResult = "";
   function executeQuery() {
@@ -1084,26 +1083,27 @@
   // document ready
   document.addEventListener("DOMContentLoaded", function () {
     document
-      .getElementById("saveCodeBtn")
+      .getElementById("downloadCodeBtn")
       .addEventListener("click", function () {
         // 存檔
         const codeContent = codeEditor.getValue();
-        const encodedCodeContent = encodeURIComponent(codeContent);
-        fetch("http://localhost:{{.Port}}/api/saveCode", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ codeInput: encodedCodeContent }),
-        })
-          .then(response => response.json())
-          .then(data => {
-            showSnackbar("代碼已成功保存");
-          })
-          .catch(error => {
-            console.error('Error:', error);
-            showSnackbar("保存代碼時發生錯誤");
-          });
+        const preCode = {{.PreCode}}
+        const endCode = {{.EndCode}}
+        const blob = new Blob([preCode + "\n" + codeContent + "\n" + endCode], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'idensyra_code.go';
+        document.body.appendChild(a);
+        a.click();
+        
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 0);
+        
+        showSnackbar("Downloaded");
       });
 
     document

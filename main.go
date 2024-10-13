@@ -23,6 +23,8 @@ import (
 	"github.com/traefik/yaegi/stdlib"
 )
 
+const version = "0.0.1"
+
 var preCode = `package main
 `
 var endCode = ``
@@ -58,6 +60,7 @@ var fyneApp *fyne.App
 var fyneWindow *fyne.Window
 
 var webuiInputCode string
+var guiInputCode string
 
 func main() {
 
@@ -68,7 +71,7 @@ func main() {
 	fyneWindow = &myWindow
 
 	// 建立一個資訊標籤
-	infoLabel := widget.NewLabel(fmt.Sprintf("Idensyra v0.0.0, with Insyra v%s", "0.0.0")) //insyra.Version))
+	infoLabel := widget.NewLabel(fmt.Sprintf("Idensyra v%s, with Insyra v%s", version, "0.0.0")) //insyra.Version))
 
 	liveRunCheck := widget.NewCheck("Live Run on Edit", func(checked bool) {
 		liveRun = checked // 更新 liveRun 的值
@@ -85,6 +88,7 @@ func main() {
 				codeInput.SetText(webuiInputCode)
 				webuiInputCode = ""
 			}
+			guiInputCode = codeInput.Text
 		}
 	}()
 
@@ -92,7 +96,7 @@ func main() {
 		// 切換到 Web UI 模式的邏輯
 		fmt.Println("Switching to Web UI mode...")
 		// 啟動伺服器
-		port := startServer(codeInput.Text)
+		port := startServer()
 		myWindow.Hide()
 		// 在這裡添加切換到 Web UI 的具體實現
 		fyne.CurrentApp().OpenURL(&url.URL{Scheme: "http", Host: fmt.Sprintf("localhost:%d", port)})
@@ -252,7 +256,10 @@ var runningPort int
 var indexHTML string
 
 // startServer 啟動 Web UI 伺服器，使用可用的端口
-func startServer(nowCode string) int {
+func startServer() int {
+	if runningPort != 0 {
+		return runningPort
+	}
 	go func() {
 		port, err := findAvailablePort()
 		if err != nil {
@@ -274,9 +281,13 @@ func startServer(nowCode string) int {
 			data := struct {
 				Port        int
 				DefaultCode string
+				PreCode     string
+				EndCode     string
 			}{
 				Port:        runningPort,
-				DefaultCode: nowCode,
+				DefaultCode: guiInputCode,
+				PreCode:     preCode,
+				EndCode:     endCode,
 			}
 
 			err = tmpl.Execute(w, data)
@@ -286,9 +297,10 @@ func startServer(nowCode string) int {
 			}
 		})
 
-		http.HandleFunc("/api/execute", apiHandler)
-		http.HandleFunc("/api/saveCode", saveCodeHandler)
+		http.HandleFunc("/api/execute", executeCodeHandler)
+		// http.HandleFunc("/api/saveCode", saveCodeHandler)
 		http.HandleFunc("/api/backToGui", backToGuiHandler)
+		http.HandleFunc("/api/getNowCode", getNowCodeHandler)
 
 		http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 	}()
@@ -310,7 +322,7 @@ func findAvailablePort() (int, error) {
 }
 
 // api 函數
-func apiHandler(w http.ResponseWriter, r *http.Request) {
+func executeCodeHandler(w http.ResponseWriter, r *http.Request) {
 	var requestBody struct {
 		Code string `json:"codeInput"`
 	}
@@ -329,36 +341,40 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(result))
 }
 
-// saveCode 存檔
-func saveCodeHandler(w http.ResponseWriter, r *http.Request) {
-	var requestBody struct {
-		Code string `json:"codeInput"`
-	}
-	err := json.NewDecoder(r.Body).Decode(&requestBody)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	decodedCode, err := url.QueryUnescape(requestBody.Code)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	webuiInputCode = decodedCode
-
-	// 開啟存檔對話框
-	myWindow := *fyneWindow
-	myWindow.Show()
-
-	dialog.ShowFileSave(func(uc fyne.URIWriteCloser, err error) {
-		if err == nil {
-			uc.Write([]byte(decodedCode))
-			dialog.ShowInformation("Save Success", "Your code has been saved as "+uc.URI().Path(), myWindow)
-		}
-	}, myWindow)
-
-	w.WriteHeader(http.StatusOK)
+func getNowCodeHandler(w http.ResponseWriter, r *http.Request) {
+	decodedCode := url.QueryEscape(guiInputCode)
+	w.Write([]byte(decodedCode))
 }
+
+// // saveCode 存檔
+// func saveCodeHandler(w http.ResponseWriter, r *http.Request) {
+// 	var requestBody struct {
+// 		Code string `json:"codeInput"`
+// 	}
+// 	err := json.NewDecoder(r.Body).Decode(&requestBody)
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusBadRequest)
+// 		return
+// 	}
+// 	decodedCode, err := url.QueryUnescape(requestBody.Code)
+// 	if err != nil {
+// 		http.Error(w, err.Error(), http.StatusBadRequest)
+// 		return
+// 	}
+// 	webuiInputCode = decodedCode
+
+// 	// 開啟存檔對話框
+// 	myWindow := *fyneWindow
+// 	myWindow.Show()
+
+// 	dialog.ShowFileSave(func(uc fyne.URIWriteCloser, err error) {
+// 		if err == nil {
+// 			uc.Write([]byte(preCode + "\n" + decodedCode + "\n" + endCode))
+// 			dialog.ShowInformation("Save Success", "Your code has been saved as "+uc.URI().Path(), myWindow)
+// 			myWindow.Hide()
+// 		}
+// 	}, myWindow)
+// }
 
 func backToGuiHandler(w http.ResponseWriter, r *http.Request) {
 	var requestBody struct {
