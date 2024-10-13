@@ -4,7 +4,7 @@ go 1.22.7
 
 require (
 	fyne.io/fyne/v2 v2.5.1
-	github.com/HazelnutParadise/insyra v0.0.12
+	github.com/HazelnutParadise/insyra v0.0.13
 	github.com/traefik/yaegi v0.16.1
 )
 
@@ -12,7 +12,7 @@ require (
 	fyne.io/systray v1.11.0 // indirect
 	git.sr.ht/~sbinet/gg v0.5.0 // indirect
 	github.com/BurntSushi/toml v1.4.0 // indirect
-	github.com/HazelnutParadise/Go-Utils v0.7.9 // indirect
+	github.com/HazelnutParadise/Go-Utils v0.7.10 // indirect
 	github.com/ajstarks/svgo v0.0.0-20211024235047-1546f124cd8b // indirect
 	github.com/campoy/embedmd v1.0.0 // indirect
 	github.com/chromedp/cdproto v0.0.0-20231011050154-1d073bb38998 // indirect
