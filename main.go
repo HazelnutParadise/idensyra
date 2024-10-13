@@ -34,7 +34,7 @@ func main() {
 	myWindow := myApp.NewWindow("Idensyra")
 
 	// 建立一個資訊標籤
-	infoLabel := widget.NewLabel(fmt.Sprintf("Idensyra v0.0.0, with Insyra v%v", insyra.Version))
+	infoLabel := widget.NewLabel(fmt.Sprintf("Idensyra v0.0.0, with Insyra v%s", insyra.Version))
 
 	liveRunCheck := widget.NewCheck("Live Run on Edit", func(checked bool) {
 		liveRun = checked // 更新 liveRun 的值
