@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"time"
+	"net/url"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -28,15 +28,25 @@ func init() {
 }
 
 func main() {
-	var liveLoad bool = false
+	var liveRun bool = false
 	myApp := app.New()
 	myWindow := myApp.NewWindow("Idensyra")
 
 	// 建立一個資訊標籤
 	infoLabel := widget.NewLabel("Idensyra v0.0.0, with Insyra v0.0.12")
 
-	liveLoadCheck := widget.NewCheck("Live Load", func(checked bool) {
-		liveLoad = checked // 更新 liveLoad 的值
+	liveRunCheck := widget.NewCheck("Live Run on Edit", func(checked bool) {
+		liveRun = checked // 更新 liveRun 的值
+	})
+
+	gitHubButton := widget.NewButton("View on GitHub", func() {
+		// 打開瀏覽器前往 GitHub 頁面
+		fyne.CurrentApp().OpenURL(&url.URL{Scheme: "https", Host: "github.com", Path: "/HazelnutParadise/idensyra"})
+	})
+
+	hazelnutParadiseButton := widget.NewButton("HazelnutParadise", func() {
+		// 打開瀏覽器前往 HazelnutParadise 頁面
+		fyne.CurrentApp().OpenURL(&url.URL{Scheme: "https", Host: "hazelnut-paradise.com"})
 	})
 
 	// 建立一個多行的 widget.Entry 作為編輯器
@@ -79,7 +89,7 @@ func main() {
 			dialog.ShowInformation("Copy Failed", "No content to copy.", myWindow)
 			return
 		}
-		myWindow.Clipboard().SetContent(result) // 修正此行
+		myWindow.Clipboard().SetContent(result)
 		dialog.ShowInformation("Copy Success", "The result has been copied to the clipboard.", myWindow)
 	})
 
@@ -139,16 +149,21 @@ func main() {
 	split.SetOffset(0.55)
 
 	// 將資訊標籤放在頂部，並加入分割區域
-	content := container.NewBorder(container.NewHBox(infoLabel, liveLoadCheck), nil, nil, nil, split)
+	content := container.NewBorder(container.NewGridWithColumns(4, infoLabel, liveRunCheck, gitHubButton, hazelnutParadiseButton), nil, nil, nil, split)
 
 	go func() {
+		firstRun := true
+		oldCode := codeInput.Text
 		for {
-			if liveLoad {
+			if liveRun && (oldCode != codeInput.Text || firstRun) {
+				firstRun = false
 				code := codeInput.Text        // 獲取使用者輸入的程式碼
 				result := executeGoCode(code) // 使用 yaegi 執行程式碼
 				resultBinding.Set(result)     // 更新顯示結果
+				oldCode = codeInput.Text
+			} else if !liveRun {
+				firstRun = true
 			}
-			time.Sleep(100 * time.Millisecond)
 		}
 	}()
 
@@ -173,19 +188,19 @@ func executeGoCode(code string) string {
 	if preCode != "" {
 		_, err := i.Eval(preCode)
 		if err != nil {
-			return fmt.Sprintf("執行預處理程式碼錯誤: %v", err)
+			return fmt.Sprintf("failed to execute pre code: %v", err)
 		}
 	}
 	if code != "" {
 		_, err := i.Eval(code)
 		if err != nil {
-			return fmt.Sprintf("執行程式碼錯誤: %v", err)
+			return fmt.Sprintf("failed to execute code: %v", err)
 		}
 	}
 	if endCode != "" {
 		_, err := i.Eval(endCode)
 		if err != nil {
-			return fmt.Sprintf("執行結尾程式碼錯誤: %v", err)
+			return fmt.Sprintf("failed to execute end code: %v", err)
 		}
 	}
 
