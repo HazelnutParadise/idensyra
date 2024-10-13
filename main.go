@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -16,6 +17,10 @@ import (
 	"github.com/traefik/yaegi/stdlib"
 )
 
+var preCode = `package main
+`
+var endCode = ``
+
 // 初始化區塊，啟動程式時會自動執行
 func init() {
 	fmt.Println("starting Idensyra editor...")
@@ -23,11 +28,16 @@ func init() {
 }
 
 func main() {
+	var liveLoad bool = false
 	myApp := app.New()
 	myWindow := myApp.NewWindow("Idensyra")
 
 	// 建立一個資訊標籤
 	infoLabel := widget.NewLabel("Idensyra v0.0.0, with Insyra v0.0.12")
+
+	liveLoadCheck := widget.NewCheck("Live Load", func(checked bool) {
+		liveLoad = checked // 更新 liveLoad 的值
+	})
 
 	// 建立一個多行的 widget.Entry 作為編輯器
 	codeInput := widget.NewMultiLineEntry()
@@ -73,6 +83,16 @@ func main() {
 		dialog.ShowInformation("Copy Success", "The result has been copied to the clipboard.", myWindow)
 	})
 
+	saveResultButton := widget.NewButton("Save Result", func() {
+		result, _ := resultBinding.Get()
+		dialog.ShowFileSave(func(uc fyne.URIWriteCloser, err error) {
+			if err == nil {
+				uc.Write([]byte(result))
+				dialog.ShowInformation("Save Success", fmt.Sprintf("The result has been saved as %s", uc.URI().Path()), myWindow)
+			}
+		}, myWindow)
+	})
+
 	// 建立執行按鈕，點擊後執行程式碼
 	runButton := widget.NewButton("Run Code", func() {
 		code := codeInput.Text        // 獲取使用者輸入的程式碼
@@ -80,10 +100,25 @@ func main() {
 		resultBinding.Set(result)     // 更新顯示結果
 	})
 
+	saveCodeButton := widget.NewButton("Save Code", func() {
+		code := preCode + "\n" + codeInput.Text + "\n" + endCode
+		dialog.ShowFileSave(func(uc fyne.URIWriteCloser, err error) {
+			if err == nil {
+				uc.Write([]byte(code))
+				dialog.ShowInformation("Save Success", fmt.Sprintf("Your code has been saved as %s", uc.URI().Path()), myWindow)
+			}
+		}, myWindow)
+	})
+
 	// 將執行按鈕和複製按鈕放在一個 VBox 中
-	buttonBox := container.NewVBox(
+	buttonBoxLeft := container.NewVBox(
 		runButton,
+		saveCodeButton,
+	)
+
+	buttonBoxRight := container.NewVBox(
 		copyButton,
+		saveResultButton,
 	)
 
 	// 為文字輸入框和結果輸出框添加標籤
@@ -96,15 +131,26 @@ func main() {
 
 	// 建立水平分割的區域，左邊是編輯器，右邊是結果顯示區
 	split := container.NewHSplit(
-		container.NewBorder(nil, buttonBox, nil, nil, codeInputWithLabel),
-		resultOutputWithLabel,
+		container.NewBorder(nil, buttonBoxLeft, nil, nil, codeInputWithLabel),
+		container.NewBorder(nil, buttonBoxRight, nil, nil, resultOutputWithLabel),
 	)
 
 	// 設置初始分割比例，左邊占比較多
 	split.SetOffset(0.55)
 
 	// 將資訊標籤放在頂部，並加入分割區域
-	content := container.NewBorder(infoLabel, nil, nil, nil, split)
+	content := container.NewBorder(container.NewHBox(infoLabel, liveLoadCheck), nil, nil, nil, split)
+
+	go func() {
+		for {
+			if liveLoad {
+				code := codeInput.Text        // 獲取使用者輸入的程式碼
+				result := executeGoCode(code) // 使用 yaegi 執行程式碼
+				resultBinding.Set(result)     // 更新顯示結果
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
 
 	myWindow.SetContent(content)
 	myWindow.Resize(fyne.NewSize(1200, 650))
@@ -113,12 +159,6 @@ func main() {
 
 // 使用 yaegi 來執行動態 Go 程式碼並捕獲標準輸出與 log 輸出
 func executeGoCode(code string) string {
-	// 構建完整的 Go 程式碼
-	preCode := `
-package main
-`
-	endCode := ``
-
 	// 準備一個 bytes.Buffer 來捕獲標準輸出和 log 輸出
 	var buf bytes.Buffer
 
