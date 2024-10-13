@@ -2,7 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"html/template"
+	"net"
+	"net/http"
 	"net/url"
 
 	"fyne.io/fyne/v2"
@@ -12,7 +16,8 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/HazelnutParadise/idensyra/idensyra"
-	"github.com/HazelnutParadise/insyra"
+
+	_ "embed"
 
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
@@ -22,39 +27,7 @@ var preCode = `package main
 `
 var endCode = ``
 
-// 初始化區塊，啟動程式時會自動執行
-func init() {
-	fmt.Println("starting Idensyra editor...")
-	// 這裡可以進行更多初始化操作
-}
-
-func main() {
-	var liveRun bool = false
-	myApp := app.New()
-	myWindow := myApp.NewWindow("Idensyra")
-
-	// 建立一個資訊標籤
-	infoLabel := widget.NewLabel(fmt.Sprintf("Idensyra v0.0.0, with Insyra v%s", insyra.Version))
-
-	liveRunCheck := widget.NewCheck("Live Run on Edit", func(checked bool) {
-		liveRun = checked // 更新 liveRun 的值
-	})
-
-	gitHubButton := widget.NewButton("View on GitHub", func() {
-		// 打開瀏覽器前往 GitHub 頁面
-		fyne.CurrentApp().OpenURL(&url.URL{Scheme: "https", Host: "github.com", Path: "/HazelnutParadise/idensyra"})
-	})
-
-	hazelnutParadiseButton := widget.NewButton("HazelnutParadise", func() {
-		// 打開瀏覽器前往 HazelnutParadise 頁面
-		fyne.CurrentApp().OpenURL(&url.URL{Scheme: "https", Host: "hazelnut-paradise.com"})
-	})
-
-	// 建立一個多行的 widget.Entry 作為編輯器
-	codeInput := widget.NewMultiLineEntry()
-	codeInput.SetPlaceHolder("// input Go code here...")
-	// 預設輸入
-	codeInput.SetText(`import (
+var defaultCode = `import (
 	"fmt"
 	"log"
 	"github.com/HazelnutParadise/insyra"
@@ -73,7 +46,52 @@ func main() {
 	log.Println("this is a log message")
 	dl := insyra.NewDataList(1, 2, 3)
 	fmt.Println("This is your data list:", dl.Data())
-}`)
+}`
+
+// 初始化區塊，啟動程式時會自動執行
+func init() {
+	fmt.Println("starting Idensyra editor...")
+	// 這裡可以進行更多初始化操作
+}
+
+func main() {
+
+	var liveRun bool = false
+	myApp := app.New()
+	myWindow := myApp.NewWindow("Idensyra")
+
+	// 建立一個資訊標籤
+	infoLabel := widget.NewLabel(fmt.Sprintf("Idensyra v0.0.0, with Insyra v%s", "0.0.0")) //insyra.Version))
+
+	liveRunCheck := widget.NewCheck("Live Run on Edit", func(checked bool) {
+		liveRun = checked // 更新 liveRun 的值
+	})
+
+	webUIModeButton := widget.NewButton("Switch to Web UI", func() {
+		// 切換到 Web UI 模式的邏輯
+		fmt.Println("Switching to Web UI mode...")
+		// 啟動伺服器
+		port := startServer()
+		myWindow.Hide()
+		// 在這裡添加切換到 Web UI 的具體實現
+		fyne.CurrentApp().OpenURL(&url.URL{Scheme: "http", Host: fmt.Sprintf("localhost:%d", port)})
+	})
+
+	gitHubButton := widget.NewButton("View on GitHub", func() {
+		// 打開瀏覽器前往 GitHub 頁面
+		fyne.CurrentApp().OpenURL(&url.URL{Scheme: "https", Host: "github.com", Path: "/HazelnutParadise/idensyra"})
+	})
+
+	hazelnutParadiseButton := widget.NewButton("HazelnutParadise", func() {
+		// 打開瀏覽器前往 HazelnutParadise 頁面
+		fyne.CurrentApp().OpenURL(&url.URL{Scheme: "https", Host: "hazelnut-paradise.com"})
+	})
+
+	// 建立一個多行的 widget.Entry 作為編輯器
+	codeInput := widget.NewMultiLineEntry()
+	codeInput.SetPlaceHolder("// input Go code here...")
+	// 預設輸入
+	codeInput.SetText(defaultCode)
 
 	// 建立一個用於顯示結果的 Label，並包裹在 Scroll 容器中
 	resultBinding := binding.NewString()
@@ -140,7 +158,7 @@ func main() {
 	codeInputWithLabel := container.NewBorder(codeInputLabel, nil, nil, nil, codeInput)
 	resultOutputWithLabel := container.NewBorder(resultOutputLabel, nil, nil, nil, scrollResult)
 
-	// 建立水平分割的區域，左邊是編輯器，右邊是結果顯示區
+	// 建立水平分割的區塊，左邊是編輯器，右邊是結果顯示區
 	split := container.NewHSplit(
 		container.NewBorder(nil, buttonBoxLeft, nil, nil, codeInputWithLabel),
 		container.NewBorder(nil, buttonBoxRight, nil, nil, resultOutputWithLabel),
@@ -150,7 +168,7 @@ func main() {
 	split.SetOffset(0.55)
 
 	// 將資訊標籤放在頂部，並加入分割區域
-	content := container.NewBorder(container.NewGridWithColumns(4, infoLabel, liveRunCheck, gitHubButton, hazelnutParadiseButton), nil, nil, nil, split)
+	content := container.NewBorder(container.NewGridWithColumns(5, infoLabel, liveRunCheck, webUIModeButton, gitHubButton, hazelnutParadiseButton), nil, nil, nil, split)
 
 	go func() {
 		firstRun := true
@@ -207,4 +225,89 @@ func executeGoCode(code string) string {
 
 	// 返回執行過程中的所有標準輸出與 log 輸出
 	return buf.String()
+}
+
+// ===================== Web UI mode =============================
+
+var runningPort int
+
+// go embed 嵌入靜態文件
+
+//go:embed webui/index.html
+var indexHTML string
+
+// startServer 啟動 Web UI 伺服器，使用可用的端口
+func startServer() int {
+	go func() {
+		port, err := findAvailablePort()
+		if err != nil {
+			fmt.Println("Error finding available port:", err)
+			return
+		}
+		fmt.Printf("Starting Web UI on port %d\n", port)
+		runningPort = port
+
+		// 設置 HTTP 處理程序
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			// 用模板引擎渲染 index.html
+			tmpl, err := template.New("index").Parse(indexHTML)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			data := struct {
+				Port        int
+				DefaultCode string
+			}{
+				Port:        runningPort,
+				DefaultCode: defaultCode,
+			}
+
+			err = tmpl.Execute(w, data)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		})
+
+		http.HandleFunc("/api/execute", apiHandler)
+
+		http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
+	}()
+	for {
+		if runningPort != 0 {
+			return runningPort
+		}
+	}
+}
+
+// findAvailablePort 尋找可用的端口
+func findAvailablePort() (int, error) {
+	listener, err := net.Listen("tcp", ":0") // 0 代表自動選擇可用端口
+	if err != nil {
+		return 0, err
+	}
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port, nil
+}
+
+// api 函數
+func apiHandler(w http.ResponseWriter, r *http.Request) {
+	var requestBody struct {
+		Code string `json:"codeInput"`
+	}
+	err := json.NewDecoder(r.Body).Decode(&requestBody)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	decodedCode, err := url.QueryUnescape(requestBody.Code)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	result := executeGoCode(decodedCode)
+	w.Write([]byte(result))
 }
