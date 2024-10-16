@@ -437,23 +437,24 @@ func backToGuiHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func closeWebUIHandler(w http.ResponseWriter, r *http.Request) {
+	var requestBody struct {
+		Code string `json:"codeInput"`
+	}
+	err := json.NewDecoder(r.Body).Decode(&requestBody)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	decodedCode, err := url.QueryUnescape(requestBody.Code)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	webuiInputCode = decodedCode
+
 	//等待心跳失效
 	time.Sleep(2 * time.Second)
 	if !webuiAlive {
-		var requestBody struct {
-			Code string `json:"codeInput"`
-		}
-		err := json.NewDecoder(r.Body).Decode(&requestBody)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		decodedCode, err := url.QueryUnescape(requestBody.Code)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		webuiInputCode = decodedCode
 		myWindow := *fyneWindow
 		myWindow.Show()
 	}
