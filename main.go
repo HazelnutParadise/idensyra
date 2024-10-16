@@ -70,6 +70,7 @@ var fyneWindow *fyne.Window
 var webuiInputCode string
 var guiInputCode string
 var webuiAlive bool = false
+var webuiOpened bool = false
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -80,7 +81,6 @@ var clients = make(map[*websocket.Conn]bool)
 var clientsMu sync.Mutex
 
 func main() {
-
 	var liveRun bool = false
 	myApp := app.New()
 	fyneApp = &myApp
@@ -112,6 +112,7 @@ func main() {
 	webUIModeButton := widget.NewButton("Switch to Web UI", func() {
 		// 切換到 Web UI 模式的邏輯
 		fmt.Println("Switching to Web UI mode...")
+		webuiOpened = true
 		// 啟動伺服器
 		port := startServer()
 		myWindow.Hide()
@@ -218,6 +219,19 @@ func main() {
 				oldCode = codeInput.Text
 			} else if !liveRun {
 				firstRun = true
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			time.Sleep(3 * time.Second)
+			if !webuiAlive && webuiOpened {
+				myWindow.Show()
+				webuiOpened = false
+			} else if webuiAlive {
+				myWindow.Hide()
+				webuiOpened = true
 			}
 		}
 	}()
@@ -451,13 +465,6 @@ func closeWebUIHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	webuiInputCode = decodedCode
-
-	//等待心跳失效
-	time.Sleep(2 * time.Second)
-	if !webuiAlive {
-		myWindow := *fyneWindow
-		myWindow.Show()
-	}
 }
 
 // 添加 WebSocket 處理函數
