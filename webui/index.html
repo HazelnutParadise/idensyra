@@ -1136,6 +1136,20 @@
         window.close();
       });
   });
+
+
+  window.onbeforeunload = function (event) {
+    const codeContent = codeEditor.getValue();
+    const encodedCodeContent = encodeURIComponent(codeContent);
+    // 打開 GUI
+    fetch("http://localhost:{{.Port}}/api/backToGui", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ codeInput: encodedCodeContent }),
+    });
+  };
 </script>
 
 </html>
