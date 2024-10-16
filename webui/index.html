@@ -714,7 +714,7 @@
       </main>
     </div>
 
-    <!-- 回頁面頂端的按鈕
+    <!-- 回頁面端的按鈕
     <a id="back-to-top" href="#" style="writing-mode: vertical-rl">
       <h6 style="padding: 10px; margin: 0; font-weight: bold">
         <i class="fas fa-arrow-up"></i>回頂端
@@ -812,6 +812,10 @@
   //   defaultQuerySql = tempSaveCookie.querySql;
   // }
 
+  const symbols = {{.Symbols}}; // 確保這裡的 symbols 是正確的 JSON 格式
+  console.log(symbols); // 用於調試，檢查 symbols 的內容
+
+  // 設定monaco editor
   require.config({
     paths: {
       vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.33.0/min/vs",
@@ -827,7 +831,7 @@
     theme: "vs",
     lineNumbers: "on",
     lineNumbersMinChars: 3, // 行号区域宽度
-    scrollBeyondLastLine: false, // 限制滚动超过最后一行，可减少底部空白区域
+    scrollBeyondLastLine: false, // 限制滚动超过最后一，可减少底部空白区域
     readOnly: false,
     quickSuggestions: true, // 确保启用快速建议
       suggestOnTriggerCharacters: true,
@@ -840,6 +844,60 @@
       }
   );
 
+    // 注入 symbols 以實現代碼補全
+    monaco.languages.registerCompletionItemProvider('go', {
+        triggerCharacters: ['.'],
+        provideCompletionItems: (model, position) => {
+            const textUntilPosition = model.getValueInRange({
+                startLineNumber: position.lineNumber,
+                startColumn: 1,
+                endLineNumber: position.lineNumber,
+                endColumn: position.column
+            });
+
+            const match = textUntilPosition.match(/(\w+)\.$/);
+            if (match) {
+                const packageName = match[1];
+                const packageFunctions = symbols.filter(s => s.startsWith(packageName + '.'))
+                                            .map(s => s.split('.')[1]);
+
+                return {
+                    suggestions: packageFunctions.map(func => ({
+                        label: func,
+                        kind: monaco.languages.CompletionItemKind.Function,
+                        insertText: func,
+                        detail: `${packageName}.${func}`,
+                        documentation: `Function from package ${packageName}`
+                    }))
+                };
+            }
+
+            // 如果不是在包名後面輸入點號,則提供所有包名的建議
+            const packages = [...new Set(symbols.map(s => s.split('.')[0]))];
+            return {
+                suggestions: packages.map(pkg => ({
+                    label: pkg,
+                    kind: monaco.languages.CompletionItemKind.Module,
+                    insertText: pkg + '.',
+                    detail: `Package`,
+                    documentation: `Functions: ${symbols.filter(s => s.startsWith(pkg + '.')).map(s => s.split('.')[1]).join(', ')}`,
+                    command: { // 添加命令以在插入後觸發建議
+                        id: 'editor.action.triggerSuggest',
+                        title: 'Trigger Suggest'
+                    }
+                }))
+            };
+        }
+    });
+
+    // 在創建編輯器後添加以下代碼
+    codeEditor.onDidType((text) => {
+        if (text === '.') {
+            setTimeout(() => {
+                codeEditor.trigger('', 'editor.action.triggerSuggest', {});
+            }, 0);
+        }
+    });
 
   function setFontSize() {
     let fontSlider = document.getElementById("fontSlider");
@@ -1068,7 +1126,7 @@
         buttonText.style.display = "inline";
         loader.style.display = "none";
         runButton.classList.remove("running-btn");
-        // 當數據加載完成後，將結果窗口平滑滾動到畫面中
+        // 當數據加載後，將結果窗口平滑滾動到畫
         // resultWindow.scrollIntoView({ behavior: "smooth" });
       });
   }

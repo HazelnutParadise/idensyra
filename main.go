@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -265,6 +266,18 @@ func startServer() int {
 	if runningPort != 0 {
 		return runningPort
 	}
+
+	symbols := make([]string, 0)
+
+	for packageFullName, symbol := range idensyra.Symbols {
+		packageName := strings.Split(packageFullName, "/")[len(strings.Split(packageFullName, "/"))-1]
+		for funcName, _ := range symbol {
+			if funcName != "init" && funcName != "main" && !strings.HasPrefix(funcName, "_") {
+				symbols = append(symbols, packageName+"."+funcName)
+			}
+		}
+	}
+
 	go func() {
 		port, err := findAvailablePort()
 		if err != nil {
@@ -290,6 +303,7 @@ func startServer() int {
 				DefaultCode string
 				PreCode     string
 				EndCode     string
+				Symbols     []string
 			}{
 				Version:     version,
 				InsyaLogo:   base64.StdEncoding.EncodeToString(insyraLogo),
@@ -297,6 +311,7 @@ func startServer() int {
 				DefaultCode: guiInputCode,
 				PreCode:     preCode,
 				EndCode:     endCode,
+				Symbols:     symbols,
 			}
 
 			err = tmpl.Execute(w, data)
