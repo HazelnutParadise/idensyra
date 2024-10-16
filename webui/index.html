@@ -1196,11 +1196,17 @@
   });
 
 
+  window.onload = function () {
+    fetch("http://localhost:{{.Port}}/api/webuiInitialized", {
+      method: "GET", 
+    });
+  }
+
   window.onbeforeunload = function (event) {
     const codeContent = codeEditor.getValue();
     const encodedCodeContent = encodeURIComponent(codeContent);
     // 打開 GUI
-    fetch("http://localhost:{{.Port}}/api/backToGui", {
+    fetch("http://localhost:{{.Port}}/api/closeWebUI", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1208,6 +1214,48 @@
       body: JSON.stringify({ codeInput: encodedCodeContent }),
     });
   };
+</script>
+
+<!-- 添加 WebSocket 連接代碼 -->
+<script>
+    let socket;
+    let heartbeatInterval;
+
+    function connectWebSocket() {
+        socket = new WebSocket("ws://" + window.location.host + "/ws");
+
+        socket.onopen = function(event) {
+            console.log("WebSocket 連接已開啟");
+            // 開始發送心跳
+            heartbeatInterval = setInterval(function() {
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send("heartbeat");
+                }
+            }, 1000); // 每1秒發送一次心跳
+        };
+
+        socket.onclose = function(event) {
+            console.log("WebSocket 連接已關閉");
+            clearInterval(heartbeatInterval); // 清除心跳間隔
+            setTimeout(connectWebSocket, 1000); // 1秒後嘗試重新連接
+        };
+
+        socket.onerror = function(error) {
+            console.error("WebSocket 錯誤:", error);
+        };
+
+        socket.onmessage = function(event) {
+            console.log("收到消息:", event.data);
+        };
+    }
+
+    window.addEventListener('load', connectWebSocket);
+    window.addEventListener('beforeunload', function() {
+        if (socket) {
+            clearInterval(heartbeatInterval); // 清除心跳間隔
+            socket.close();
+        }
+    });
 </script>
 
 </html>

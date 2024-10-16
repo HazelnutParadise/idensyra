@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -22,6 +24,9 @@ import (
 
 	_ "embed"
 
+	"sync"
+
+	"github.com/gorilla/websocket"
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
 )
@@ -56,7 +61,7 @@ func main() {
 // 初始化區塊，啟動程式時會自動執行
 func init() {
 	fmt.Println("starting Idensyra editor...")
-	// 這裡可以進行更多初始化操作
+	// 這裡可以進行��多初始化操作
 }
 
 var fyneApp *fyne.App
@@ -64,6 +69,15 @@ var fyneWindow *fyne.Window
 
 var webuiInputCode string
 var guiInputCode string
+var webuiAlive bool = false
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+var clients = make(map[*websocket.Conn]bool)
+var clientsMu sync.Mutex
 
 func main() {
 
@@ -208,6 +222,9 @@ func main() {
 		}
 	}()
 
+	// 添加 WebSocket 路由
+	http.HandleFunc("/ws", handleWebSocket)
+
 	myWindow.SetContent(content)
 	myWindow.Resize(fyne.NewSize(1200, 650))
 	myWindow.ShowAndRun()
@@ -325,7 +342,7 @@ func startServer() int {
 		// http.HandleFunc("/api/saveCode", saveCodeHandler)
 		http.HandleFunc("/api/backToGui", backToGuiHandler)
 		http.HandleFunc("/api/getNowCode", getNowCodeHandler)
-
+		http.HandleFunc("/api/closeWebUI", closeWebUIHandler)
 		http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 	}()
 	for {
@@ -417,4 +434,71 @@ func backToGuiHandler(w http.ResponseWriter, r *http.Request) {
 	webuiInputCode = decodedCode
 	myWindow := *fyneWindow
 	myWindow.Show()
+}
+
+func closeWebUIHandler(w http.ResponseWriter, r *http.Request) {
+	//等待心跳失效
+	time.Sleep(2 * time.Second)
+	if !webuiAlive {
+		var requestBody struct {
+			Code string `json:"codeInput"`
+		}
+		err := json.NewDecoder(r.Body).Decode(&requestBody)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		decodedCode, err := url.QueryUnescape(requestBody.Code)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		webuiInputCode = decodedCode
+		myWindow := *fyneWindow
+		myWindow.Show()
+	}
+}
+
+// 添加 WebSocket 處理函數
+func handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("WebSocket upgrade error:", err)
+		return
+	}
+	webuiAlive = true
+	defer conn.Close()
+
+	clientsMu.Lock()
+	clients[conn] = true
+	clientsMu.Unlock()
+
+	// 添加心跳
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					log.Println("心跳發送失敗:", err)
+					return
+				}
+			}
+		}
+	}()
+
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			log.Println("WebSocket read error:", err)
+			break
+		}
+	}
+
+	clientsMu.Lock()
+	delete(clients, conn)
+	clientsMu.Unlock()
+	webuiAlive = false
 }
