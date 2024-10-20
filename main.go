@@ -309,6 +309,15 @@ func startServer() int {
 		}
 	}
 
+	for packageFullName, symbol := range stdlib.Symbols {
+		packageName := strings.Split(packageFullName, "/")[len(strings.Split(packageFullName, "/"))-1]
+		for funcName, _ := range symbol {
+			if funcName != "init" && funcName != "main" && !strings.HasPrefix(funcName, "_") {
+				symbols = append(symbols, packageName+"."+funcName)
+			}
+		}
+	}
+
 	go func() {
 		port, err := findAvailablePort()
 		if err != nil {
