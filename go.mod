@@ -4,7 +4,7 @@ go 1.22.7
 
 require (
 	fyne.io/fyne/v2 v2.5.1
-	github.com/HazelnutParadise/insyra v0.0.13
+	github.com/HazelnutParadise/insyra v0.0.14
 	github.com/traefik/yaegi v0.16.1
 )
 
@@ -63,7 +63,7 @@ require (
 	golang.org/x/mobile v0.0.0-20231127183840-76ac6878050a // indirect
 	golang.org/x/net v0.25.0 // indirect
 	golang.org/x/sys v0.23.0 // indirect
-	golang.org/x/text v0.16.0 // indirect
+	golang.org/x/text v0.19.0 // indirect
 	gonum.org/v1/gonum v0.15.1 // indirect
 	gonum.org/v1/plot v0.14.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

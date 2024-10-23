@@ -4,6 +4,8 @@ package idensyra
 
 import (
 	"github.com/HazelnutParadise/insyra"
+	"go/constant"
+	"go/token"
 	"reflect"
 )
 
@@ -29,6 +31,7 @@ func init() {
 		"SqrtRat":               reflect.ValueOf(insyra.SqrtRat),
 		"ToFloat64":             reflect.ValueOf(insyra.ToFloat64),
 		"ToFloat64Safe":         reflect.ValueOf(insyra.ToFloat64Safe),
+		"Version":               reflect.ValueOf(constant.MakeFromLiteral("\"0.0.14\"", token.STRING, 0)),
 
 		// type definitions
 		"DataList":    reflect.ValueOf((*insyra.DataList)(nil)),
@@ -349,80 +352,80 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) WeightedMovingAverage(a0 
 
 // _github_com_HazelnutParadise_insyra_IDataTable is an interface wrapper for IDataTable type
 type _github_com_HazelnutParadise_insyra_IDataTable struct {
-	IValue                                    interface{}
-	WAppendColumns                            func(columns ...*insyra.DataList) *insyra.DataTable
-	WAppendRowsByColumnIndex                  func(rowsData ...map[string]interface{}) *insyra.DataTable
-	WAppendRowsByColumnName                   func(rowsData ...map[string]interface{}) *insyra.DataTable
-	WAppendRowsFromDataList                   func(rowsData ...*insyra.DataList) *insyra.DataTable
-	WCount                                    func(value interface{}) int
-	WData                                     func(useNamesAsKeys ...bool) map[string][]interface{}
-	WDropColumnsByIndex                       func(columnIndices ...string)
-	WDropColumnsByName                        func(columnNames ...string)
-	WDropColumnsByNumber                      func(columnIndices ...int)
-	WDropColumnsContainNil                    func()
-	WDropColumnsContainNumbers                func()
-	WDropColumnsContainStringElements         func()
-	WDropRowsByIndex                          func(rowIndices ...int)
-	WDropRowsByName                           func(rowNames ...string)
-	WDropRowsContainNil                       func()
-	WDropRowsContainNumbers                   func()
-	WDropRowsContainStringElements            func()
-	WFilter                                   func(filterFunc insyra.FilterFunc) *insyra.DataTable
-	WFilterByColumnIndexEqualTo               func(index string) *insyra.DataTable
-	WFilterByColumnIndexGreaterThan           func(threshold string) *insyra.DataTable
-	WFilterByColumnIndexGreaterThanOrEqualTo  func(threshold string) *insyra.DataTable
-	WFilterByColumnIndexLessThan              func(threshold string) *insyra.DataTable
-	WFilterByColumnIndexLessThanOrEqualTo     func(threshold string) *insyra.DataTable
-	WFilterByColumnNameContains               func(substring string) *insyra.DataTable
-	WFilterByColumnNameEqualTo                func(name string) *insyra.DataTable
-	WFilterByCustomElement                    func(f func(value interface{}) bool) *insyra.DataTable
-	WFilterByRowIndexEqualTo                  func(index int) *insyra.DataTable
-	WFilterByRowIndexGreaterThan              func(threshold int) *insyra.DataTable
-	WFilterByRowIndexGreaterThanOrEqualTo     func(threshold int) *insyra.DataTable
-	WFilterByRowIndexLessThan                 func(threshold int) *insyra.DataTable
-	WFilterByRowIndexLessThanOrEqualTo        func(threshold int) *insyra.DataTable
-	WFilterByRowNameContains                  func(substring string) *insyra.DataTable
-	WFilterByRowNameEqualTo                   func(name string) *insyra.DataTable
-	WFindColumnsIfAllElementsContainSubstring func(substring string) []string
-	WFindColumnsIfAnyElementContainsSubstring func(substring string) []string
-	WFindColumnsIfContains                    func(value interface{}) []string
-	WFindColumnsIfContainsAll                 func(values ...interface{}) []string
-	WFindRowsIfAllElementsContainSubstring    func(substring string) []int
-	WFindRowsIfAnyElementContainsSubstring    func(substring string) []int
-	WFindRowsIfContains                       func(value interface{}) []int
-	WFindRowsIfContainsAll                    func(values ...interface{}) []int
-	WGetColumn                                func(index string) *insyra.DataList
-	WGetColumnByNumber                        func(index int) *insyra.DataList
-	WGetCreationTimestamp                     func() int64
-	WGetElement                               func(rowIndex int, columnIndex string) interface{}
-	WGetElementByNumberIndex                  func(rowIndex int, columnIndex int) interface{}
-	WGetLastModifiedTimestamp                 func() int64
-	WGetRow                                   func(index int) *insyra.DataList
-	WGetRowNameByIndex                        func(index int) string
-	WLoadFromCSV                              func(filePath string, setFirstColumnToRowNames bool, setFirstRowToColumnNames bool) error
-	WMean                                     func() interface{}
-	WSetColumnToRowNames                      func(columnIndex string) *insyra.DataTable
-	WSetRowNameByIndex                        func(index int, name string)
-	WSetRowToColumnNames                      func(rowIndex int) *insyra.DataTable
-	WShow                                     func()
-	WShowTypes                                func()
-	WSize                                     func() (int, int)
-	WToCSV                                    func(filePath string, setRowNamesToFirstColumn bool, setColumnNamesToFirstRow bool) error
-	WTranspose                                func() *insyra.DataTable
-	WUpdateColumn                             func(index string, dl *insyra.DataList)
-	WUpdateColumnByNumber                     func(index int, dl *insyra.DataList)
-	WUpdateElement                            func(rowIndex int, columnIndex string, value interface{})
-	WUpdateRow                                func(index int, dl *insyra.DataList)
+	IValue                                 interface{}
+	WAppendCols                            func(columns ...*insyra.DataList) *insyra.DataTable
+	WAppendRowsByColIndex                  func(rowsData ...map[string]interface{}) *insyra.DataTable
+	WAppendRowsByColName                   func(rowsData ...map[string]interface{}) *insyra.DataTable
+	WAppendRowsFromDataList                func(rowsData ...*insyra.DataList) *insyra.DataTable
+	WCount                                 func(value interface{}) int
+	WData                                  func(useNamesAsKeys ...bool) map[string][]interface{}
+	WDropColsByIndex                       func(columnIndices ...string)
+	WDropColsByName                        func(columnNames ...string)
+	WDropColsByNumber                      func(columnIndices ...int)
+	WDropColsContainNil                    func()
+	WDropColsContainNumbers                func()
+	WDropColsContainStringElements         func()
+	WDropRowsByIndex                       func(rowIndices ...int)
+	WDropRowsByName                        func(rowNames ...string)
+	WDropRowsContainNil                    func()
+	WDropRowsContainNumbers                func()
+	WDropRowsContainStringElements         func()
+	WFilter                                func(filterFunc insyra.FilterFunc) *insyra.DataTable
+	WFilterByColIndexEqualTo               func(index string) *insyra.DataTable
+	WFilterByColIndexGreaterThan           func(threshold string) *insyra.DataTable
+	WFilterByColIndexGreaterThanOrEqualTo  func(threshold string) *insyra.DataTable
+	WFilterByColIndexLessThan              func(threshold string) *insyra.DataTable
+	WFilterByColIndexLessThanOrEqualTo     func(threshold string) *insyra.DataTable
+	WFilterByColNameContains               func(substring string) *insyra.DataTable
+	WFilterByColNameEqualTo                func(name string) *insyra.DataTable
+	WFilterByCustomElement                 func(f func(value interface{}) bool) *insyra.DataTable
+	WFilterByRowIndexEqualTo               func(index int) *insyra.DataTable
+	WFilterByRowIndexGreaterThan           func(threshold int) *insyra.DataTable
+	WFilterByRowIndexGreaterThanOrEqualTo  func(threshold int) *insyra.DataTable
+	WFilterByRowIndexLessThan              func(threshold int) *insyra.DataTable
+	WFilterByRowIndexLessThanOrEqualTo     func(threshold int) *insyra.DataTable
+	WFilterByRowNameContains               func(substring string) *insyra.DataTable
+	WFilterByRowNameEqualTo                func(name string) *insyra.DataTable
+	WFindColsIfAllElementsContainSubstring func(substring string) []string
+	WFindColsIfAnyElementContainsSubstring func(substring string) []string
+	WFindColsIfContains                    func(value interface{}) []string
+	WFindColsIfContainsAll                 func(values ...interface{}) []string
+	WFindRowsIfAllElementsContainSubstring func(substring string) []int
+	WFindRowsIfAnyElementContainsSubstring func(substring string) []int
+	WFindRowsIfContains                    func(value interface{}) []int
+	WFindRowsIfContainsAll                 func(values ...interface{}) []int
+	WGetCol                                func(index string) *insyra.DataList
+	WGetColByNumber                        func(index int) *insyra.DataList
+	WGetCreationTimestamp                  func() int64
+	WGetElement                            func(rowIndex int, columnIndex string) interface{}
+	WGetElementByNumberIndex               func(rowIndex int, columnIndex int) interface{}
+	WGetLastModifiedTimestamp              func() int64
+	WGetRow                                func(index int) *insyra.DataList
+	WGetRowNameByIndex                     func(index int) string
+	WLoadFromCSV                           func(filePath string, setFirstColToRowNames bool, setFirstRowToColNames bool) error
+	WMean                                  func() interface{}
+	WSetColToRowNames                      func(columnIndex string) *insyra.DataTable
+	WSetRowNameByIndex                     func(index int, name string)
+	WSetRowToColNames                      func(rowIndex int) *insyra.DataTable
+	WShow                                  func()
+	WShowTypes                             func()
+	WSize                                  func() (int, int)
+	WToCSV                                 func(filePath string, setRowNamesToFirstCol bool, setColNamesToFirstRow bool) error
+	WTranspose                             func() *insyra.DataTable
+	WUpdateCol                             func(index string, dl *insyra.DataList)
+	WUpdateColByNumber                     func(index int, dl *insyra.DataList)
+	WUpdateElement                         func(rowIndex int, columnIndex string, value interface{})
+	WUpdateRow                             func(index int, dl *insyra.DataList)
 }
 
-func (W _github_com_HazelnutParadise_insyra_IDataTable) AppendColumns(columns ...*insyra.DataList) *insyra.DataTable {
-	return W.WAppendColumns(columns...)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) AppendCols(columns ...*insyra.DataList) *insyra.DataTable {
+	return W.WAppendCols(columns...)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) AppendRowsByColumnIndex(rowsData ...map[string]interface{}) *insyra.DataTable {
-	return W.WAppendRowsByColumnIndex(rowsData...)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) AppendRowsByColIndex(rowsData ...map[string]interface{}) *insyra.DataTable {
+	return W.WAppendRowsByColIndex(rowsData...)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) AppendRowsByColumnName(rowsData ...map[string]interface{}) *insyra.DataTable {
-	return W.WAppendRowsByColumnName(rowsData...)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) AppendRowsByColName(rowsData ...map[string]interface{}) *insyra.DataTable {
+	return W.WAppendRowsByColName(rowsData...)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) AppendRowsFromDataList(rowsData ...*insyra.DataList) *insyra.DataTable {
 	return W.WAppendRowsFromDataList(rowsData...)
@@ -433,23 +436,23 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) Count(value interface{})
 func (W _github_com_HazelnutParadise_insyra_IDataTable) Data(useNamesAsKeys ...bool) map[string][]interface{} {
 	return W.WData(useNamesAsKeys...)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) DropColumnsByIndex(columnIndices ...string) {
-	W.WDropColumnsByIndex(columnIndices...)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) DropColsByIndex(columnIndices ...string) {
+	W.WDropColsByIndex(columnIndices...)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) DropColumnsByName(columnNames ...string) {
-	W.WDropColumnsByName(columnNames...)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) DropColsByName(columnNames ...string) {
+	W.WDropColsByName(columnNames...)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) DropColumnsByNumber(columnIndices ...int) {
-	W.WDropColumnsByNumber(columnIndices...)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) DropColsByNumber(columnIndices ...int) {
+	W.WDropColsByNumber(columnIndices...)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) DropColumnsContainNil() {
-	W.WDropColumnsContainNil()
+func (W _github_com_HazelnutParadise_insyra_IDataTable) DropColsContainNil() {
+	W.WDropColsContainNil()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) DropColumnsContainNumbers() {
-	W.WDropColumnsContainNumbers()
+func (W _github_com_HazelnutParadise_insyra_IDataTable) DropColsContainNumbers() {
+	W.WDropColsContainNumbers()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) DropColumnsContainStringElements() {
-	W.WDropColumnsContainStringElements()
+func (W _github_com_HazelnutParadise_insyra_IDataTable) DropColsContainStringElements() {
+	W.WDropColsContainStringElements()
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) DropRowsByIndex(rowIndices ...int) {
 	W.WDropRowsByIndex(rowIndices...)
@@ -469,26 +472,26 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) DropRowsContainStringEle
 func (W _github_com_HazelnutParadise_insyra_IDataTable) Filter(filterFunc insyra.FilterFunc) *insyra.DataTable {
 	return W.WFilter(filterFunc)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColumnIndexEqualTo(index string) *insyra.DataTable {
-	return W.WFilterByColumnIndexEqualTo(index)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColIndexEqualTo(index string) *insyra.DataTable {
+	return W.WFilterByColIndexEqualTo(index)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColumnIndexGreaterThan(threshold string) *insyra.DataTable {
-	return W.WFilterByColumnIndexGreaterThan(threshold)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColIndexGreaterThan(threshold string) *insyra.DataTable {
+	return W.WFilterByColIndexGreaterThan(threshold)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColumnIndexGreaterThanOrEqualTo(threshold string) *insyra.DataTable {
-	return W.WFilterByColumnIndexGreaterThanOrEqualTo(threshold)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColIndexGreaterThanOrEqualTo(threshold string) *insyra.DataTable {
+	return W.WFilterByColIndexGreaterThanOrEqualTo(threshold)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColumnIndexLessThan(threshold string) *insyra.DataTable {
-	return W.WFilterByColumnIndexLessThan(threshold)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColIndexLessThan(threshold string) *insyra.DataTable {
+	return W.WFilterByColIndexLessThan(threshold)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColumnIndexLessThanOrEqualTo(threshold string) *insyra.DataTable {
-	return W.WFilterByColumnIndexLessThanOrEqualTo(threshold)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColIndexLessThanOrEqualTo(threshold string) *insyra.DataTable {
+	return W.WFilterByColIndexLessThanOrEqualTo(threshold)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColumnNameContains(substring string) *insyra.DataTable {
-	return W.WFilterByColumnNameContains(substring)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColNameContains(substring string) *insyra.DataTable {
+	return W.WFilterByColNameContains(substring)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColumnNameEqualTo(name string) *insyra.DataTable {
-	return W.WFilterByColumnNameEqualTo(name)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColNameEqualTo(name string) *insyra.DataTable {
+	return W.WFilterByColNameEqualTo(name)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByCustomElement(f func(value interface{}) bool) *insyra.DataTable {
 	return W.WFilterByCustomElement(f)
@@ -514,17 +517,17 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByRowNameContains(
 func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByRowNameEqualTo(name string) *insyra.DataTable {
 	return W.WFilterByRowNameEqualTo(name)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FindColumnsIfAllElementsContainSubstring(substring string) []string {
-	return W.WFindColumnsIfAllElementsContainSubstring(substring)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FindColsIfAllElementsContainSubstring(substring string) []string {
+	return W.WFindColsIfAllElementsContainSubstring(substring)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FindColumnsIfAnyElementContainsSubstring(substring string) []string {
-	return W.WFindColumnsIfAnyElementContainsSubstring(substring)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FindColsIfAnyElementContainsSubstring(substring string) []string {
+	return W.WFindColsIfAnyElementContainsSubstring(substring)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FindColumnsIfContains(value interface{}) []string {
-	return W.WFindColumnsIfContains(value)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FindColsIfContains(value interface{}) []string {
+	return W.WFindColsIfContains(value)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FindColumnsIfContainsAll(values ...interface{}) []string {
-	return W.WFindColumnsIfContainsAll(values...)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FindColsIfContainsAll(values ...interface{}) []string {
+	return W.WFindColsIfContainsAll(values...)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) FindRowsIfAllElementsContainSubstring(substring string) []int {
 	return W.WFindRowsIfAllElementsContainSubstring(substring)
@@ -538,11 +541,11 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) FindRowsIfContains(value
 func (W _github_com_HazelnutParadise_insyra_IDataTable) FindRowsIfContainsAll(values ...interface{}) []int {
 	return W.WFindRowsIfContainsAll(values...)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) GetColumn(index string) *insyra.DataList {
-	return W.WGetColumn(index)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) GetCol(index string) *insyra.DataList {
+	return W.WGetCol(index)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) GetColumnByNumber(index int) *insyra.DataList {
-	return W.WGetColumnByNumber(index)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) GetColByNumber(index int) *insyra.DataList {
+	return W.WGetColByNumber(index)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) GetCreationTimestamp() int64 {
 	return W.WGetCreationTimestamp()
@@ -562,20 +565,20 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) GetRow(index int) *insyr
 func (W _github_com_HazelnutParadise_insyra_IDataTable) GetRowNameByIndex(index int) string {
 	return W.WGetRowNameByIndex(index)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) LoadFromCSV(filePath string, setFirstColumnToRowNames bool, setFirstRowToColumnNames bool) error {
-	return W.WLoadFromCSV(filePath, setFirstColumnToRowNames, setFirstRowToColumnNames)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) LoadFromCSV(filePath string, setFirstColToRowNames bool, setFirstRowToColNames bool) error {
+	return W.WLoadFromCSV(filePath, setFirstColToRowNames, setFirstRowToColNames)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) Mean() interface{} {
 	return W.WMean()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) SetColumnToRowNames(columnIndex string) *insyra.DataTable {
-	return W.WSetColumnToRowNames(columnIndex)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) SetColToRowNames(columnIndex string) *insyra.DataTable {
+	return W.WSetColToRowNames(columnIndex)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) SetRowNameByIndex(index int, name string) {
 	W.WSetRowNameByIndex(index, name)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) SetRowToColumnNames(rowIndex int) *insyra.DataTable {
-	return W.WSetRowToColumnNames(rowIndex)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) SetRowToColNames(rowIndex int) *insyra.DataTable {
+	return W.WSetRowToColNames(rowIndex)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) Show() {
 	W.WShow()
@@ -586,17 +589,17 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) ShowTypes() {
 func (W _github_com_HazelnutParadise_insyra_IDataTable) Size() (int, int) {
 	return W.WSize()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) ToCSV(filePath string, setRowNamesToFirstColumn bool, setColumnNamesToFirstRow bool) error {
-	return W.WToCSV(filePath, setRowNamesToFirstColumn, setColumnNamesToFirstRow)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ToCSV(filePath string, setRowNamesToFirstCol bool, setColNamesToFirstRow bool) error {
+	return W.WToCSV(filePath, setRowNamesToFirstCol, setColNamesToFirstRow)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) Transpose() *insyra.DataTable {
 	return W.WTranspose()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) UpdateColumn(index string, dl *insyra.DataList) {
-	W.WUpdateColumn(index, dl)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) UpdateCol(index string, dl *insyra.DataList) {
+	W.WUpdateCol(index, dl)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) UpdateColumnByNumber(index int, dl *insyra.DataList) {
-	W.WUpdateColumnByNumber(index, dl)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) UpdateColByNumber(index int, dl *insyra.DataList) {
+	W.WUpdateColByNumber(index, dl)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) UpdateElement(rowIndex int, columnIndex string, value interface{}) {
 	W.WUpdateElement(rowIndex, columnIndex, value)
