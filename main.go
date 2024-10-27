@@ -121,7 +121,7 @@ func main() {
 	}()
 
 	webUIModeButton := widget.NewButton("Switch to Web UI", func() {
-		// 切換到 Web UI 模式的邏���
+		// 切換到 Web UI 模式
 		fmt.Println("Switching to Web UI mode...")
 		webuiOpened = true
 		// 啟動伺服器
