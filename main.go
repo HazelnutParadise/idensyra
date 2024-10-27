@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -61,7 +63,7 @@ func main() {
 // 初始化區塊，啟動程式時會自動執行
 func init() {
 	fmt.Println("starting Idensyra editor...")
-	// 這裡可以進行��多初始化操作
+	// 這裡可以進行多初始化操作
 }
 
 var fyneApp *fyne.App
@@ -110,7 +112,7 @@ func main() {
 	}()
 
 	webUIModeButton := widget.NewButton("Switch to Web UI", func() {
-		// 切換到 Web UI 模式的邏輯
+		// 切換到 Web UI 模式的邏���
 		fmt.Println("Switching to Web UI mode...")
 		webuiOpened = true
 		// 啟動伺服器
@@ -244,9 +246,9 @@ func main() {
 	myWindow.ShowAndRun()
 }
 
-// 使用 yaegi 來執行動態 Go 程式碼並捕獲標準輸出與 log 輸出
+// 使用 yaegi 來執行動態 Go 程式碼並捕獲所有輸出
 func executeGoCode(code string) string {
-	// 準備一個 bytes.Buffer 來捕獲標準輸出和 log 輸出
+	// 準備一個 bytes.Buffer 來捕獲所有輸出
 	var buf bytes.Buffer
 
 	// 初始化 yaegi 直譯器並設置 Stdout 和 Stderr
@@ -256,6 +258,22 @@ func executeGoCode(code string) string {
 	})
 	i.Use(stdlib.Symbols)   // 加載標準庫
 	i.Use(idensyra.Symbols) // 加載 idensyra 套件
+
+	// 重定向標準輸出和標準錯誤
+	oldStdout := os.Stdout
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	os.Stderr = w
+
+	// 創建一個通道來接收輸出
+	outputChan := make(chan string)
+	go func() {
+		var outputBuf bytes.Buffer
+		io.Copy(&outputBuf, r)
+		outputChan <- outputBuf.String()
+	}()
+
 	// 執行傳入的 Go 程式碼
 	if preCode != "" {
 		_, err := i.Eval(preCode)
@@ -276,8 +294,16 @@ func executeGoCode(code string) string {
 		}
 	}
 
-	// 返回執行過程中的所有標準輸出與 log 輸出
-	return buf.String()
+	// 恢復標準輸出和標準錯誤
+	w.Close()
+	os.Stdout = oldStdout
+	os.Stderr = oldStderr
+
+	// 獲取所有輸出
+	output := <-outputChan
+
+	// 合併 yaegi 捕獲的輸出和重定向捕獲的輸出
+	return buf.String() + output
 }
 
 // ===================== Web UI mode =============================
