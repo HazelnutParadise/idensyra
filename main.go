@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -27,6 +28,8 @@ import (
 	_ "embed"
 
 	"sync"
+
+	"runtime"
 
 	"github.com/gorilla/websocket"
 	"github.com/traefik/yaegi/interp"
@@ -98,6 +101,35 @@ func main() {
 	myWindow := myApp.NewWindow("Idensyra")
 	fyneWindow = &myWindow
 
+	// 檢查是否是通過 go run 執行
+	execPath, err := os.Executable()
+	execDir := filepath.Dir(execPath)
+	if err != nil {
+		log.Fatalf("無法獲取執行文件路徑: %v", err)
+	}
+	isGoRun := strings.HasPrefix(execPath, os.TempDir())
+
+	// 如果是通過 go run 執行，則需要切換工作目錄
+	if isGoRun {
+		// 獲取主程序的目錄
+		_, filename, _, ok := runtime.Caller(0)
+		if !ok {
+			log.Fatalf("無法獲取當前文件路徑")
+		}
+		dir := filepath.Dir(filename)
+
+		// 切換到主程序所在的目錄
+		err = os.Chdir(dir)
+		if err != nil {
+			log.Fatalf("無法切換到主程序目錄: %v", err)
+		}
+	} else {
+		err = os.Chdir(execDir)
+		if err != nil {
+			log.Fatalf("無法切換到主程序目錄: %v", err)
+		}
+	}
+
 	// 建立一個資訊標籤
 	infoLabel := widget.NewLabel(fmt.Sprintf("Idensyra v%s, with Insyra v%s", version, insyra.Version))
 
@@ -141,7 +173,7 @@ func main() {
 		fyne.CurrentApp().OpenURL(&url.URL{Scheme: "https", Host: "hazelnut-paradise.com"})
 	})
 
-	// 建立一個用於顯示結果的 Label，並包裹在 Scroll 容器中
+	// 建一個用於顯示結果的 Label，並包裹在 Scroll 容器中
 	resultBinding := binding.NewString()
 	resultLabel := widget.NewLabelWithData(resultBinding)
 	resultLabel.Wrapping = fyne.TextWrapWord
@@ -283,24 +315,10 @@ func executeGoCode(code string) string {
 		outputChan <- outputBuf.String()
 	}()
 
-	// 執行傳入的 Go 程式碼
-	if preCode != "" {
-		_, err := i.Eval(preCode)
-		if err != nil {
-			return fmt.Sprintf("failed to execute pre code: %v", err)
-		}
-	}
-	if code != "" {
-		_, err := i.Eval(code)
-		if err != nil {
-			return fmt.Sprintf("failed to execute code: %v", err)
-		}
-	}
-	if endCode != "" {
-		_, err := i.Eval(endCode)
-		if err != nil {
-			return fmt.Sprintf("failed to execute end code: %v", err)
-		}
+	// 執行代碼
+	_, err := i.Eval(code)
+	if err != nil {
+		return fmt.Sprintf("執行代碼失敗: %v", err)
 	}
 
 	// 恢復標準輸出和標準錯誤
