@@ -33,7 +33,7 @@ import (
 	"github.com/traefik/yaegi/stdlib"
 )
 
-const version = "0.0.2"
+const version = "0.0.3"
 
 var preCode = `package main
 `
@@ -81,8 +81,17 @@ var upgrader = websocket.Upgrader{
 }
 var clients = make(map[*websocket.Conn]bool)
 var clientsMu sync.Mutex
+var webSocketConn *websocket.Conn
 
 func main() {
+	defer func() {
+		if webSocketConn != nil {
+			if err := webSocketConn.WriteMessage(websocket.TextMessage, []byte("closeWebUI")); err != nil {
+				log.Println("WebSocket write error:", err)
+			}
+		}
+		webSocketConn.Close()
+	}()
 	var liveRun bool = false
 	myApp := app.New()
 	fyneApp = &myApp
@@ -509,8 +518,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Println("WebSocket upgrade error:", err)
 		return
 	}
+	webSocketConn = conn
 	webuiAlive = true
-	defer conn.Close()
 
 	clientsMu.Lock()
 	clients[conn] = true
