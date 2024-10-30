@@ -36,7 +36,7 @@ import (
 	"github.com/traefik/yaegi/stdlib"
 )
 
-const version = "0.0.3"
+const version = "0.0.4"
 
 var preCode = `package main
 `

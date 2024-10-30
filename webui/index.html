@@ -313,13 +313,15 @@
     }
 
     .result-window {
-      min-height: 540px;
-      height: auto;
+      max-height: 535px;
+      min-height: 535px;
+      height: 100%;
       background-color: #f6f6f6;
       border: 1px solid #e0e0e0;
       border-radius: 4px;
       padding: 10px;
-      overflow-x: hidden;
+      overflow-x: auto;
+      overflow-y: auto;
       /* font-family: monospace; */
       padding: 20px 25px;
     }
@@ -451,19 +453,6 @@
     #back-to-top:hover {
       background-color: #ffc100;
       /* color: white; */
-    }
-
-    .result-window .table-container {
-      padding-left: 1px;
-      padding-right: 1px;
-      overflow-x: auto;
-      /* 使表格容器可以水平滚动 */
-      overflow-y: hidden;
-      /* 禁止垂直滚动 */
-      background-color: white;
-      margin-bottom: 10px;
-      /* 添加下边距以分隔多个表格 */
-      /* border: solid 1px black; */
     }
 
     table {
@@ -635,9 +624,14 @@
             </div>
             <div class="form-check form-switch mt-2 mb-3">
               <input class="form-check-input" type="checkbox" id="toggle-dark-mode" checked />
-              <label class="form-check-label" for="toggle-dark-mode">Lights💡</label>
+              <label class="form-check-label" for="toggle-dark-mode">Lights</label>
             </div>
             <div style="margin-bottom: 15px;">
+              <div id="importCode">
+                <button class="inSidebar-btn" id="importCode-btn">
+                  Import Code
+                </button>
+              </div>
               <!-- 存檔 -->
               <div id="saveFile">
                 <button class="inSidebar-btn" id="downloadCodeBtn">Download Code</button>
@@ -651,22 +645,12 @@
             <!-- <span class="pro-badge">PRO</span> -->
             <!-- <div style="display: flex; height: 75px; justify-content: center" lang="zh-Hant-TW">
               <button class="inSidebar-btn" id="tempSave-btn" style="font-size: 15px; margin-right: 2px">
-                暫存至<br />瀏覽器
+                存<br />瀏���器
               </button>
               <button class="inSidebar-btn" id="delTempSave-btn" style="font-size: 15px">
                 刪除<br />瀏覽器暫存
               </button>
             </div> -->
-            <!-- <div id="importExportSQL" lang="zh-Hant-TW">
-                <button class="inSidebar-btn" id="importSQL-btn">
-                  匯入 .sql 或 .txt 檔
-                </button>
-                <button class="inSidebar-btn" id="exportSQL-btn">
-                  匯出 .sql 檔
-                </button>
-              </div> -->
-
-
             <h1 style="text-align: center; font-size: 23px; margin-bottom: 10px">
               Idensyra<span style="font-size: 15px"> v{{.Version}}</span>
             </h1>
@@ -700,9 +684,9 @@
                 </button>
               </div>
             </div>
-            <div class="result-window" id="result-window">
+            <pre class="result-window" id="result-window">
               <!-- Results will be displayed here -->
-            </div>
+            </pre>
             <button class="run-btn" id="runButton" onclick="executeQuery()">
               <span id="buttonText">
                 <h3 style="margin: 0; padding: 0">Run</h3>
@@ -772,472 +756,107 @@
         mainContent.classList.toggle("col-md-11");
       });
   </script>
-</body>
 
-<!-- Snackbar -->
-<script>
-  function showSnackbar(contentText) {
-    const snackbar = document.getElementById("snackbar");
-    snackbar.innerHTML = contentText;
+  <!-- Snackbar -->
+  <script>
+    function showSnackbar(contentText) {
+      const snackbar = document.getElementById("snackbar");
+      snackbar.innerHTML = contentText;
 
-    // 動態計算Snackbar的位置
-    const snackbarWidth = snackbar.offsetWidth;
-    const windowWidth = window.innerWidth;
+      // 動態計算Snackbar的位置
+      const snackbarWidth = snackbar.offsetWidth;
+      const windowWidth = window.innerWidth;
 
-    snackbar.style.left = `${(windowWidth - snackbarWidth) / 2}px`;
+      snackbar.style.left = `${(windowWidth - snackbarWidth) / 2}px`;
 
-    snackbar.classList.add("show");
+      snackbar.classList.add("show");
 
-    // 先清除所有現有的定時器
-    if (snackbar.hideTimeout) {
-      clearTimeout(snackbar.hideTimeout);
-    }
-
-    // 設置新的定時器
-    snackbar.hideTimeout = setTimeout(function () {
-      snackbar.classList.remove("show");
-    }, 3500);
-  }
-</script>
-
-<script>
-  // 恢復暫存的數據
-  // const savedSchemaSql = localStorage.getItem("codeInput");
-  // if (savedSchemaSql) {
-  //   defaultSchemaSql = savedSchemaSql;
-  // }
-
-  // if (!(savedSchemaSql) && tempSaveCookie) {
-  //   defaultSchemaSql = tempSaveCookie.codeInput;
-  //   defaultQuerySql = tempSaveCookie.querySql;
-  // }
-
-  const symbols = {{.Symbols}}; // 確保這裡的 symbols 是正確的 JSON 格式
-  console.log(symbols); // 用於調試，檢查 symbols 的內容
-
-  // 設定monaco editor
-  require.config({
-    paths: {
-      vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.33.0/min/vs",
-    },
-  });
-  let codeEditor;
-  require(["vs/editor/editor.main"], function () {
-    codeEditor = monaco.editor.create(
-      document.getElementById("code-editor"),
-      {
-        value: {{.DefaultCode }},
-    language: "go",
-    theme: "vs",
-    lineNumbers: "on",
-    lineNumbersMinChars: 3, // 行号区域宽度
-    scrollBeyondLastLine: false, // 限制滚动超过最后一，可减少底部空白区域
-    readOnly: false,
-    quickSuggestions: true, // 确保启用快速建议
-      suggestOnTriggerCharacters: true,
-      automaticLayout: true, // Enable automatic layout
-      wordWrap: "on", // 啟用自動換行
-      scrollbar: {
-        alwaysConsumeMouseWheel: false,
-  },
-    minimap: { enabled: true },
+      // 先清除所有現有的定時器
+      if (snackbar.hideTimeout) {
+        clearTimeout(snackbar.hideTimeout);
       }
-  );
 
-    // 注入 symbols 以實現代碼補全
-    monaco.languages.registerCompletionItemProvider('go', {
-        triggerCharacters: ['.'],
-        provideCompletionItems: (model, position) => {
-            const textUntilPosition = model.getValueInRange({
-                startLineNumber: position.lineNumber,
-                startColumn: 1,
-                endLineNumber: position.lineNumber,
-                endColumn: position.column
-            });
-
-            const match = textUntilPosition.match(/(\w+)\.$/);
-            if (match) {
-                const packageName = match[1];
-                const packageFunctions = symbols.filter(s => s.startsWith(packageName + '.'))
-                                            .map(s => s.split('.')[1]);
-
-                return {
-                    suggestions: packageFunctions.map(func => ({
-                        label: func,
-                        kind: monaco.languages.CompletionItemKind.Function,
-                        insertText: func,
-                        detail: `${packageName}.${func}`,
-                        documentation: `Function from package ${packageName}`
-                    }))
-                };
-            }
-
-            // 如果不是在包名後面輸入點號,則提供所有包名的建議
-            const packages = [...new Set(symbols.map(s => s.split('.')[0]))];
-            return {
-                suggestions: packages.map(pkg => ({
-                    label: pkg,
-                    kind: monaco.languages.CompletionItemKind.Module,
-                    insertText: pkg + '.',
-                    detail: `Package`,
-                    documentation: `Functions: ${symbols.filter(s => s.startsWith(pkg + '.')).map(s => s.split('.')[1]).join(', ')}`,
-                    command: { // 添加命令以在插入後觸發建議
-                        id: 'editor.action.triggerSuggest',
-                        title: 'Trigger Suggest'
-                    }
-                }))
-            };
-        }
-    });
-
-    // 在創建編輯器後添加以下代碼
-    codeEditor.onDidType((text) => {
-        if (text === '.') {
-            setTimeout(() => {
-                codeEditor.trigger('', 'editor.action.triggerSuggest', {});
-            }, 0);
-        }
-    });
-
-  function setFontSize() {
-    let fontSlider = document.getElementById("fontSlider");
-    let newSize = fontSlider.value + "px";
-    let nowFontSize = document.getElementById("nowFontSize");
-    nowFontSize.textContent = newSize;
-    if (codeEditor) {
-      codeEditor.updateOptions({ fontSize: parseInt(fontSlider.value) });
+      // 設置新的定時器
+      snackbar.hideTimeout = setTimeout(function () {
+        snackbar.classList.remove("show");
+      }, 3500);
     }
-  }
+  </script>
 
-  setFontSize();
-  // 监听字体大小滑动条的变化
-  addEventListener("input", setFontSize);
-
-  // 依據電腦主題切換主題
-  if (
-    window.matchMedia &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches
-  ) {
-    document.getElementById("toggle-dark-mode").checked = false;
-    document.documentElement.setAttribute("data-theme", "dark");
-    codeEditor.updateOptions({ theme: "vs-dark" });
-  }
-  });
-
-  document
-    .getElementById("miniMap")
-    .addEventListener("change", function (event) {
-      codeEditor.updateOptions({
-        minimap: { enabled: event.target.checked },
-      });
-    });
-
-  document
-    .getElementById("toggle-dark-mode")
-    .addEventListener("change", function (event) {
-      const theme = event.target.checked ? "vs" : "vs-dark";
-      codeEditor.updateOptions({ theme: theme });
-      if (document.documentElement.getAttribute("data-theme") === "dark") {
-        document.documentElement.removeAttribute("data-theme");
-      } else {
-        document.documentElement.setAttribute("data-theme", "dark");
-      }
-    });
-
-
-
-  const copySchemaBtn = document.getElementById("copySchemaBtn");
-  const copyQueryBtn = document.getElementById("copyQueryBtn");
-  copySchemaBtn.addEventListener("click", function () {
-    navigator.clipboard
-      .writeText(codeEditor.getValue())
-      .then(() => showSnackbar("Code has been copied to clipboard"))
-      .catch((err) => alert("Copy failed: ", err));
-  });
-</script>
-
-<!-- 匯入匯出功能 -->
-<script>
-//   const importSQL_btn = document.getElementById("importSQL-btn");
-//   const exportSQL_btn = document.getElementById("exportSQL-btn");
-
-//   function isQuerySQL(sql) {
-//     const lowerSql = sql.trim().toLowerCase();
-//     return lowerSql.startsWith("select") || lowerSql.startsWith("show");
-//   }
-
-//   document
-//     .getElementById("importSQL-btn")
-//     .addEventListener("click", function () {
-//       const input = document.createElement("input");
-//       input.type = "file";
-//       input.accept = ".sql,.txt";
-//       input.onchange = function (e) {
-//         const file = e.target.files[0];
-//         // 拒絕非.sql或.txt檔
-//         if (!file.name.endsWith(".sql") && !file.name.endsWith(".txt")) {
-//           alert("請選擇.sql或.txt檔");
-//           return;
-//         }
-//         const reader = new FileReader();
-//         reader.onload = function () {
-//           const sql = reader.result;
-//           const lines = sql.split("\n");
-//           let codeSQL = "";
-//           let querySQL = "";
-//           let currentSQL = "";
-//           let isQuery = false;
-//           let previousIsQuery = null;
-//           let commentsBuffer = "";
-//           let emptyLinesBuffer = "";
-
-//           lines.forEach((line) => {
-//             const trimmedLine = line.trim();
-
-//             // 處理註釋
-//             if (
-//               trimmedLine.startsWith("--") ||
-//               trimmedLine.startsWith("/*") ||
-//               trimmedLine.endsWith("*/")
-//             ) {
-//               commentsBuffer += line + "\n";
-//               return;
-//             }
-
-//             // 當前行為空行
-//             if (trimmedLine === "") {
-//               emptyLinesBuffer += line + "\n";
-//               return;
-//             }
-
-//             // 遇到以;結尾的指令
-//             if (trimmedLine.endsWith(";")) {
-//               currentSQL += line + "\n";
-//               if (isQuerySQL(currentSQL)) {
-//                 querySQL += emptyLinesBuffer + commentsBuffer + currentSQL;
-//                 previousIsQuery = true;
-//               } else {
-//                 codeSQL += emptyLinesBuffer + commentsBuffer + currentSQL;
-//                 previousIsQuery = false;
-//               }
-//               currentSQL = "";
-//               commentsBuffer = "";
-//               emptyLinesBuffer = "";
-//             } else {
-//               currentSQL += line + "\n";
-//             }
-//           });
-
-//           // 處理剩餘的註釋和空行
-//           if (commentsBuffer || emptyLinesBuffer || currentSQL) {
-//             if (previousIsQuery === true) {
-//               querySQL += emptyLinesBuffer + commentsBuffer + currentSQL;
-//             } else {
-//               codeSQL += emptyLinesBuffer + commentsBuffer + currentSQL;
-//             }
-//           }
-
-//           if (!confirm("編輯區未儲存的SQL指令將被覆蓋！\n確定匯入檔案嗎？"))
-//             return;
-//           codeEditor.setValue(codeSQL.trim());
-//           queryEditor.setValue(querySQL.trim());
-//           showSnackbar(
-//             `已匯入 ${file.name}<br><br>共取得 ${lines.length} 行 SQL 指令`
-//           );
-//         };
-//         reader.readAsText(file);
-//       };
-//       input.click();
-//     });
-
-//   exportSQL_btn.addEventListener("click", function () {
-//     const codeInput = codeEditor.getValue().trim();
-//     const querySql = queryEditor.getValue().trim();
-//     const sql = codeInput + "\n" + querySql;
-//     const blob = new Blob([sql], { type: "text/plain" });
-//     const url = URL.createObjectURL(blob);
-//     const a = document.createElement("a");
-//     a.href = url;
-//     a.download = "db-playground.sql";
-//     a.click();
-//     URL.revokeObjectURL(url);
-//     showSnackbar("已匯出 SQL 檔至下載資料夾");
-//   });
-// </script>
-
-// <script>
-//   function removeSqlComments(sql) {
-//     // 移除单行注释
-//     sql = sql.replace(/--.*$/gm, "");
-
-//     // 移除多行注释
-//     sql = sql.replace(/\/\*[\s\S]*?\*\//gm, "");
-
-//     return sql.trim();
-//   }
-
-//   function removeFirstLastQuotes(s) {
-//     if (
-//       s.length > 1 &&
-//       s[0] === s[s.length - 1] &&
-//       (s[0] === '"' || s[0] === "'")
-//     ) {
-//       return s.substring(1, s.length - 1);
-//     }
-//     return s;
-//   }
-
-  let originalResult = "";
-  function executeQuery() {
-    const runButton = document.getElementById("runButton");
-    const buttonText = document.getElementById("buttonText");
-    const loader = document.getElementById("loader");
-    const resultWindow = document.getElementById("result-window"); // 確保你有一個顯示結果的元素
-
-    // 獲取編輯器中的 Schema SQL 和 Query SQL 語句
-    const codeInput = codeEditor.getValue();
-
-    // 顯示加載器，隱藏文字
-    buttonText.style.display = "none";
-    loader.style.display = "inline-block";
-    runButton.classList.add("running-btn");
-
-    // 發送請求到後端
-    fetch("http://localhost:{{.Port}}/api/execute", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        codeInput: encodeURIComponent(codeInput),
-      }),
-    })
-      .then((response) => response.text())
-      .then((data) => {
-
-        resultWindow.innerHTML = `<pre>${JSON.parse(JSON.stringify(data))}</pre>`
-      })
-      .catch((error) => {
-        console.error("Error:", error);
-        resultWindow.innerHTML = "Error: " + error.message;
-      })
-      .finally(() => {
-        // 查詢完成後恢復按鈕狀態
-        buttonText.style.display = "inline";
-        loader.style.display = "none";
-        runButton.classList.remove("running-btn");
-        // 當數據加載後，將結果窗口平滑滾動到畫
-        // resultWindow.scrollIntoView({ behavior: "smooth" });
-      });
-  }
-
-  document
-    .getElementById("copyResultTextBtn")
-    .addEventListener("click", function () {
-      const resultContent =
-        document.getElementById("result-window").innerText;
-      navigator.clipboard
-        .writeText(resultContent)
-        .then(() => showSnackbar("Text has been copied to clipboard"))
-        .catch((err) => alert("Copy failed: ", err));
-    });
-</script>
-<script>
-  // document ready
-  document.addEventListener("DOMContentLoaded", function () {
-    document
-      .getElementById("wordWrap")
-      .addEventListener("change", function () {
-        codeEditor.updateOptions({
-          wordWrap: event.target.checked ? "on" : "off",
-        });
-      });
-
-    document
-      .getElementById("downloadCodeBtn")
-      .addEventListener("click", function () {
-        // 存檔
-        const codeContent = codeEditor.getValue();
-        const preCode = {{.PreCode}}
-        const endCode = {{.EndCode}}
-        const blob = new Blob([preCode + "\n" + codeContent + "\n" + endCode], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'idensyra_code.go';
-        document.body.appendChild(a);
-        a.click();
-        
-        setTimeout(() => {
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        }, 0);
-        
-        showSnackbar("Downloaded");
-      });
-
-    document
-      .getElementById("backToGuiBtn")
-      .addEventListener("click", function () {
-        const codeContent = codeEditor.getValue();
-        const encodedCodeContent = encodeURIComponent(codeContent);
-        // 打開 GUI
-        fetch("http://localhost:{{.Port}}/api/backToGui", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ codeInput: encodedCodeContent }),
-        });
-        // 關閉頁面
-        window.close();
-      });
-  });
-
-
-  window.onload = function () {
-    fetch("http://localhost:{{.Port}}/api/webuiInitialized", {
-      method: "GET", 
-    });
-  }
-
-  window.onbeforeunload = function (event) {
-    const codeContent = codeEditor.getValue();
-    const encodedCodeContent = encodeURIComponent(codeContent);
-    // 打開 GUI
-    fetch("http://localhost:{{.Port}}/api/closeWebUI", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ codeInput: encodedCodeContent }),
-    });
-  };
-</script>
-
-<!-- 添加 WebSocket 連接代碼 -->
-<script>
+  <script>
     let socket;
     let heartbeatInterval;
+    let codeEditor;
 
+    // 添加執行代碼的功能
+    function executeQuery() {
+        const runButton = document.getElementById("runButton");
+        const buttonText = document.getElementById("buttonText");
+        const loader = document.getElementById("loader");
+        const resultWindow = document.getElementById("result-window");
+
+        // 獲取編輯器中的代碼
+        const codeInput = codeEditor.getValue();
+
+        // 顯示加載器，隱藏文字
+        buttonText.style.display = "none";
+        loader.style.display = "inline-block";
+        runButton.classList.add("running-btn");
+
+        // 發送請求到後端
+        fetch("http://localhost:{{.Port}}/api/execute", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                codeInput: encodeURIComponent(codeInput),
+            }),
+        })
+        .then((response) => response.text())
+        .then((data) => {
+            resultWindow.innerHTML = `${JSON.parse(JSON.stringify(data))}`;
+        })
+        .catch((error) => {
+            console.error("Error:", error);
+            resultWindow.innerHTML = "Error: " + error.message;
+        })
+        .finally(() => {
+            buttonText.style.display = "inline";
+            loader.style.display = "none";
+            runButton.classList.remove("running-btn");
+        });
+    }
+
+    // WebSocket 初始化
     function connectWebSocket() {
         socket = new WebSocket("ws://" + window.location.host + "/ws");
+        socket.binaryType = "blob";  // 設置為 blob 類型以處理大量數據
 
         socket.onopen = function(event) {
             console.log("WebSocket 連接已開啟");
             // 開始發送心跳
             heartbeatInterval = setInterval(function() {
-                if (socket.readyState === WebSocket.OPEN) {
-                    socket.send("heartbeat");
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: "heartbeat"
+                    }));
                 }
-            }, 1000); // 每1秒發送一次心跳
+            }, 1000);
+
+            // 初始同步當前代碼
+            if (codeEditor) {
+                socket.send(JSON.stringify({
+                    type: "codeSync",
+                    content: codeEditor.getValue()
+                }));
+            }
         };
 
         socket.onclose = function(event) {
             console.log("WebSocket 連接已關閉");
-            clearInterval(heartbeatInterval); // 清除心跳間隔
-            setTimeout(connectWebSocket, 1000); // 1秒後嘗試重新連接
+            clearInterval(heartbeatInterval);
+            setTimeout(connectWebSocket, 1000);
         };
 
         socket.onerror = function(error) {
@@ -1245,20 +864,227 @@
         };
 
         socket.onmessage = function(event) {
-            console.log("收到消息:", event.data);
-            if (event.data === "closeWebUI") {
-              window.close();
+            const data = JSON.parse(event.data);
+            if (data.type === "closeWebUI") {
+                window.close();
             }
         };
     }
 
-    window.addEventListener('load', connectWebSocket);
-    window.addEventListener('beforeunload', function() {
-        if (socket) {
-            clearInterval(heartbeatInterval); // 清除心跳間隔
-            socket.close();
+    // Monaco Editor 初始化
+    require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.33.0/min/vs' } });
+    require(['vs/editor/editor.main'], function () {
+        const symbols = "{{.Symbols}}";
+
+        codeEditor = monaco.editor.create(
+            document.getElementById("code-editor"),
+            {
+                value: "{{.DefaultCode}}",
+                language: "go",
+                theme: "vs",
+                lineNumbers: "on",
+                lineNumbersMinChars: 3,
+                scrollBeyondLastLine: false,
+                readOnly: false,
+                quickSuggestions: true,
+                suggestOnTriggerCharacters: true,
+                automaticLayout: true,
+                wordWrap: "on",
+                scrollbar: {
+                    alwaysConsumeMouseWheel: false,
+                },
+                minimap: { enabled: true },
+            }
+        );
+
+        // 依據電腦主題切換主題
+        if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            document.getElementById("toggle-dark-mode").checked = false;
+            document.documentElement.setAttribute("data-theme", "dark");
+            codeEditor.updateOptions({ theme: "vs-dark" });
+        }
+
+        // 恢復按鈕功能
+        document.getElementById("toggle-dark-mode").addEventListener("change", function (event) {
+            const theme = event.target.checked ? "vs" : "vs-dark";
+            codeEditor.updateOptions({ theme: theme });
+            if (document.documentElement.getAttribute("data-theme") === "dark") {
+                document.documentElement.removeAttribute("data-theme");
+            } else {
+                document.documentElement.setAttribute("data-theme", "dark");
+            }
+        });
+
+        document.getElementById("miniMap").addEventListener("change", function(event) {
+            codeEditor.updateOptions({
+                minimap: { enabled: event.target.checked },
+            });
+        });
+
+        document.getElementById("wordWrap").addEventListener("change", function(event) {
+            codeEditor.updateOptions({
+                wordWrap: event.target.checked ? "on" : "off",
+            });
+        });
+
+        document.getElementById("copySchemaBtn").addEventListener("click", function () {
+            navigator.clipboard
+                .writeText(codeEditor.getValue())
+                .then(() => showSnackbar("Code has been copied to clipboard"))
+                .catch((err) => alert("Copy failed: ", err));
+        });
+
+        document.getElementById("copyResultTextBtn").addEventListener("click", function () {
+            const resultContent = document.getElementById("result-window").innerText;
+            navigator.clipboard
+                .writeText(resultContent)
+                .then(() => showSnackbar("Text has been copied to clipboard"))
+                .catch((err) => alert("Copy failed: ", err));
+        });
+
+        document.getElementById("importCode-btn").addEventListener("click", function () {
+            const codeInput = document.createElement("input");
+            codeInput.type = "file";
+            codeInput.accept = ".go,.txt";
+            codeInput.onchange = function (e) {
+                const file = e.target.files[0];
+                const reader = new FileReader();
+                reader.onload = function () {
+                    const newCode = reader.result.replace(/package .*\n\n/, "");
+                    codeEditor.setValue(newCode);
+                };
+                reader.readAsText(file);
+            };
+            codeInput.click();
+        });
+
+        document.getElementById("downloadCodeBtn").addEventListener("click", function () {
+            const codeContent = codeEditor.getValue();
+            const preCode = "{{.PreCode}}";
+            const endCode = "{{.EndCode}}";
+            const blob = new Blob(
+                [preCode + "\n" + codeContent + "\n" + endCode], 
+                { type: 'text/plain' }
+            );
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'idensyra_code.go';
+            document.body.appendChild(a);
+            a.click();
+            
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 0);
+            
+            showSnackbar("Downloaded");
+        });
+
+        document.getElementById("backToGuiBtn").addEventListener("click", function () {
+            const content = codeEditor.getValue();
+            
+            // 使用同步 XMLHttpRequest
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", "http://localhost:{{.Port}}/api/backToGui", false);
+            xhr.setRequestHeader("Content-Type", "application/json");
+            xhr.send(JSON.stringify({ codeInput: content }));
+            
+            window.close();
+        });
+
+        // 添加編輯器內容變更監聽
+        codeEditor.onDidChangeModelContent(function(e) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const content = codeEditor.getValue();
+                // 使用 Blob 發送大量數據
+                const blob = new Blob([JSON.stringify({
+                    type: "codeSync",
+                    content: content
+                })], {type: 'application/json'});
+                socket.send(blob);
+            }
+        });
+
+        // 添加字型大小調整功能
+        function setFontSize() {
+            let fontSlider = document.getElementById("fontSlider");
+            let newSize = fontSlider.value + "px";
+            let nowFontSize = document.getElementById("nowFontSize");
+            nowFontSize.textContent = newSize;
+            if (codeEditor) {
+                codeEditor.updateOptions({ fontSize: parseInt(fontSlider.value) });
+            }
+        }
+
+        // 初始設置字型大小
+        setFontSize();
+        
+        // 監聽字型大小變更
+        document.getElementById("fontSlider").addEventListener("input", setFontSize);
+    });
+
+    // 修改關閉事件處理
+    window.addEventListener('beforeunload', function(event) {
+        // 阻止默認行為並顯示確認對話框
+        event.preventDefault();
+        event.returnValue = '';
+
+        try {
+            const content = codeEditor.getValue();
+            
+            // 使用同步 XMLHttpRequest
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", "http://localhost:{{.Port}}/api/closeWebUI", false); // false 表示同步請求
+            xhr.setRequestHeader("Content-Type", "application/json");
+            xhr.send(JSON.stringify({ 
+                codeInput: content,
+                type: "closing"  // 添加類型標記
+            }));
+
+            // 等待一小段時間確保數據發送完成
+            const start = Date.now();
+            while (Date.now() - start < 100) {
+                // 強制等待 100ms
+            }
+
+            // WebSocket 清理
+            if (socket) {
+                socket.send(JSON.stringify({
+                    type: "closing",
+                    content: content
+                }));
+                clearInterval(heartbeatInterval);
+                socket.close();
+            }
+        } catch (e) {
+            console.error("Error during sync:", e);
+        }
+
+        // 返回空字符串以顯示瀏覽器的默認確認對話框
+        return event.returnValue;
+    });
+
+    // 添加 visibilitychange 事件處理，作為備用同步機制
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'hidden') {
+            const content = codeEditor.getValue();
+            try {
+                const xhr = new XMLHttpRequest();
+                xhr.open("POST", "http://localhost:{{.Port}}/api/syncCode", false);
+                xhr.setRequestHeader("Content-Type", "application/json");
+                xhr.send(JSON.stringify({ codeInput: content }));
+            } catch (e) {
+                console.error("Error during visibility sync:", e);
+            }
         }
     });
-</script>
+
+    // 頁面載入時初始化 WebSocket
+    window.addEventListener('load', connectWebSocket);
+  </script>
+
+</body>
 
 </html>
