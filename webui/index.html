@@ -842,32 +842,18 @@
                         type: "heartbeat"
                     }));
                 }
-            }, 1000);
-
-            // 初始同步當前代碼
-            if (codeEditor) {
-                socket.send(JSON.stringify({
-                    type: "codeSync",
-                    content: codeEditor.getValue()
-                }));
-            }
+            }, 1);
         };
 
         socket.onclose = function(event) {
             console.log("WebSocket 連接已關閉");
             clearInterval(heartbeatInterval);
             setTimeout(connectWebSocket, 1000);
+            window.close();
         };
 
         socket.onerror = function(error) {
             console.error("WebSocket 錯誤:", error);
-        };
-
-        socket.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            if (data.type === "closeWebUI") {
-                window.close();
-            }
         };
     }
 
