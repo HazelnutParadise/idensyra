@@ -626,6 +626,10 @@
               <input class="form-check-input" type="checkbox" id="toggle-dark-mode" checked />
               <label class="form-check-label" for="toggle-dark-mode">Lights</label>
             </div>
+            <div class="form-check form-switch mt-2 mb-3">
+              <input class="form-check-input" type="checkbox" id="liveRun" />
+              <label class="form-check-label" for="liveRun">Live Run</label>
+            </div>
             <div style="margin-bottom: 15px;">
               <div id="importCode">
                 <button class="inSidebar-btn" id="importCode-btn">
@@ -1040,6 +1044,26 @@
 
     // 頁面載入時初始化 WebSocket
     window.addEventListener('load', connectWebSocket);
+
+    // 監聽 Live Run 的變更
+    document.getElementById("liveRun").addEventListener("change", async function(event) {
+        const runButton = document.getElementById("runButton");
+        const loader = document.getElementById("loader");
+        if (event.target.checked) {
+            // 開啟 Live Run
+            oldContent = codeEditor.getValue();
+            executeQuery();
+            while (true) {
+                if (oldContent !== codeEditor.getValue()) {
+                    executeQuery();
+                    oldContent = codeEditor.getValue();
+                }
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+        } else {
+            runButton.classList.remove("running-btn");
+        }
+    });
   </script>
 
 </body>
