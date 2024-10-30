@@ -591,6 +591,70 @@
         height: 60px;
       }
     }
+
+    #resizer {
+      width: 6px;
+      height: 650px;
+      background-color: #b3c0c8; /* 柔和的灰藍色 */
+      cursor: col-resize;
+      border-radius: 4px; /* 圓角效果 */
+      border-left: 1px solid #a0aeb8;
+      border-right: 1px solid #a0aeb8;
+      align-self: center;
+    }
+
+    #resizer:hover {
+      width: 15px;
+      border-radius: 0;
+      background-color: #8fa1ad; /* 滑動條懸停效果 */
+    }
+
+    #resizer.resizing {
+      border-radius: 0;
+      width: 15px;
+      background-color: #6e7f8a; /* 拖曳時效果 */
+    }
+
+
+    [data-theme="dark"] #resizer {
+      background-color: #4b5563; /* 柔和深灰色 */
+    }
+
+    [data-theme="dark"] #resizer:hover {
+      background-color: #374151; /* 拖曳前稍深 */
+    }
+
+    [data-theme="dark"] #resizer.resizing {
+      background-color: #2d3748; /* 拖曳時更深 */
+    }
+
+
+
+    .editor {
+      width: 50%;
+      height: 100%;
+      padding-left: 10px;
+      padding-right: 10px;
+      margin-bottom: 10px;
+      min-width: 200px; /* 設置最小寬度 */
+    }
+
+    @media (max-width: 22cm) {
+      #editWindows {
+        flex-wrap: wrap;
+      }
+
+      .editor {
+        margin: 0;
+        margin-bottom: 10px;
+        width: 99%;
+        max-width: none;
+      }
+
+      #resizer {
+        display: none;
+      }
+    }
   </style>
 </head>
 
@@ -649,7 +713,7 @@
             <!-- <span class="pro-badge">PRO</span> -->
             <!-- <div style="display: flex; height: 75px; justify-content: center" lang="zh-Hant-TW">
               <button class="inSidebar-btn" id="tempSave-btn" style="font-size: 15px; margin-right: 2px">
-                存<br />瀏���器
+                存<br />瀏器
               </button>
               <button class="inSidebar-btn" id="delTempSave-btn" style="font-size: 15px">
                 刪除<br />瀏覽器暫存
@@ -679,6 +743,7 @@
             </div>
             <div id="code-editor"></div>
           </div>
+          <div id="resizer"></div>
           <div class="panel editor" id="editor2">
             <div class="label">
               <h5>Result</h5>
@@ -1008,7 +1073,7 @@
             }
         }
 
-        // 初始設置字型大小
+        // 初始設置字型��小
         setFontSize();
         
         // 監聽字型大小變更
@@ -1064,6 +1129,53 @@
             runButton.classList.remove("running-btn");
         }
     });
+
+    // 添加分隔條拖動功能
+    const resizer = document.getElementById('resizer');
+    const editor1 = document.getElementById('editor1');
+    const editor2 = document.getElementById('editor2');
+
+    let isResizing = false;
+    let startX;
+    let startWidth;
+
+    resizer.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      startX = e.pageX;
+      startWidth = editor1.offsetWidth;
+      
+      // 添加拖動時的樣式
+      resizer.classList.add('resizing');
+      
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', () => {
+        isResizing = false;
+        // 除拖動時的樣式
+        resizer.classList.remove('resizing');
+        document.removeEventListener('mousemove', handleMouseMove);
+        
+        // 調整 Monaco Editor 大小
+        if (codeEditor) {
+          codeEditor.layout();
+        }
+      });
+    });
+
+    function handleMouseMove(e) {
+      if (!isResizing) return;
+
+      const totalWidth = editor1.parentElement.offsetWidth;
+      const minWidth = 200; // 最小寬度
+      
+      let newWidth = startWidth + (e.pageX - startX);
+      
+      // 確保不超過最小和最大寬度
+      newWidth = Math.max(minWidth, Math.min(newWidth, totalWidth - minWidth));
+      
+      const widthPercentage = (newWidth / totalWidth) * 100;
+      editor1.style.width = `${widthPercentage}%`;
+      editor2.style.width = `${100 - widthPercentage}%`;
+    }
   </script>
 
 </body>
