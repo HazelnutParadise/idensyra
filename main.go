@@ -268,7 +268,7 @@ func main() {
 
 	go func() {
 		for {
-			time.Sleep(3 * time.Second)
+			time.Sleep(2 * time.Second)
 			if !webuiAlive && webuiOpened {
 				myWindow.Show()
 				webuiOpened = false
