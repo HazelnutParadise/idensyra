@@ -415,10 +415,8 @@ func startServer() int {
 		})
 
 		http.HandleFunc("/api/execute", executeCodeHandler)
-		// http.HandleFunc("/api/saveCode", saveCodeHandler)
 		http.HandleFunc("/api/backToGui", backToGuiHandler)
-		http.HandleFunc("/api/getNowCode", getNowCodeHandler)
-		http.HandleFunc("/api/closeWebUI", closeWebUIHandler)
+		http.HandleFunc("/api/syncCode", WebUICodeSyncHandler)
 		http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 	}()
 	for {
@@ -458,41 +456,6 @@ func executeCodeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(result))
 }
 
-func getNowCodeHandler(w http.ResponseWriter, r *http.Request) {
-	decodedCode := url.QueryEscape(guiInputCode)
-	w.Write([]byte(decodedCode))
-}
-
-// // saveCode 存檔
-// func saveCodeHandler(w http.ResponseWriter, r *http.Request) {
-// 	var requestBody struct {
-// 		Code string `json:"codeInput"`
-// 	}
-// 	err := json.NewDecoder(r.Body).Decode(&requestBody)
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusBadRequest)
-// 		return
-// 	}
-// 	decodedCode, err := url.QueryUnescape(requestBody.Code)
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusBadRequest)
-// 		return
-// 	}
-// 	webuiInputCode = decodedCode
-
-// 	// 開啟存檔對話框
-// 	myWindow := *fyneWindow
-// 	myWindow.Show()
-
-// 	dialog.ShowFileSave(func(uc fyne.URIWriteCloser, err error) {
-// 		if err == nil {
-// 			uc.Write([]byte(preCode + "\n" + decodedCode + "\n" + endCode))
-// 			dialog.ShowInformation("Save Success", "Your code has been saved as "+uc.URI().Path(), myWindow)
-// 			myWindow.Hide()
-// 		}
-// 	}, myWindow)
-// }
-
 func backToGuiHandler(w http.ResponseWriter, r *http.Request) {
 	var requestBody struct {
 		Code string `json:"codeInput"`
@@ -512,7 +475,7 @@ func backToGuiHandler(w http.ResponseWriter, r *http.Request) {
 	myWindow.Show()
 }
 
-func closeWebUIHandler(w http.ResponseWriter, r *http.Request) {
+func WebUICodeSyncHandler(w http.ResponseWriter, r *http.Request) {
 	var requestBody struct {
 		Code string `json:"codeInput"`
 	}
@@ -548,13 +511,10 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
-		for {
-			select {
-			case <-ticker.C:
-				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-					log.Println("心跳發送失敗:", err)
-					return
-				}
+		for range ticker.C {
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Println("心跳發送失敗:", err)
+				return
 			}
 		}
 	}()

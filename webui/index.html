@@ -1027,58 +1027,29 @@
 
     // 修改關閉事件處理
     window.addEventListener('beforeunload', function(event) {
-        // 阻止默認行為並顯示確認對話框
-        event.preventDefault();
-        event.returnValue = '';
-
-        try {
-            const content = codeEditor.getValue();
-            
-            // 使用同步 XMLHttpRequest
-            const xhr = new XMLHttpRequest();
-            xhr.open("POST", "http://localhost:{{.Port}}/api/closeWebUI", false); // false 表示同步請求
-            xhr.setRequestHeader("Content-Type", "application/json");
-            xhr.send(JSON.stringify({ 
-                codeInput: content,
-                type: "closing"  // 添加類型標記
-            }));
-
-            // 等待一小段時間確保數據發送完成
-            const start = Date.now();
-            while (Date.now() - start < 100) {
-                // 強制等待 100ms
-            }
+        const content = codeEditor.getValue();
+        const uriContent = encodeURIComponent(content);
+        
+        fetch("http://localhost:{{.Port}}/api/syncCode", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ codeInput: uriContent }),
+        });
 
             // WebSocket 清理
             if (socket) {
                 socket.send(JSON.stringify({
                     type: "closing",
-                    content: content
+                    content: uriContent
                 }));
                 clearInterval(heartbeatInterval);
                 socket.close();
             }
-        } catch (e) {
-            console.error("Error during sync:", e);
-        }
 
         // 返回空字符串以顯示瀏覽器的默認確認對話框
         return event.returnValue;
-    });
-
-    // 添加 visibilitychange 事件處理，作為備用同步機制
-    document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'hidden') {
-            const content = codeEditor.getValue();
-            try {
-                const xhr = new XMLHttpRequest();
-                xhr.open("POST", "http://localhost:{{.Port}}/api/syncCode", false);
-                xhr.setRequestHeader("Content-Type", "application/json");
-                xhr.send(JSON.stringify({ codeInput: content }));
-            } catch (e) {
-                console.error("Error during visibility sync:", e);
-            }
-        }
     });
 
     // 頁面載入時初始化 WebSocket
