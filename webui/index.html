@@ -460,7 +460,6 @@
       font-size: larger;
       border: solid 1px var(--table-border-color);
       border-collapse: collapse;
-      /* 确保边框样式不丢失 */
     }
 
     th {
@@ -647,7 +646,7 @@
       .editor {
         margin: 0;
         margin-bottom: 10px;
-        width: 99%;
+        width: 99% !important; /* 添加 !important 確保覆蓋內聯樣式 */
         max-width: none;
       }
 
@@ -1073,7 +1072,7 @@
             }
         }
 
-        // 初始設置字型��小
+        // 初始設置字型大小
         setFontSize();
         
         // 監聽字型大小變更
@@ -1176,6 +1175,26 @@
       editor1.style.width = `${widthPercentage}%`;
       editor2.style.width = `${100 - widthPercentage}%`;
     }
+
+    function resetEditorWidths() {
+      const mediaQuery = window.matchMedia('(max-width: 22cm)');
+      if (mediaQuery.matches) {
+        // 在直式排列時重置寬度
+        editor1.style.width = '99%';
+        editor2.style.width = '99%';
+      }
+      
+      // 調整 Monaco Editor 大小
+      if (codeEditor) {
+        codeEditor.layout();
+      }
+    }
+
+    // 添加視窗大小變化監聽器
+    window.addEventListener('resize', resetEditorWidths);
+
+    // 在頁面加載時初始化寬度
+    document.addEventListener('DOMContentLoaded', resetEditorWidths);
   </script>
 
 </body>
