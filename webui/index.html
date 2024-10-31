@@ -1142,6 +1142,9 @@
       isResizing = true;
       startX = e.pageX;
       startWidth = editor1.offsetWidth;
+
+      // 防止選中文字
+      e.preventDefault();
       
       // 添加拖動時的樣式
       resizer.classList.add('resizing');
