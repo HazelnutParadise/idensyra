@@ -56,6 +56,7 @@ var defaultCode = `import (
 	// No py and lp package support
 	// No other third party package support
 )
+
 func main() {
 	fmt.Println("Hello, World!")
 	log.Println("this is a log message")
