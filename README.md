@@ -2,6 +2,8 @@
 
 `Idensyra` is a mini Go IDE, with [Insyra](https://github.com/HazelnutParadise/insyra) pre-installed. Run Go code without installing Go environment!
 
+**Official Website: https://insyra.hazelnut-paradise.com/#HowToUse**
+
 **Get Idensyra executable file [HERE](https://github.com/HazelnutParadise/idensyra/releases).**
 
 ## [Insyra](https://github.com/HazelnutParadise/insyra) Inside: Simple? It's quite!
