@@ -25,6 +25,10 @@ Idensyra has two modes:
 
 ![WebUI example](./webui_example.png)
 
+## How it works
+
+Idensyra use [Yaegi](https://github.com/traefik/yaegi) to run Go code.
+
 ## Limitation
 
 - No third party package support (except Insyra and its dependencies).
