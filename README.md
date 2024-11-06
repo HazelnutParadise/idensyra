@@ -14,7 +14,7 @@ With `Idensyra`, you can write Go code, and run it immediately, no need to insta
 
 Idensyra has two modes:
 
-- **GUI mode**: Build with [Fyne](https://github.com/fyne-io/fyne), supports live run.
+- **GUI mode**: Build with [Fyne](https://github.com/fyne-io/fyne).
 - **WebUI mode**: WebUI with [monaco-editor](https://github.com/microsoft/monaco-editor), provides code highlighting and auto-complete.
 
 ### GUI
