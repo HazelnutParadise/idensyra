@@ -31,7 +31,7 @@ func init() {
 		"SqrtRat":               reflect.ValueOf(insyra.SqrtRat),
 		"ToFloat64":             reflect.ValueOf(insyra.ToFloat64),
 		"ToFloat64Safe":         reflect.ValueOf(insyra.ToFloat64Safe),
-		"Version":               reflect.ValueOf(constant.MakeFromLiteral("\"0.0.14\"", token.STRING, 0)),
+		"Version":               reflect.ValueOf(constant.MakeFromLiteral("\"0.0.15\"", token.STRING, 0)),
 
 		// type definitions
 		"DataList":    reflect.ValueOf((*insyra.DataList)(nil)),

@@ -59,6 +59,8 @@ github.com/HazelnutParadise/insyra v0.0.13 h1:xxuMNU8OEeBs8mbHr5EgptaZCk/WAKoMCJ
 github.com/HazelnutParadise/insyra v0.0.13/go.mod h1:g53WI5KbNKg0tSyOn6bpME1Oj3XhSEvpt5f81yEVJxM=
 github.com/HazelnutParadise/insyra v0.0.14 h1:hJyjxzwB4jDM/y7MSDy+9prtyTOKSugoIr7BSZQPmFc=
 github.com/HazelnutParadise/insyra v0.0.14/go.mod h1:g53WI5KbNKg0tSyOn6bpME1Oj3XhSEvpt5f81yEVJxM=
+github.com/HazelnutParadise/insyra v0.0.15 h1:EX6kDzdav1V0zrIbOYLJFFE3rMOeft0sZlH6FhVTlP4=
+github.com/HazelnutParadise/insyra v0.0.15/go.mod h1:g53WI5KbNKg0tSyOn6bpME1Oj3XhSEvpt5f81yEVJxM=
 github.com/ajstarks/deck v0.0.0-20200831202436-30c9fc6549a9/go.mod h1:JynElWSGnm/4RlzPXRlREEwqTHAN3T56Bv2ITsFT3gY=
 github.com/ajstarks/deck/generate v0.0.0-20210309230005-c3f852c02e19/go.mod h1:T13YZdzov6OU0A1+RfKZiZN9ca6VeKdBdyDV+BY97Tk=
 github.com/ajstarks/svgo v0.0.0-20211024235047-1546f124cd8b h1:slYM766cy2nI3BwyRiyQj/Ud48djTMtMebDqepE95rw=

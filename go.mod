@@ -4,7 +4,7 @@ go 1.22.7
 
 require (
 	fyne.io/fyne/v2 v2.5.1
-	github.com/HazelnutParadise/insyra v0.0.14
+	github.com/HazelnutParadise/insyra v0.0.15
 	github.com/traefik/yaegi v0.16.1
 )
 
