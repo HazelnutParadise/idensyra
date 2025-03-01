@@ -36,7 +36,7 @@ import (
 	"github.com/traefik/yaegi/stdlib"
 )
 
-const version = "0.0.4"
+const version = "0.0.5"
 
 var preCode = `package main
 `
@@ -45,15 +45,18 @@ var endCode = ``
 var defaultCode = `import (
 	"fmt"
 	"log"
+	"github.com/HazelnutParadise/insyra/isr"
 	"github.com/HazelnutParadise/insyra"
+	"github.com/HazelnutParadise/insyra/datafetch"
 	"github.com/HazelnutParadise/insyra/stats"
 	"github.com/HazelnutParadise/insyra/parallel"
-	"github.com/HazelnutParadise/insyra/csvxl"
-	"github.com/HazelnutParadise/insyra/lpgen"
 	"github.com/HazelnutParadise/insyra/plot"
 	"github.com/HazelnutParadise/insyra/gplot"
+	"github.com/HazelnutParadise/insyra/lpgen"
+	"github.com/HazelnutParadise/insyra/csvxl"
+	"github.com/HazelnutParadise/insyra/py"
 
-	// No py and lp package support
+	// No lp package support
 	// No other third party package support
 )
 

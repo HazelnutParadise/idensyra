@@ -12,10 +12,12 @@ import (
 func init() {
 	Symbols["github.com/HazelnutParadise/insyra/csvxl/csvxl"] = map[string]reflect.Value{
 		// function, constant and variable definitions
-		"AppendCsvToExcel": reflect.ValueOf(csvxl.AppendCsvToExcel),
-		"Big5":             reflect.ValueOf(constant.MakeFromLiteral("\"big5\"", token.STRING, 0)),
-		"CsvToExcel":       reflect.ValueOf(csvxl.CsvToExcel),
-		"ExcelToCsv":       reflect.ValueOf(csvxl.ExcelToCsv),
-		"UTF8":             reflect.ValueOf(constant.MakeFromLiteral("\"utf-8\"", token.STRING, 0)),
+		"AppendCsvToExcel":  reflect.ValueOf(csvxl.AppendCsvToExcel),
+		"Big5":              reflect.ValueOf(constant.MakeFromLiteral("\"big5\"", token.STRING, 0)),
+		"CsvToExcel":        reflect.ValueOf(csvxl.CsvToExcel),
+		"EachCsvToOneExcel": reflect.ValueOf(csvxl.EachCsvToOneExcel),
+		"EachExcelToCsv":    reflect.ValueOf(csvxl.EachExcelToCsv),
+		"ExcelToCsv":        reflect.ValueOf(csvxl.ExcelToCsv),
+		"UTF8":              reflect.ValueOf(constant.MakeFromLiteral("\"utf-8\"", token.STRING, 0)),
 	}
 }

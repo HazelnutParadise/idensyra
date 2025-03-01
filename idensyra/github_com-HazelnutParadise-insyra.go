@@ -31,7 +31,7 @@ func init() {
 		"SqrtRat":               reflect.ValueOf(insyra.SqrtRat),
 		"ToFloat64":             reflect.ValueOf(insyra.ToFloat64),
 		"ToFloat64Safe":         reflect.ValueOf(insyra.ToFloat64Safe),
-		"Version":               reflect.ValueOf(constant.MakeFromLiteral("\"0.0.15\"", token.STRING, 0)),
+		"Version":               reflect.ValueOf(constant.MakeFromLiteral("\"0.1.5\"", token.STRING, 0)),
 
 		// type definitions
 		"DataList":    reflect.ValueOf((*insyra.DataList)(nil)),
@@ -51,7 +51,7 @@ func init() {
 // _github_com_HazelnutParadise_insyra_IDataList is an interface wrapper for IDataList type
 type _github_com_HazelnutParadise_insyra_IDataList struct {
 	IValue                        interface{}
-	WAppend                       func(values ...interface{})
+	WAppend                       func(values ...any)
 	WCapitalize                   func() *insyra.DataList
 	WClear                        func() *insyra.DataList
 	WClearNaNs                    func() *insyra.DataList
@@ -59,28 +59,28 @@ type _github_com_HazelnutParadise_insyra_IDataList struct {
 	WClearOutliers                func(a0 float64) *insyra.DataList
 	WClearStrings                 func() *insyra.DataList
 	WClone                        func() *insyra.DataList
-	WCount                        func(value interface{}) int
-	WCounter                      func() map[interface{}]int
-	WData                         func() []interface{}
+	WCount                        func(value any) int
+	WCounter                      func() map[any]int
+	WData                         func() []any
 	WDifference                   func() *insyra.DataList
 	WDoubleExponentialSmoothing   func(a0 float64, a1 float64) *insyra.DataList
 	WDrop                         func(index int) *insyra.DataList
-	WDropAll                      func(a0 ...interface{}) *insyra.DataList
-	WDropIfContains               func(a0 interface{}) *insyra.DataList
+	WDropAll                      func(a0 ...any) *insyra.DataList
+	WDropIfContains               func(a0 any) *insyra.DataList
 	WExponentialSmoothing         func(a0 float64) *insyra.DataList
 	WFillNaNWithMean              func() *insyra.DataList
-	WFilter                       func(a0 func(interface{}) bool) *insyra.DataList
-	WFindAll                      func(a0 interface{}) []int
-	WFindFirst                    func(a0 interface{}) interface{}
-	WFindLast                     func(a0 interface{}) interface{}
+	WFilter                       func(a0 func(any) bool) *insyra.DataList
+	WFindAll                      func(a0 any) []int
+	WFindFirst                    func(a0 any) any
+	WFindLast                     func(a0 any) any
 	WGMean                        func() float64
-	WGet                          func(index int) interface{}
+	WGet                          func(index int) any
 	WGetCreationTimestamp         func() int64
 	WGetLastModifiedTimestamp     func() int64
 	WGetName                      func() string
 	WHermiteInterpolation         func(a0 float64, a1 []float64) float64
 	WIQR                          func() float64
-	WInsertAt                     func(index int, value interface{})
+	WInsertAt                     func(index int, value any)
 	WIsEqualTo                    func(a0 *insyra.DataList) bool
 	WIsTheSameAs                  func(a0 *insyra.DataList) bool
 	WLagrangeInterpolation        func(a0 float64) float64
@@ -92,7 +92,7 @@ type _github_com_HazelnutParadise_insyra_IDataList struct {
 	WMean                         func() float64
 	WMedian                       func() float64
 	WMin                          func() float64
-	WMode                         func() float64
+	WMode                         func() []float64
 	WMovingAverage                func(a0 int) *insyra.DataList
 	WMovingStdev                  func(a0 int) *insyra.DataList
 	WNearestNeighborInterpolation func(a0 float64) float64
@@ -101,14 +101,14 @@ type _github_com_HazelnutParadise_insyra_IDataList struct {
 	WParseNumbers                 func() *insyra.DataList
 	WParseStrings                 func() *insyra.DataList
 	WPercentile                   func(a0 float64) float64
-	WPop                          func() interface{}
+	WPop                          func() any
 	WQuadraticInterpolation       func(a0 float64) float64
 	WQuartile                     func(a0 int) float64
 	WRange                        func() float64
 	WRank                         func() *insyra.DataList
-	WReplaceAll                   func(a0 interface{}, a1 interface{})
-	WReplaceFirst                 func(a0 interface{}, a1 interface{})
-	WReplaceLast                  func(a0 interface{}, a1 interface{})
+	WReplaceAll                   func(a0 any, a1 any)
+	WReplaceFirst                 func(a0 any, a1 any)
+	WReplaceLast                  func(a0 any, a1 any)
 	WReplaceOutliers              func(a0 float64, a1 float64) *insyra.DataList
 	WReverse                      func() *insyra.DataList
 	WSetName                      func(a0 string) *insyra.DataList
@@ -119,15 +119,15 @@ type _github_com_HazelnutParadise_insyra_IDataList struct {
 	WSum                          func() float64
 	WToF64Slice                   func() []float64
 	WToStringSlice                func() []string
-	WUpdate                       func(index int, value interface{})
+	WUpdate                       func(index int, value any)
 	WUpper                        func() *insyra.DataList
 	WVar                          func() float64
 	WVarP                         func() float64
-	WWeightedMean                 func(weights interface{}) float64
-	WWeightedMovingAverage        func(a0 int, a1 interface{}) *insyra.DataList
+	WWeightedMean                 func(weights any) float64
+	WWeightedMovingAverage        func(a0 int, a1 any) *insyra.DataList
 }
 
-func (W _github_com_HazelnutParadise_insyra_IDataList) Append(values ...interface{}) {
+func (W _github_com_HazelnutParadise_insyra_IDataList) Append(values ...any) {
 	W.WAppend(values...)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) Capitalize() *insyra.DataList {
@@ -151,13 +151,13 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) ClearStrings() *insyra.Da
 func (W _github_com_HazelnutParadise_insyra_IDataList) Clone() *insyra.DataList {
 	return W.WClone()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) Count(value interface{}) int {
+func (W _github_com_HazelnutParadise_insyra_IDataList) Count(value any) int {
 	return W.WCount(value)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) Counter() map[interface{}]int {
+func (W _github_com_HazelnutParadise_insyra_IDataList) Counter() map[any]int {
 	return W.WCounter()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) Data() []interface{} {
+func (W _github_com_HazelnutParadise_insyra_IDataList) Data() []any {
 	return W.WData()
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) Difference() *insyra.DataList {
@@ -169,10 +169,10 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) DoubleExponentialSmoothin
 func (W _github_com_HazelnutParadise_insyra_IDataList) Drop(index int) *insyra.DataList {
 	return W.WDrop(index)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) DropAll(a0 ...interface{}) *insyra.DataList {
+func (W _github_com_HazelnutParadise_insyra_IDataList) DropAll(a0 ...any) *insyra.DataList {
 	return W.WDropAll(a0...)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) DropIfContains(a0 interface{}) *insyra.DataList {
+func (W _github_com_HazelnutParadise_insyra_IDataList) DropIfContains(a0 any) *insyra.DataList {
 	return W.WDropIfContains(a0)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) ExponentialSmoothing(a0 float64) *insyra.DataList {
@@ -181,22 +181,22 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) ExponentialSmoothing(a0 f
 func (W _github_com_HazelnutParadise_insyra_IDataList) FillNaNWithMean() *insyra.DataList {
 	return W.WFillNaNWithMean()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) Filter(a0 func(interface{}) bool) *insyra.DataList {
+func (W _github_com_HazelnutParadise_insyra_IDataList) Filter(a0 func(any) bool) *insyra.DataList {
 	return W.WFilter(a0)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) FindAll(a0 interface{}) []int {
+func (W _github_com_HazelnutParadise_insyra_IDataList) FindAll(a0 any) []int {
 	return W.WFindAll(a0)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) FindFirst(a0 interface{}) interface{} {
+func (W _github_com_HazelnutParadise_insyra_IDataList) FindFirst(a0 any) any {
 	return W.WFindFirst(a0)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) FindLast(a0 interface{}) interface{} {
+func (W _github_com_HazelnutParadise_insyra_IDataList) FindLast(a0 any) any {
 	return W.WFindLast(a0)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) GMean() float64 {
 	return W.WGMean()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) Get(index int) interface{} {
+func (W _github_com_HazelnutParadise_insyra_IDataList) Get(index int) any {
 	return W.WGet(index)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) GetCreationTimestamp() int64 {
@@ -214,7 +214,7 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) HermiteInterpolation(a0 f
 func (W _github_com_HazelnutParadise_insyra_IDataList) IQR() float64 {
 	return W.WIQR()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) InsertAt(index int, value interface{}) {
+func (W _github_com_HazelnutParadise_insyra_IDataList) InsertAt(index int, value any) {
 	W.WInsertAt(index, value)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) IsEqualTo(a0 *insyra.DataList) bool {
@@ -250,7 +250,7 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) Median() float64 {
 func (W _github_com_HazelnutParadise_insyra_IDataList) Min() float64 {
 	return W.WMin()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) Mode() float64 {
+func (W _github_com_HazelnutParadise_insyra_IDataList) Mode() []float64 {
 	return W.WMode()
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) MovingAverage(a0 int) *insyra.DataList {
@@ -277,7 +277,7 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) ParseStrings() *insyra.Da
 func (W _github_com_HazelnutParadise_insyra_IDataList) Percentile(a0 float64) float64 {
 	return W.WPercentile(a0)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) Pop() interface{} {
+func (W _github_com_HazelnutParadise_insyra_IDataList) Pop() any {
 	return W.WPop()
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) QuadraticInterpolation(a0 float64) float64 {
@@ -292,13 +292,13 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) Range() float64 {
 func (W _github_com_HazelnutParadise_insyra_IDataList) Rank() *insyra.DataList {
 	return W.WRank()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) ReplaceAll(a0 interface{}, a1 interface{}) {
+func (W _github_com_HazelnutParadise_insyra_IDataList) ReplaceAll(a0 any, a1 any) {
 	W.WReplaceAll(a0, a1)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) ReplaceFirst(a0 interface{}, a1 interface{}) {
+func (W _github_com_HazelnutParadise_insyra_IDataList) ReplaceFirst(a0 any, a1 any) {
 	W.WReplaceFirst(a0, a1)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) ReplaceLast(a0 interface{}, a1 interface{}) {
+func (W _github_com_HazelnutParadise_insyra_IDataList) ReplaceLast(a0 any, a1 any) {
 	W.WReplaceLast(a0, a1)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) ReplaceOutliers(a0 float64, a1 float64) *insyra.DataList {
@@ -331,7 +331,7 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) ToF64Slice() []float64 {
 func (W _github_com_HazelnutParadise_insyra_IDataList) ToStringSlice() []string {
 	return W.WToStringSlice()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) Update(index int, value interface{}) {
+func (W _github_com_HazelnutParadise_insyra_IDataList) Update(index int, value any) {
 	W.WUpdate(index, value)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) Upper() *insyra.DataList {
@@ -343,10 +343,10 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) Var() float64 {
 func (W _github_com_HazelnutParadise_insyra_IDataList) VarP() float64 {
 	return W.WVarP()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) WeightedMean(weights interface{}) float64 {
+func (W _github_com_HazelnutParadise_insyra_IDataList) WeightedMean(weights any) float64 {
 	return W.WWeightedMean(weights)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) WeightedMovingAverage(a0 int, a1 interface{}) *insyra.DataList {
+func (W _github_com_HazelnutParadise_insyra_IDataList) WeightedMovingAverage(a0 int, a1 any) *insyra.DataList {
 	return W.WWeightedMovingAverage(a0, a1)
 }
 
@@ -354,11 +354,11 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) WeightedMovingAverage(a0 
 type _github_com_HazelnutParadise_insyra_IDataTable struct {
 	IValue                                 interface{}
 	WAppendCols                            func(columns ...*insyra.DataList) *insyra.DataTable
-	WAppendRowsByColIndex                  func(rowsData ...map[string]interface{}) *insyra.DataTable
-	WAppendRowsByColName                   func(rowsData ...map[string]interface{}) *insyra.DataTable
+	WAppendRowsByColIndex                  func(rowsData ...map[string]any) *insyra.DataTable
+	WAppendRowsByColName                   func(rowsData ...map[string]any) *insyra.DataTable
 	WAppendRowsFromDataList                func(rowsData ...*insyra.DataList) *insyra.DataTable
-	WCount                                 func(value interface{}) int
-	WData                                  func(useNamesAsKeys ...bool) map[string][]interface{}
+	WCount                                 func(value any) int
+	WData                                  func(useNamesAsKeys ...bool) map[string][]any
 	WDropColsByIndex                       func(columnIndices ...string)
 	WDropColsByName                        func(columnNames ...string)
 	WDropColsByNumber                      func(columnIndices ...int)
@@ -378,7 +378,7 @@ type _github_com_HazelnutParadise_insyra_IDataTable struct {
 	WFilterByColIndexLessThanOrEqualTo     func(threshold string) *insyra.DataTable
 	WFilterByColNameContains               func(substring string) *insyra.DataTable
 	WFilterByColNameEqualTo                func(name string) *insyra.DataTable
-	WFilterByCustomElement                 func(f func(value interface{}) bool) *insyra.DataTable
+	WFilterByCustomElement                 func(f func(value any) bool) *insyra.DataTable
 	WFilterByRowIndexEqualTo               func(index int) *insyra.DataTable
 	WFilterByRowIndexGreaterThan           func(threshold int) *insyra.DataTable
 	WFilterByRowIndexGreaterThanOrEqualTo  func(threshold int) *insyra.DataTable
@@ -388,22 +388,22 @@ type _github_com_HazelnutParadise_insyra_IDataTable struct {
 	WFilterByRowNameEqualTo                func(name string) *insyra.DataTable
 	WFindColsIfAllElementsContainSubstring func(substring string) []string
 	WFindColsIfAnyElementContainsSubstring func(substring string) []string
-	WFindColsIfContains                    func(value interface{}) []string
-	WFindColsIfContainsAll                 func(values ...interface{}) []string
+	WFindColsIfContains                    func(value any) []string
+	WFindColsIfContainsAll                 func(values ...any) []string
 	WFindRowsIfAllElementsContainSubstring func(substring string) []int
 	WFindRowsIfAnyElementContainsSubstring func(substring string) []int
-	WFindRowsIfContains                    func(value interface{}) []int
-	WFindRowsIfContainsAll                 func(values ...interface{}) []int
+	WFindRowsIfContains                    func(value any) []int
+	WFindRowsIfContainsAll                 func(values ...any) []int
 	WGetCol                                func(index string) *insyra.DataList
 	WGetColByNumber                        func(index int) *insyra.DataList
 	WGetCreationTimestamp                  func() int64
-	WGetElement                            func(rowIndex int, columnIndex string) interface{}
-	WGetElementByNumberIndex               func(rowIndex int, columnIndex int) interface{}
+	WGetElement                            func(rowIndex int, columnIndex string) any
+	WGetElementByNumberIndex               func(rowIndex int, columnIndex int) any
 	WGetLastModifiedTimestamp              func() int64
 	WGetRow                                func(index int) *insyra.DataList
 	WGetRowNameByIndex                     func(index int) string
 	WLoadFromCSV                           func(filePath string, setFirstColToRowNames bool, setFirstRowToColNames bool) error
-	WMean                                  func() interface{}
+	WMean                                  func() any
 	WSetColToRowNames                      func(columnIndex string) *insyra.DataTable
 	WSetRowNameByIndex                     func(index int, name string)
 	WSetRowToColNames                      func(rowIndex int) *insyra.DataTable
@@ -411,29 +411,31 @@ type _github_com_HazelnutParadise_insyra_IDataTable struct {
 	WShowTypes                             func()
 	WSize                                  func() (int, int)
 	WToCSV                                 func(filePath string, setRowNamesToFirstCol bool, setColNamesToFirstRow bool) error
+	WToJSON                                func(filePath string, useColName bool) error
+	WToJSON_Bytes                          func(useColName bool) []byte
 	WTranspose                             func() *insyra.DataTable
 	WUpdateCol                             func(index string, dl *insyra.DataList)
 	WUpdateColByNumber                     func(index int, dl *insyra.DataList)
-	WUpdateElement                         func(rowIndex int, columnIndex string, value interface{})
+	WUpdateElement                         func(rowIndex int, columnIndex string, value any)
 	WUpdateRow                             func(index int, dl *insyra.DataList)
 }
 
 func (W _github_com_HazelnutParadise_insyra_IDataTable) AppendCols(columns ...*insyra.DataList) *insyra.DataTable {
 	return W.WAppendCols(columns...)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) AppendRowsByColIndex(rowsData ...map[string]interface{}) *insyra.DataTable {
+func (W _github_com_HazelnutParadise_insyra_IDataTable) AppendRowsByColIndex(rowsData ...map[string]any) *insyra.DataTable {
 	return W.WAppendRowsByColIndex(rowsData...)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) AppendRowsByColName(rowsData ...map[string]interface{}) *insyra.DataTable {
+func (W _github_com_HazelnutParadise_insyra_IDataTable) AppendRowsByColName(rowsData ...map[string]any) *insyra.DataTable {
 	return W.WAppendRowsByColName(rowsData...)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) AppendRowsFromDataList(rowsData ...*insyra.DataList) *insyra.DataTable {
 	return W.WAppendRowsFromDataList(rowsData...)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) Count(value interface{}) int {
+func (W _github_com_HazelnutParadise_insyra_IDataTable) Count(value any) int {
 	return W.WCount(value)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) Data(useNamesAsKeys ...bool) map[string][]interface{} {
+func (W _github_com_HazelnutParadise_insyra_IDataTable) Data(useNamesAsKeys ...bool) map[string][]any {
 	return W.WData(useNamesAsKeys...)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) DropColsByIndex(columnIndices ...string) {
@@ -493,7 +495,7 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColNameContains(
 func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByColNameEqualTo(name string) *insyra.DataTable {
 	return W.WFilterByColNameEqualTo(name)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByCustomElement(f func(value interface{}) bool) *insyra.DataTable {
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByCustomElement(f func(value any) bool) *insyra.DataTable {
 	return W.WFilterByCustomElement(f)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) FilterByRowIndexEqualTo(index int) *insyra.DataTable {
@@ -523,10 +525,10 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) FindColsIfAllElementsCon
 func (W _github_com_HazelnutParadise_insyra_IDataTable) FindColsIfAnyElementContainsSubstring(substring string) []string {
 	return W.WFindColsIfAnyElementContainsSubstring(substring)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FindColsIfContains(value interface{}) []string {
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FindColsIfContains(value any) []string {
 	return W.WFindColsIfContains(value)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FindColsIfContainsAll(values ...interface{}) []string {
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FindColsIfContainsAll(values ...any) []string {
 	return W.WFindColsIfContainsAll(values...)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) FindRowsIfAllElementsContainSubstring(substring string) []int {
@@ -535,10 +537,10 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) FindRowsIfAllElementsCon
 func (W _github_com_HazelnutParadise_insyra_IDataTable) FindRowsIfAnyElementContainsSubstring(substring string) []int {
 	return W.WFindRowsIfAnyElementContainsSubstring(substring)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FindRowsIfContains(value interface{}) []int {
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FindRowsIfContains(value any) []int {
 	return W.WFindRowsIfContains(value)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) FindRowsIfContainsAll(values ...interface{}) []int {
+func (W _github_com_HazelnutParadise_insyra_IDataTable) FindRowsIfContainsAll(values ...any) []int {
 	return W.WFindRowsIfContainsAll(values...)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) GetCol(index string) *insyra.DataList {
@@ -550,10 +552,10 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) GetColByNumber(index int
 func (W _github_com_HazelnutParadise_insyra_IDataTable) GetCreationTimestamp() int64 {
 	return W.WGetCreationTimestamp()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) GetElement(rowIndex int, columnIndex string) interface{} {
+func (W _github_com_HazelnutParadise_insyra_IDataTable) GetElement(rowIndex int, columnIndex string) any {
 	return W.WGetElement(rowIndex, columnIndex)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) GetElementByNumberIndex(rowIndex int, columnIndex int) interface{} {
+func (W _github_com_HazelnutParadise_insyra_IDataTable) GetElementByNumberIndex(rowIndex int, columnIndex int) any {
 	return W.WGetElementByNumberIndex(rowIndex, columnIndex)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) GetLastModifiedTimestamp() int64 {
@@ -568,7 +570,7 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) GetRowNameByIndex(index 
 func (W _github_com_HazelnutParadise_insyra_IDataTable) LoadFromCSV(filePath string, setFirstColToRowNames bool, setFirstRowToColNames bool) error {
 	return W.WLoadFromCSV(filePath, setFirstColToRowNames, setFirstRowToColNames)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) Mean() interface{} {
+func (W _github_com_HazelnutParadise_insyra_IDataTable) Mean() any {
 	return W.WMean()
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) SetColToRowNames(columnIndex string) *insyra.DataTable {
@@ -592,6 +594,12 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) Size() (int, int) {
 func (W _github_com_HazelnutParadise_insyra_IDataTable) ToCSV(filePath string, setRowNamesToFirstCol bool, setColNamesToFirstRow bool) error {
 	return W.WToCSV(filePath, setRowNamesToFirstCol, setColNamesToFirstRow)
 }
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ToJSON(filePath string, useColName bool) error {
+	return W.WToJSON(filePath, useColName)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ToJSON_Bytes(useColName bool) []byte {
+	return W.WToJSON_Bytes(useColName)
+}
 func (W _github_com_HazelnutParadise_insyra_IDataTable) Transpose() *insyra.DataTable {
 	return W.WTranspose()
 }
@@ -601,7 +609,7 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) UpdateCol(index string, 
 func (W _github_com_HazelnutParadise_insyra_IDataTable) UpdateColByNumber(index int, dl *insyra.DataList) {
 	W.WUpdateColByNumber(index, dl)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) UpdateElement(rowIndex int, columnIndex string, value interface{}) {
+func (W _github_com_HazelnutParadise_insyra_IDataTable) UpdateElement(rowIndex int, columnIndex string, value any) {
 	W.WUpdateElement(rowIndex, columnIndex, value)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) UpdateRow(index int, dl *insyra.DataList) {
