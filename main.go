@@ -36,7 +36,7 @@ import (
 	"github.com/traefik/yaegi/stdlib"
 )
 
-const version = "0.0.5"
+const version = "0.0.6"
 
 var preCode = `package main
 `
@@ -343,7 +343,7 @@ var runningPort int
 
 // go embed 嵌入靜態文件
 
-//go:embed webui/index.html
+//go:embed webui/index.tmpl
 var indexHTML string
 
 //go:embed webui/insyra.png

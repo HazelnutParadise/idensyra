@@ -594,9 +594,11 @@
     #resizer {
       width: 6px;
       height: 650px;
-      background-color: #b3c0c8; /* 柔和的灰藍色 */
+      background-color: #b3c0c8;
+      /* 柔和的灰藍色 */
       cursor: col-resize;
-      border-radius: 4px; /* 圓角效果 */
+      border-radius: 4px;
+      /* 圓角效果 */
       border-left: 1px solid #a0aeb8;
       border-right: 1px solid #a0aeb8;
       align-self: center;
@@ -605,26 +607,31 @@
     #resizer:hover {
       width: 15px;
       border-radius: 0;
-      background-color: #8fa1ad; /* 滑動條懸停效果 */
+      background-color: #8fa1ad;
+      /* 滑動條懸停效果 */
     }
 
     #resizer.resizing {
       border-radius: 0;
       width: 15px;
-      background-color: #6e7f8a; /* 拖曳時效果 */
+      background-color: #6e7f8a;
+      /* 拖曳時效果 */
     }
 
 
     [data-theme="dark"] #resizer {
-      background-color: #4b5563; /* 柔和深灰色 */
+      background-color: #4b5563;
+      /* 柔和深灰色 */
     }
 
     [data-theme="dark"] #resizer:hover {
-      background-color: #374151; /* 拖曳前稍深 */
+      background-color: #374151;
+      /* 拖曳前稍深 */
     }
 
     [data-theme="dark"] #resizer.resizing {
-      background-color: #2d3748; /* 拖曳時更深 */
+      background-color: #2d3748;
+      /* 拖曳時更深 */
     }
 
 
@@ -635,7 +642,8 @@
       padding-left: 10px;
       padding-right: 10px;
       margin-bottom: 10px;
-      min-width: 200px; /* 設置最小寬度 */
+      min-width: 200px;
+      /* 設置最小寬度 */
     }
 
     @media (max-width: 22cm) {
@@ -646,7 +654,8 @@
       .editor {
         margin: 0;
         margin-bottom: 10px;
-        width: 99% !important; /* 添加 !important 確保覆蓋內聯樣式 */
+        width: 99% !important;
+        /* 添加 !important 確保覆蓋內聯樣式 */
         max-width: none;
       }
 
@@ -858,275 +867,318 @@
 
     // 添加執行代碼的功能
     function executeQuery() {
-        const runButton = document.getElementById("runButton");
-        const buttonText = document.getElementById("buttonText");
-        const loader = document.getElementById("loader");
-        const resultWindow = document.getElementById("result-window");
+      const runButton = document.getElementById("runButton");
+      const buttonText = document.getElementById("buttonText");
+      const loader = document.getElementById("loader");
+      const resultWindow = document.getElementById("result-window");
 
-        // 獲取編輯器中的代碼
-        const codeInput = codeEditor.getValue();
+      // 獲取編輯器中的代碼
+      const codeInput = codeEditor.getValue();
 
-        // 顯示加載器，隱藏文字
-        buttonText.style.display = "none";
-        loader.style.display = "inline-block";
-        runButton.classList.add("running-btn");
+      // 顯示加載器，隱藏文字
+      buttonText.style.display = "none";
+      loader.style.display = "inline-block";
+      runButton.classList.add("running-btn");
 
-        // 發送請求到後端
-        fetch("http://localhost:{{.Port}}/api/execute", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                codeInput: encodeURIComponent(codeInput),
-            }),
-        })
+      // 發送請求到後端
+      fetch("http://localhost:{{.Port}}/api/execute", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          codeInput: encodeURIComponent(codeInput),
+        }),
+      })
         .then((response) => response.text())
         .then((data) => {
-            resultWindow.innerHTML = `${JSON.parse(JSON.stringify(data))}`;
+          resultWindow.innerHTML = `${JSON.parse(JSON.stringify(data))}`;
         })
         .catch((error) => {
-            console.error("Error:", error);
-            resultWindow.innerHTML = "Error: " + error.message;
+          console.error("Error:", error);
+          resultWindow.innerHTML = "Error: " + error.message;
         })
         .finally(() => {
-            buttonText.style.display = "inline";
-            loader.style.display = "none";
-            runButton.classList.remove("running-btn");
+          buttonText.style.display = "inline";
+          loader.style.display = "none";
+          runButton.classList.remove("running-btn");
         });
     }
 
     // WebSocket 初始化
     function connectWebSocket() {
-        socket = new WebSocket("ws://" + window.location.host + "/ws");
-        socket.binaryType = "blob";  // 設置為 blob 類型以處理大量數據
+      socket = new WebSocket("ws://" + window.location.host + "/ws");
+      socket.binaryType = "blob";  // 設置為 blob 類型以處理大量數據
 
-        socket.onopen = function(event) {
-            console.log("WebSocket 連接已開啟");
-            // 開始發送心跳
-            heartbeatInterval = setInterval(function() {
-                if (socket && socket.readyState === WebSocket.OPEN) {
-                    socket.send(JSON.stringify({
-                        type: "heartbeat"
-                    }));
-                }
-            }, 1);
-        };
+      socket.onopen = function (event) {
+        console.log("WebSocket 連接已開啟");
+        // 開始發送心跳
+        heartbeatInterval = setInterval(function () {
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+              type: "heartbeat"
+            }));
+          }
+        }, 1);
+      };
 
-        socket.onclose = function(event) {
-            console.log("WebSocket 連接已關閉");
-            clearInterval(heartbeatInterval);
-            setTimeout(connectWebSocket, 1000);
-            window.close();
-        };
+      socket.onclose = function (event) {
+        console.log("WebSocket 連接已關閉");
+        clearInterval(heartbeatInterval);
+        setTimeout(connectWebSocket, 1000);
+        window.close();
+      };
 
-        socket.onerror = function(error) {
-            console.error("WebSocket 錯誤:", error);
-        };
+      socket.onerror = function (error) {
+        console.error("WebSocket 錯誤:", error);
+      };
     }
 
     // Monaco Editor 初始化
     require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.33.0/min/vs' } });
     require(['vs/editor/editor.main'], function () {
-        const symbols = "{{.Symbols}}";
-
-        codeEditor = monaco.editor.create(
-            document.getElementById("code-editor"),
-            {
-                value: "{{.DefaultCode}}",
-                language: "go",
-                theme: "vs",
-                lineNumbers: "on",
-                lineNumbersMinChars: 3,
-                scrollBeyondLastLine: false,
-                readOnly: false,
-                quickSuggestions: true,
-                suggestOnTriggerCharacters: true,
-                automaticLayout: true,
-                wordWrap: "on",
-                scrollbar: {
-                    alwaysConsumeMouseWheel: false,
-                },
-                minimap: { enabled: true },
-            }
-        );
-
-        // 依據電腦主題切換主題
-        if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
-            document.getElementById("toggle-dark-mode").checked = false;
-            document.documentElement.setAttribute("data-theme", "dark");
-            codeEditor.updateOptions({ theme: "vs-dark" });
+      // 解析 symbols 字串為陣列
+      const symbols = {{.Symbols}}
+    
+      // 建立編輯器
+      codeEditor = monaco.editor.create(
+        document.getElementById("code-editor"),
+        {
+          value: "{{.DefaultCode}}",
+          language: "go",
+          theme: "vs",
+          lineNumbers: "on", 
+          lineNumbersMinChars: 3,
+          scrollBeyondLastLine: false,
+          readOnly: false,
+          quickSuggestions: true,
+          suggestOnTriggerCharacters: true,
+          automaticLayout: true,
+          wordWrap: "on",
+          scrollbar: {
+            alwaysConsumeMouseWheel: false,
+          },
+          minimap: { enabled: true },
         }
-
-        // 恢復按鈕功能
-        document.getElementById("toggle-dark-mode").addEventListener("change", function (event) {
-            const theme = event.target.checked ? "vs" : "vs-dark";
-            codeEditor.updateOptions({ theme: theme });
-            if (document.documentElement.getAttribute("data-theme") === "dark") {
-                document.documentElement.removeAttribute("data-theme");
-            } else {
-                document.documentElement.setAttribute("data-theme", "dark");
+      );
+    
+      // 註冊代碼補全提供者
+      monaco.languages.registerCompletionItemProvider('go', {
+        triggerCharacters: ['.'],
+        provideCompletionItems: (model, position) => {
+          const textUntilPosition = model.getValueInRange({
+            startLineNumber: position.lineNumber,
+            startColumn: 1,
+            endLineNumber: position.lineNumber,
+            endColumn: position.column
+          });
+    
+          const match = textUntilPosition.match(/(\w+)\.$/);
+          if (match) {
+            const packageName = match[1];
+            
+            // 過濾出符合的 symbols
+            let suggestions = [];
+            for(let symbol of symbols) {
+              if(symbol.startsWith(packageName + '.')) {
+                const funcName = symbol.split('.')[1];
+                suggestions.push({
+                  label: funcName,
+                  kind: monaco.languages.CompletionItemKind.Function,
+                  insertText: funcName,
+                  detail: symbol,
+                  documentation: `Function from package ${packageName}`
+                });
+              }
             }
-        });
-
-        document.getElementById("miniMap").addEventListener("change", function(event) {
-            codeEditor.updateOptions({
-                minimap: { enabled: event.target.checked },
-            });
-        });
-
-        document.getElementById("wordWrap").addEventListener("change", function(event) {
-            codeEditor.updateOptions({
-                wordWrap: event.target.checked ? "on" : "off",
-            });
-        });
-
-        document.getElementById("copySchemaBtn").addEventListener("click", function () {
-            navigator.clipboard
-                .writeText(codeEditor.getValue())
-                .then(() => showSnackbar("Code has been copied to clipboard"))
-                .catch((err) => alert("Copy failed: ", err));
-        });
-
-        document.getElementById("copyResultTextBtn").addEventListener("click", function () {
-            const resultContent = document.getElementById("result-window").innerText;
-            navigator.clipboard
-                .writeText(resultContent)
-                .then(() => showSnackbar("Text has been copied to clipboard"))
-                .catch((err) => alert("Copy failed: ", err));
-        });
-
-        document.getElementById("importCode-btn").addEventListener("click", function () {
-            const codeInput = document.createElement("input");
-            codeInput.type = "file";
-            codeInput.accept = ".go,.txt";
-            codeInput.onchange = function (e) {
-                const file = e.target.files[0];
-                const reader = new FileReader();
-                reader.onload = function () {
-                    const newCode = reader.result.replace(/package .*\n\n/, "");
-                    codeEditor.setValue(newCode);
-                };
-                reader.readAsText(file);
+            
+            return {
+              suggestions: suggestions
             };
-            codeInput.click();
-        });
-
-        document.getElementById("downloadCodeBtn").addEventListener("click", function () {
-            const codeContent = codeEditor.getValue();
-            const preCode = "{{.PreCode}}";
-            const endCode = "{{.EndCode}}";
-            const blob = new Blob(
-                [preCode + "\n" + codeContent + "\n" + endCode], 
-                { type: 'text/plain' }
-            );
-            const url = URL.createObjectURL(blob);
-            
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'idensyra_code.go';
-            document.body.appendChild(a);
-            a.click();
-            
-            setTimeout(() => {
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            }, 0);
-            
-            showSnackbar("Downloaded");
-        });
-
-        document.getElementById("backToGuiBtn").addEventListener("click", function () {
-            const content = codeEditor.getValue();
-            
-            // 使用同步 XMLHttpRequest
-            const xhr = new XMLHttpRequest();
-            xhr.open("POST", "http://localhost:{{.Port}}/api/backToGui", false);
-            xhr.setRequestHeader("Content-Type", "application/json");
-            xhr.send(JSON.stringify({ codeInput: content }));
-            
-            window.close();
-        });
-
-        // 添加編輯器內容變更監聽
-        codeEditor.onDidChangeModelContent(function(e) {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                const content = codeEditor.getValue();
-                // 使用 Blob 發送大量數據
-                const blob = new Blob([JSON.stringify({
-                    type: "codeSync",
-                    content: content
-                })], {type: 'application/json'});
-                socket.send(blob);
-            }
-        });
-
-        // 添加字型大小調整功能
-        function setFontSize() {
-            let fontSlider = document.getElementById("fontSlider");
-            let newSize = fontSlider.value + "px";
-            let nowFontSize = document.getElementById("nowFontSize");
-            nowFontSize.textContent = newSize;
-            if (codeEditor) {
-                codeEditor.updateOptions({ fontSize: parseInt(fontSlider.value) });
-            }
+          }
+          return { suggestions: [] };
         }
+      });
+    
 
-        // 初始設置字型大小
-        setFontSize();
-        
-        // 監聽字型大小變更
-        document.getElementById("fontSlider").addEventListener("input", setFontSize);
+      
+
+      // 依據電腦主題切換主題
+      if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+        document.getElementById("toggle-dark-mode").checked = false;
+        document.documentElement.setAttribute("data-theme", "dark");
+        codeEditor.updateOptions({ theme: "vs-dark" });
+      }
+
+      // 恢復按鈕功能
+      document.getElementById("toggle-dark-mode").addEventListener("change", function (event) {
+        const theme = event.target.checked ? "vs" : "vs-dark";
+        codeEditor.updateOptions({ theme: theme });
+        if (document.documentElement.getAttribute("data-theme") === "dark") {
+          document.documentElement.removeAttribute("data-theme");
+        } else {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      });
+
+      document.getElementById("miniMap").addEventListener("change", function (event) {
+        codeEditor.updateOptions({
+          minimap: { enabled: event.target.checked },
+        });
+      });
+
+      document.getElementById("wordWrap").addEventListener("change", function (event) {
+        codeEditor.updateOptions({
+          wordWrap: event.target.checked ? "on" : "off",
+        });
+      });
+
+      document.getElementById("copySchemaBtn").addEventListener("click", function () {
+        navigator.clipboard
+          .writeText(codeEditor.getValue())
+          .then(() => showSnackbar("Code has been copied to clipboard"))
+          .catch((err) => alert("Copy failed: ", err));
+      });
+
+      document.getElementById("copyResultTextBtn").addEventListener("click", function () {
+        const resultContent = document.getElementById("result-window").innerText;
+        navigator.clipboard
+          .writeText(resultContent)
+          .then(() => showSnackbar("Text has been copied to clipboard"))
+          .catch((err) => alert("Copy failed: ", err));
+      });
+
+      document.getElementById("importCode-btn").addEventListener("click", function () {
+        const codeInput = document.createElement("input");
+        codeInput.type = "file";
+        codeInput.accept = ".go,.txt";
+        codeInput.onchange = function (e) {
+          const file = e.target.files[0];
+          const reader = new FileReader();
+          reader.onload = function () {
+            const newCode = reader.result.replace(/package .*\n\n/, "");
+            codeEditor.setValue(newCode);
+          };
+          reader.readAsText(file);
+        };
+        codeInput.click();
+      });
+
+      document.getElementById("downloadCodeBtn").addEventListener("click", function () {
+        const codeContent = codeEditor.getValue();
+        const preCode = "{{.PreCode}}";
+        const endCode = "{{.EndCode}}";
+        const blob = new Blob(
+          [preCode + "\n" + codeContent + "\n" + endCode],
+          { type: 'text/plain' }
+        );
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'idensyra_code.go';
+        document.body.appendChild(a);
+        a.click();
+
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 0);
+
+        showSnackbar("Downloaded");
+      });
+
+      document.getElementById("backToGuiBtn").addEventListener("click", function () {
+        const content = codeEditor.getValue();
+
+        // 使用同步 XMLHttpRequest
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "http://localhost:{{.Port}}/api/backToGui", false);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.send(JSON.stringify({ codeInput: content }));
+
+        window.close();
+      });
+
+      // 添加編輯器內容變更監聽
+      codeEditor.onDidChangeModelContent(function (e) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          const content = codeEditor.getValue();
+          // 使用 Blob 發送大量數據
+          const blob = new Blob([JSON.stringify({
+            type: "codeSync",
+            content: content
+          })], { type: 'application/json' });
+          socket.send(blob);
+        }
+      });
+
+      // 添加字型大小調整功能
+      function setFontSize() {
+        let fontSlider = document.getElementById("fontSlider");
+        let newSize = fontSlider.value + "px";
+        let nowFontSize = document.getElementById("nowFontSize");
+        nowFontSize.textContent = newSize;
+        if (codeEditor) {
+          codeEditor.updateOptions({ fontSize: parseInt(fontSlider.value) });
+        }
+      }
+
+      // 初始設置字型大小
+      setFontSize();
+
+      // 監聽字型大小變更
+      document.getElementById("fontSlider").addEventListener("input", setFontSize);
     });
 
     // 修改關閉事件處理
-    window.addEventListener('beforeunload', function(event) {
-        const content = codeEditor.getValue();
-        const uriContent = encodeURIComponent(content);
-        
-        fetch("http://localhost:{{.Port}}/api/syncCode", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ codeInput: uriContent }),
-        });
+    window.addEventListener('beforeunload', function (event) {
+      const content = codeEditor.getValue();
+      const uriContent = encodeURIComponent(content);
 
-            // WebSocket 清理
-            if (socket) {
-                socket.send(JSON.stringify({
-                    type: "closing",
-                    content: uriContent
-                }));
-                clearInterval(heartbeatInterval);
-                socket.close();
-            }
+      fetch("http://localhost:{{.Port}}/api/syncCode", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ codeInput: uriContent }),
+      });
 
-        // 返回空字符串以顯示瀏覽器的默認確認對話框
-        return event.returnValue;
+      // WebSocket 清理
+      if (socket) {
+        socket.send(JSON.stringify({
+          type: "closing",
+          content: uriContent
+        }));
+        clearInterval(heartbeatInterval);
+        socket.close();
+      }
+
+      // 返回空字符串以顯示瀏覽器的默認確認對話框
+      return event.returnValue;
     });
 
     // 頁面載入時初始化 WebSocket
     window.addEventListener('load', connectWebSocket);
 
     // 監聽 Live Run 的變更
-    document.getElementById("liveRun").addEventListener("change", async function(event) {
-        const runButton = document.getElementById("runButton");
-        const loader = document.getElementById("loader");
-        if (event.target.checked) {
-            // 開啟 Live Run
-            oldContent = codeEditor.getValue();
+    document.getElementById("liveRun").addEventListener("change", async function (event) {
+      const runButton = document.getElementById("runButton");
+      const loader = document.getElementById("loader");
+      if (event.target.checked) {
+        // 開啟 Live Run
+        oldContent = codeEditor.getValue();
+        executeQuery();
+        while (true) {
+          if (oldContent !== codeEditor.getValue()) {
             executeQuery();
-            while (true) {
-                if (oldContent !== codeEditor.getValue()) {
-                    executeQuery();
-                    oldContent = codeEditor.getValue();
-                }
-                await new Promise(resolve => setTimeout(resolve, 0));
-            }
-        } else {
-            runButton.classList.remove("running-btn");
+            oldContent = codeEditor.getValue();
+          }
+          await new Promise(resolve => setTimeout(resolve, 0));
         }
+      } else {
+        runButton.classList.remove("running-btn");
+      }
     });
 
     // 添加分隔條拖動功能
@@ -1145,17 +1197,17 @@
 
       // 防止選中文字
       e.preventDefault();
-      
+
       // 添加拖動時的樣式
       resizer.classList.add('resizing');
-      
+
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', () => {
         isResizing = false;
         // 除拖動時的樣式
         resizer.classList.remove('resizing');
         document.removeEventListener('mousemove', handleMouseMove);
-        
+
         // 調整 Monaco Editor 大小
         if (codeEditor) {
           codeEditor.layout();
@@ -1168,12 +1220,12 @@
 
       const totalWidth = editor1.parentElement.offsetWidth;
       const minWidth = 200; // 最小寬度
-      
+
       let newWidth = startWidth + (e.pageX - startX);
-      
+
       // 確保不超過最小和最大寬度
       newWidth = Math.max(minWidth, Math.min(newWidth, totalWidth - minWidth));
-      
+
       const widthPercentage = (newWidth / totalWidth) * 100;
       editor1.style.width = `${widthPercentage}%`;
       editor2.style.width = `${100 - widthPercentage}%`;
@@ -1186,7 +1238,7 @@
         editor1.style.width = '99%';
         editor2.style.width = '99%';
       }
-      
+
       // 調整 Monaco Editor 大小
       if (codeEditor) {
         codeEditor.layout();
