@@ -6,14 +6,19 @@ import (
 	"github.com/HazelnutParadise/insyra"
 	"go/constant"
 	"go/token"
+	"gorm.io/gorm"
 	"reflect"
 )
 
 func init() {
 	Symbols["github.com/HazelnutParadise/insyra/insyra"] = map[string]reflect.Value{
 		// function, constant and variable definitions
+		"AppendIfExists":        reflect.ValueOf(insyra.AppendIfExists),
+		"ColorText":             reflect.ValueOf(insyra.ColorText),
 		"Config":                reflect.ValueOf(&insyra.Config).Elem(),
 		"ConvertLongDataToWide": reflect.ValueOf(insyra.ConvertLongDataToWide),
+		"FailIfExists":          reflect.ValueOf(insyra.FailIfExists),
+		"FormatValue":           reflect.ValueOf(insyra.FormatValue),
 		"LogDebug":              reflect.ValueOf(insyra.LogDebug),
 		"LogFatal":              reflect.ValueOf(insyra.LogFatal),
 		"LogInfo":               reflect.ValueOf(insyra.LogInfo),
@@ -26,21 +31,27 @@ func init() {
 		"NewDataTable":          reflect.ValueOf(insyra.NewDataTable),
 		"PowRat":                reflect.ValueOf(insyra.PowRat),
 		"ProcessData":           reflect.ValueOf(insyra.ProcessData),
+		"ReadSQL":               reflect.ValueOf(insyra.ReadSQL),
+		"ReplaceIfExists":       reflect.ValueOf(insyra.ReplaceIfExists),
 		"SetDefaultConfig":      reflect.ValueOf(insyra.SetDefaultConfig),
 		"SliceToF64":            reflect.ValueOf(insyra.SliceToF64),
 		"SqrtRat":               reflect.ValueOf(insyra.SqrtRat),
 		"ToFloat64":             reflect.ValueOf(insyra.ToFloat64),
 		"ToFloat64Safe":         reflect.ValueOf(insyra.ToFloat64Safe),
-		"Version":               reflect.ValueOf(constant.MakeFromLiteral("\"0.1.5\"", token.STRING, 0)),
+		"TruncateString":        reflect.ValueOf(insyra.TruncateString),
+		"Version":               reflect.ValueOf(constant.MakeFromLiteral("\"0.1.10\"", token.STRING, 0)),
 
 		// type definitions
-		"DataList":    reflect.ValueOf((*insyra.DataList)(nil)),
-		"DataTable":   reflect.ValueOf((*insyra.DataTable)(nil)),
-		"FilterFunc":  reflect.ValueOf((*insyra.FilterFunc)(nil)),
-		"IDataList":   reflect.ValueOf((*insyra.IDataList)(nil)),
-		"IDataTable":  reflect.ValueOf((*insyra.IDataTable)(nil)),
-		"LogLevel":    reflect.ValueOf((*insyra.LogLevel)(nil)),
-		"NameManager": reflect.ValueOf((*insyra.NameManager)(nil)),
+		"DataList":               reflect.ValueOf((*insyra.DataList)(nil)),
+		"DataTable":              reflect.ValueOf((*insyra.DataTable)(nil)),
+		"FilterFunc":             reflect.ValueOf((*insyra.FilterFunc)(nil)),
+		"IDataList":              reflect.ValueOf((*insyra.IDataList)(nil)),
+		"IDataTable":             reflect.ValueOf((*insyra.IDataTable)(nil)),
+		"LogLevel":               reflect.ValueOf((*insyra.LogLevel)(nil)),
+		"NameManager":            reflect.ValueOf((*insyra.NameManager)(nil)),
+		"ReadSQLOptions":         reflect.ValueOf((*insyra.ReadSQLOptions)(nil)),
+		"SQLActionIfTableExists": reflect.ValueOf((*insyra.SQLActionIfTableExists)(nil)),
+		"ToSQLOptions":           reflect.ValueOf((*insyra.ToSQLOptions)(nil)),
 
 		// interface wrapper definitions
 		"_IDataList":  reflect.ValueOf((*_github_com_HazelnutParadise_insyra_IDataList)(nil)),
@@ -112,11 +123,13 @@ type _github_com_HazelnutParadise_insyra_IDataList struct {
 	WReplaceOutliers              func(a0 float64, a1 float64) *insyra.DataList
 	WReverse                      func() *insyra.DataList
 	WSetName                      func(a0 string) *insyra.DataList
+	WShow                         func()
 	WSort                         func(acending ...bool) *insyra.DataList
 	WStandardize                  func() *insyra.DataList
 	WStdev                        func() float64
 	WStdevP                       func() float64
 	WSum                          func() float64
+	WSummary                      func()
 	WToF64Slice                   func() []float64
 	WToStringSlice                func() []string
 	WUpdate                       func(index int, value any)
@@ -310,6 +323,9 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) Reverse() *insyra.DataLis
 func (W _github_com_HazelnutParadise_insyra_IDataList) SetName(a0 string) *insyra.DataList {
 	return W.WSetName(a0)
 }
+func (W _github_com_HazelnutParadise_insyra_IDataList) Show() {
+	W.WShow()
+}
 func (W _github_com_HazelnutParadise_insyra_IDataList) Sort(acending ...bool) *insyra.DataList {
 	return W.WSort(acending...)
 }
@@ -324,6 +340,9 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) StdevP() float64 {
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) Sum() float64 {
 	return W.WSum()
+}
+func (W _github_com_HazelnutParadise_insyra_IDataList) Summary() {
+	W.WSummary()
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) ToF64Slice() []float64 {
 	return W.WToF64Slice()
@@ -400,19 +419,23 @@ type _github_com_HazelnutParadise_insyra_IDataTable struct {
 	WGetElement                            func(rowIndex int, columnIndex string) any
 	WGetElementByNumberIndex               func(rowIndex int, columnIndex int) any
 	WGetLastModifiedTimestamp              func() int64
+	WGetName                               func() string
 	WGetRow                                func(index int) *insyra.DataList
 	WGetRowNameByIndex                     func(index int) string
 	WLoadFromCSV                           func(filePath string, setFirstColToRowNames bool, setFirstRowToColNames bool) error
 	WMean                                  func() any
 	WSetColToRowNames                      func(columnIndex string) *insyra.DataTable
+	WSetName                               func(name string) *insyra.DataTable
 	WSetRowNameByIndex                     func(index int, name string)
 	WSetRowToColNames                      func(rowIndex int) *insyra.DataTable
 	WShow                                  func()
 	WShowTypes                             func()
 	WSize                                  func() (int, int)
-	WToCSV                                 func(filePath string, setRowNamesToFirstCol bool, setColNamesToFirstRow bool) error
+	WSummary                               func()
+	WToCSV                                 func(filePath string, setRowNamesToFirstCol bool, setColNamesToFirstRow bool, includeBOM bool) error
 	WToJSON                                func(filePath string, useColName bool) error
 	WToJSON_Bytes                          func(useColName bool) []byte
+	WToSQL                                 func(db *gorm.DB, tableName string, options ...insyra.ToSQLOptions) error
 	WTranspose                             func() *insyra.DataTable
 	WUpdateCol                             func(index string, dl *insyra.DataList)
 	WUpdateColByNumber                     func(index int, dl *insyra.DataList)
@@ -561,6 +584,9 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) GetElementByNumberIndex(
 func (W _github_com_HazelnutParadise_insyra_IDataTable) GetLastModifiedTimestamp() int64 {
 	return W.WGetLastModifiedTimestamp()
 }
+func (W _github_com_HazelnutParadise_insyra_IDataTable) GetName() string {
+	return W.WGetName()
+}
 func (W _github_com_HazelnutParadise_insyra_IDataTable) GetRow(index int) *insyra.DataList {
 	return W.WGetRow(index)
 }
@@ -575,6 +601,9 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) Mean() any {
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) SetColToRowNames(columnIndex string) *insyra.DataTable {
 	return W.WSetColToRowNames(columnIndex)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) SetName(name string) *insyra.DataTable {
+	return W.WSetName(name)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) SetRowNameByIndex(index int, name string) {
 	W.WSetRowNameByIndex(index, name)
@@ -591,14 +620,20 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) ShowTypes() {
 func (W _github_com_HazelnutParadise_insyra_IDataTable) Size() (int, int) {
 	return W.WSize()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) ToCSV(filePath string, setRowNamesToFirstCol bool, setColNamesToFirstRow bool) error {
-	return W.WToCSV(filePath, setRowNamesToFirstCol, setColNamesToFirstRow)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) Summary() {
+	W.WSummary()
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ToCSV(filePath string, setRowNamesToFirstCol bool, setColNamesToFirstRow bool, includeBOM bool) error {
+	return W.WToCSV(filePath, setRowNamesToFirstCol, setColNamesToFirstRow, includeBOM)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) ToJSON(filePath string, useColName bool) error {
 	return W.WToJSON(filePath, useColName)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) ToJSON_Bytes(useColName bool) []byte {
 	return W.WToJSON_Bytes(useColName)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ToSQL(db *gorm.DB, tableName string, options ...insyra.ToSQLOptions) error {
+	return W.WToSQL(db, tableName, options...)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) Transpose() *insyra.DataTable {
 	return W.WTranspose()

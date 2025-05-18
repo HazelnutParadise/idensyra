@@ -20,6 +20,7 @@ func init() {
 		"DL":          reflect.ValueOf((*isr.DL)(nil)),
 		"DLs":         reflect.ValueOf((*isr.DLs)(nil)),
 		"DT":          reflect.ValueOf((*isr.DT)(nil)),
+		"JSON":        reflect.ValueOf((*isr.JSON)(nil)),
 		"Row":         reflect.ValueOf((*isr.Row)(nil)),
 	}
 }

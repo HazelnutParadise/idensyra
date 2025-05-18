@@ -334,7 +334,15 @@ func executeGoCode(code string) string {
 	output := <-outputChan
 
 	// 合併 yaegi 捕獲的輸出和重定向捕獲的輸出
-	return buf.String() + output
+	result := buf.String() + output
+
+	// 根據模式決定如何處理 ANSI 標籤
+	if webuiAlive {
+		// 預設 dark，之後可由 handler 控制
+		return idensyra.AnsiToHTML(result)
+	} else {
+		return idensyra.AnsiToPlain(result)
+	}
 }
 
 // ===================== Web UI mode =============================
@@ -443,7 +451,8 @@ func findAvailablePort() (int, error) {
 // api 函數
 func executeCodeHandler(w http.ResponseWriter, r *http.Request) {
 	var requestBody struct {
-		Code string `json:"codeInput"`
+		Code    string `json:"codeInput"`
+		ColorBG string `json:"colorBG"`
 	}
 	err := json.NewDecoder(r.Body).Decode(&requestBody)
 	if err != nil {
@@ -456,8 +465,14 @@ func executeCodeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := executeGoCode(decodedCode)
-	w.Write([]byte(result))
+	// 根據 colorBG 決定色表
+	var html string
+	if requestBody.ColorBG == "light" || requestBody.ColorBG == "dark" {
+		html = idensyra.AnsiToHTMLWithBG(executeGoCode(decodedCode), requestBody.ColorBG)
+	} else {
+		html = executeGoCode(decodedCode)
+	}
+	w.Write([]byte(html))
 }
 
 func backToGuiHandler(w http.ResponseWriter, r *http.Request) {
