@@ -13,51 +13,55 @@ import (
 func init() {
 	Symbols["github.com/HazelnutParadise/insyra/insyra"] = map[string]reflect.Value{
 		// function, constant and variable definitions
-		"AppendIfExists":        reflect.ValueOf(insyra.AppendIfExists),
-		"ClearErrors":           reflect.ValueOf(insyra.ClearErrors),
-		"Config":                reflect.ValueOf(&insyra.Config).Elem(),
-		"ConvertLongDataToWide": reflect.ValueOf(insyra.ConvertLongDataToWide),
-		"DetectEncoding":        reflect.ValueOf(insyra.DetectEncoding),
-		"ErrPoppingModeFIFO":    reflect.ValueOf(insyra.ErrPoppingModeFIFO),
-		"ErrPoppingModeLIFO":    reflect.ValueOf(insyra.ErrPoppingModeLIFO),
-		"FailIfExists":          reflect.ValueOf(insyra.FailIfExists),
-		"GetErrorCount":         reflect.ValueOf(insyra.GetErrorCount),
-		"IsNumeric":             reflect.ValueOf(insyra.IsNumeric),
-		"LogDebug":              reflect.ValueOf(insyra.LogDebug),
-		"LogFatal":              reflect.ValueOf(insyra.LogFatal),
-		"LogInfo":               reflect.ValueOf(insyra.LogInfo),
-		"LogLevelDebug":         reflect.ValueOf(insyra.LogLevelDebug),
-		"LogLevelFatal":         reflect.ValueOf(insyra.LogLevelFatal),
-		"LogLevelInfo":          reflect.ValueOf(insyra.LogLevelInfo),
-		"LogLevelWarning":       reflect.ValueOf(insyra.LogLevelWarning),
-		"LogWarning":            reflect.ValueOf(insyra.LogWarning),
-		"NewDataList":           reflect.ValueOf(insyra.NewDataList),
-		"NewDataTable":          reflect.ValueOf(insyra.NewDataTable),
-		"ParseColIndex":         reflect.ValueOf(insyra.ParseColIndex),
-		"PopError":              reflect.ValueOf(insyra.PopError),
-		"PopErrorAndCallback":   reflect.ValueOf(insyra.PopErrorAndCallback),
-		"PopErrorByFuncName":    reflect.ValueOf(insyra.PopErrorByFuncName),
-		"PopErrorByPackageName": reflect.ValueOf(insyra.PopErrorByPackageName),
-		"PowRat":                reflect.ValueOf(insyra.PowRat),
-		"ProcessData":           reflect.ValueOf(insyra.ProcessData),
-		"ReadCSV_File":          reflect.ValueOf(insyra.ReadCSV_File),
-		"ReadCSV_String":        reflect.ValueOf(insyra.ReadCSV_String),
-		"ReadExcelSheet":        reflect.ValueOf(insyra.ReadExcelSheet),
-		"ReadJSON":              reflect.ValueOf(insyra.ReadJSON),
-		"ReadJSON_File":         reflect.ValueOf(insyra.ReadJSON_File),
-		"ReadSQL":               reflect.ValueOf(insyra.ReadSQL),
-		"ReadSlice2D":           reflect.ValueOf(&insyra.ReadSlice2D).Elem(),
-		"ReplaceIfExists":       reflect.ValueOf(insyra.ReplaceIfExists),
-		"SetDefaultConfig":      reflect.ValueOf(insyra.SetDefaultConfig),
-		"Show":                  reflect.ValueOf(insyra.Show),
-		"Slice2DToDataTable":    reflect.ValueOf(insyra.Slice2DToDataTable),
-		"SliceToF64":            reflect.ValueOf(insyra.SliceToF64),
-		"SortTimes":             reflect.ValueOf(insyra.SortTimes),
-		"SqrtRat":               reflect.ValueOf(insyra.SqrtRat),
-		"ToFloat64":             reflect.ValueOf(&insyra.ToFloat64).Elem(),
-		"ToFloat64Safe":         reflect.ValueOf(&insyra.ToFloat64Safe).Elem(),
-		"Version":               reflect.ValueOf(constant.MakeFromLiteral("\"0.2.10\"", token.STRING, 0)),
-		"VersionName":           reflect.ValueOf(constant.MakeFromLiteral("\"Pier-2\"", token.STRING, 0)),
+		"AppendIfExists":           reflect.ValueOf(insyra.AppendIfExists),
+		"ClearErrors":              reflect.ValueOf(insyra.ClearErrors),
+		"Config":                   reflect.ValueOf(&insyra.Config).Elem(),
+		"ConvertLongDataToWide":    reflect.ValueOf(insyra.ConvertLongDataToWide),
+		"DetectEncoding":           reflect.ValueOf(insyra.DetectEncoding),
+		"ErrPoppingModeFIFO":       reflect.ValueOf(insyra.ErrPoppingModeFIFO),
+		"ErrPoppingModeLIFO":       reflect.ValueOf(insyra.ErrPoppingModeLIFO),
+		"FailIfExists":             reflect.ValueOf(insyra.FailIfExists),
+		"GetErrorCount":            reflect.ValueOf(insyra.GetErrorCount),
+		"IsNumeric":                reflect.ValueOf(insyra.IsNumeric),
+		"LogDebug":                 reflect.ValueOf(insyra.LogDebug),
+		"LogFatal":                 reflect.ValueOf(insyra.LogFatal),
+		"LogInfo":                  reflect.ValueOf(insyra.LogInfo),
+		"LogLevelDebug":            reflect.ValueOf(insyra.LogLevelDebug),
+		"LogLevelFatal":            reflect.ValueOf(insyra.LogLevelFatal),
+		"LogLevelInfo":             reflect.ValueOf(insyra.LogLevelInfo),
+		"LogLevelWarning":          reflect.ValueOf(insyra.LogLevelWarning),
+		"LogWarning":               reflect.ValueOf(insyra.LogWarning),
+		"MergeDirectionHorizontal": reflect.ValueOf(insyra.MergeDirectionHorizontal),
+		"MergeDirectionVertical":   reflect.ValueOf(insyra.MergeDirectionVertical),
+		"MergeModeInner":           reflect.ValueOf(insyra.MergeModeInner),
+		"MergeModeOuter":           reflect.ValueOf(insyra.MergeModeOuter),
+		"NewDataList":              reflect.ValueOf(insyra.NewDataList),
+		"NewDataTable":             reflect.ValueOf(insyra.NewDataTable),
+		"ParseColIndex":            reflect.ValueOf(insyra.ParseColIndex),
+		"PopError":                 reflect.ValueOf(insyra.PopError),
+		"PopErrorAndCallback":      reflect.ValueOf(insyra.PopErrorAndCallback),
+		"PopErrorByFuncName":       reflect.ValueOf(insyra.PopErrorByFuncName),
+		"PopErrorByPackageName":    reflect.ValueOf(insyra.PopErrorByPackageName),
+		"PowRat":                   reflect.ValueOf(insyra.PowRat),
+		"ProcessData":              reflect.ValueOf(insyra.ProcessData),
+		"ReadCSV_File":             reflect.ValueOf(insyra.ReadCSV_File),
+		"ReadCSV_String":           reflect.ValueOf(insyra.ReadCSV_String),
+		"ReadExcelSheet":           reflect.ValueOf(insyra.ReadExcelSheet),
+		"ReadJSON":                 reflect.ValueOf(insyra.ReadJSON),
+		"ReadJSON_File":            reflect.ValueOf(insyra.ReadJSON_File),
+		"ReadSQL":                  reflect.ValueOf(insyra.ReadSQL),
+		"ReadSlice2D":              reflect.ValueOf(&insyra.ReadSlice2D).Elem(),
+		"ReplaceIfExists":          reflect.ValueOf(insyra.ReplaceIfExists),
+		"SetDefaultConfig":         reflect.ValueOf(insyra.SetDefaultConfig),
+		"Show":                     reflect.ValueOf(insyra.Show),
+		"Slice2DToDataTable":       reflect.ValueOf(insyra.Slice2DToDataTable),
+		"SliceToF64":               reflect.ValueOf(insyra.SliceToF64),
+		"SortTimes":                reflect.ValueOf(insyra.SortTimes),
+		"SqrtRat":                  reflect.ValueOf(insyra.SqrtRat),
+		"ToFloat64":                reflect.ValueOf(&insyra.ToFloat64).Elem(),
+		"ToFloat64Safe":            reflect.ValueOf(&insyra.ToFloat64Safe).Elem(),
+		"Version":                  reflect.ValueOf(constant.MakeFromLiteral("\"0.2.11\"", token.STRING, 0)),
+		"VersionName":              reflect.ValueOf(constant.MakeFromLiteral("\"Pier-2\"", token.STRING, 0)),
 
 		// type definitions
 		"DataList":               reflect.ValueOf((*insyra.DataList)(nil)),
@@ -67,6 +71,8 @@ func init() {
 		"IDataList":              reflect.ValueOf((*insyra.IDataList)(nil)),
 		"IDataTable":             reflect.ValueOf((*insyra.IDataTable)(nil)),
 		"LogLevel":               reflect.ValueOf((*insyra.LogLevel)(nil)),
+		"MergeDirection":         reflect.ValueOf((*insyra.MergeDirection)(nil)),
+		"MergeMode":              reflect.ValueOf((*insyra.MergeMode)(nil)),
 		"ReadSQLOptions":         reflect.ValueOf((*insyra.ReadSQLOptions)(nil)),
 		"SQLActionIfTableExists": reflect.ValueOf((*insyra.SQLActionIfTableExists)(nil)),
 		"ToSQLOptions":           reflect.ValueOf((*insyra.ToSQLOptions)(nil)),
@@ -81,6 +87,7 @@ func init() {
 type _github_com_HazelnutParadise_insyra_IDataList struct {
 	IValue                        interface{}
 	WAppend                       func(values ...any)
+	WAppendDataList               func(other insyra.IDataList) *insyra.DataList
 	WAtomicDo                     func(a0 func(*insyra.DataList))
 	WCapitalize                   func() *insyra.DataList
 	WClear                        func() *insyra.DataList
@@ -91,6 +98,7 @@ type _github_com_HazelnutParadise_insyra_IDataList struct {
 	WClearOutliers                func(a0 float64) *insyra.DataList
 	WClearStrings                 func() *insyra.DataList
 	WClone                        func() *insyra.DataList
+	WConcat                       func(other insyra.IDataList) *insyra.DataList
 	WCount                        func(value any) int
 	WCounter                      func() map[any]int
 	WData                         func() []any
@@ -98,7 +106,7 @@ type _github_com_HazelnutParadise_insyra_IDataList struct {
 	WDoubleExponentialSmoothing   func(a0 float64, a1 float64) *insyra.DataList
 	WDrop                         func(index int) *insyra.DataList
 	WDropAll                      func(a0 ...any) *insyra.DataList
-	WDropIfContains               func(a0 any) *insyra.DataList
+	WDropIfContains               func(a0 string) *insyra.DataList
 	WExponentialSmoothing         func(a0 float64) *insyra.DataList
 	WFillNaNWithMean              func() *insyra.DataList
 	WFilter                       func(a0 func(any) bool) *insyra.DataList
@@ -139,9 +147,9 @@ type _github_com_HazelnutParadise_insyra_IDataList struct {
 	WQuartile                     func(a0 int) float64
 	WRange                        func() float64
 	WRank                         func() *insyra.DataList
-	WReplaceAll                   func(a0 any, a1 any)
-	WReplaceFirst                 func(a0 any, a1 any)
-	WReplaceLast                  func(a0 any, a1 any)
+	WReplaceAll                   func(a0 any, a1 any) *insyra.DataList
+	WReplaceFirst                 func(a0 any, a1 any) *insyra.DataList
+	WReplaceLast                  func(a0 any, a1 any) *insyra.DataList
 	WReplaceNaNsAndNilsWith       func(a0 any) *insyra.DataList
 	WReplaceNaNsWith              func(a0 any) *insyra.DataList
 	WReplaceNilsWith              func(a0 any) *insyra.DataList
@@ -170,6 +178,9 @@ type _github_com_HazelnutParadise_insyra_IDataList struct {
 
 func (W _github_com_HazelnutParadise_insyra_IDataList) Append(values ...any) {
 	W.WAppend(values...)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataList) AppendDataList(other insyra.IDataList) *insyra.DataList {
+	return W.WAppendDataList(other)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) AtomicDo(a0 func(*insyra.DataList)) {
 	W.WAtomicDo(a0)
@@ -201,6 +212,9 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) ClearStrings() *insyra.Da
 func (W _github_com_HazelnutParadise_insyra_IDataList) Clone() *insyra.DataList {
 	return W.WClone()
 }
+func (W _github_com_HazelnutParadise_insyra_IDataList) Concat(other insyra.IDataList) *insyra.DataList {
+	return W.WConcat(other)
+}
 func (W _github_com_HazelnutParadise_insyra_IDataList) Count(value any) int {
 	return W.WCount(value)
 }
@@ -222,7 +236,7 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) Drop(index int) *insyra.D
 func (W _github_com_HazelnutParadise_insyra_IDataList) DropAll(a0 ...any) *insyra.DataList {
 	return W.WDropAll(a0...)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) DropIfContains(a0 any) *insyra.DataList {
+func (W _github_com_HazelnutParadise_insyra_IDataList) DropIfContains(a0 string) *insyra.DataList {
 	return W.WDropIfContains(a0)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) ExponentialSmoothing(a0 float64) *insyra.DataList {
@@ -345,14 +359,14 @@ func (W _github_com_HazelnutParadise_insyra_IDataList) Range() float64 {
 func (W _github_com_HazelnutParadise_insyra_IDataList) Rank() *insyra.DataList {
 	return W.WRank()
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) ReplaceAll(a0 any, a1 any) {
-	W.WReplaceAll(a0, a1)
+func (W _github_com_HazelnutParadise_insyra_IDataList) ReplaceAll(a0 any, a1 any) *insyra.DataList {
+	return W.WReplaceAll(a0, a1)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) ReplaceFirst(a0 any, a1 any) {
-	W.WReplaceFirst(a0, a1)
+func (W _github_com_HazelnutParadise_insyra_IDataList) ReplaceFirst(a0 any, a1 any) *insyra.DataList {
+	return W.WReplaceFirst(a0, a1)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataList) ReplaceLast(a0 any, a1 any) {
-	W.WReplaceLast(a0, a1)
+func (W _github_com_HazelnutParadise_insyra_IDataList) ReplaceLast(a0 any, a1 any) *insyra.DataList {
+	return W.WReplaceLast(a0, a1)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataList) ReplaceNaNsAndNilsWith(a0 any) *insyra.DataList {
 	return W.WReplaceNaNsAndNilsWith(a0)
@@ -507,6 +521,21 @@ type _github_com_HazelnutParadise_insyra_IDataTable struct {
 	WHeaders                                  func() []string
 	WMap                                      func(mapFunc func(rowIndex int, colIndex string, element any) any) *insyra.DataTable
 	WMean                                     func() any
+	WMerge                                    func(other insyra.IDataTable, direction insyra.MergeDirection, mode insyra.MergeMode, on ...string) (*insyra.DataTable, error)
+	WNumCols                                  func() int
+	WNumRows                                  func() int
+	WReplace                                  func(oldValue any, newValue any) *insyra.DataTable
+	WReplaceInCol                             func(colIndex string, oldValue any, newValue any, mode ...int) *insyra.DataTable
+	WReplaceInRow                             func(rowIndex int, oldValue any, newValue any, mode ...int) *insyra.DataTable
+	WReplaceNaNsAndNilsInCol                  func(colIndex string, newValue any, mode ...int) *insyra.DataTable
+	WReplaceNaNsAndNilsInRow                  func(rowIndex int, newValue any, mode ...int) *insyra.DataTable
+	WReplaceNaNsAndNilsWith                   func(newValue any) *insyra.DataTable
+	WReplaceNaNsInCol                         func(colIndex string, newValue any, mode ...int) *insyra.DataTable
+	WReplaceNaNsInRow                         func(rowIndex int, newValue any, mode ...int) *insyra.DataTable
+	WReplaceNaNsWith                          func(newValue any) *insyra.DataTable
+	WReplaceNilsInCol                         func(colIndex string, newValue any, mode ...int) *insyra.DataTable
+	WReplaceNilsInRow                         func(rowIndex int, newValue any, mode ...int) *insyra.DataTable
+	WReplaceNilsWith                          func(newValue any) *insyra.DataTable
 	WRowNames                                 func() []string
 	WRowNamesToFirstCol                       func() *insyra.DataTable
 	WSetColNameByIndex                        func(index string, name string) *insyra.DataTable
@@ -515,7 +544,7 @@ type _github_com_HazelnutParadise_insyra_IDataTable struct {
 	WSetColToRowNames                         func(columnIndex string) *insyra.DataTable
 	WSetHeaders                               func(headers []string) *insyra.DataTable
 	WSetName                                  func(name string) *insyra.DataTable
-	WSetRowNameByIndex                        func(index int, name string)
+	WSetRowNameByIndex                        func(index int, name string) *insyra.DataTable
 	WSetRowNames                              func(rowNames []string) *insyra.DataTable
 	WSetRowToColNames                         func(rowIndex int) *insyra.DataTable
 	WShow                                     func()
@@ -776,6 +805,51 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) Map(mapFunc func(rowInde
 func (W _github_com_HazelnutParadise_insyra_IDataTable) Mean() any {
 	return W.WMean()
 }
+func (W _github_com_HazelnutParadise_insyra_IDataTable) Merge(other insyra.IDataTable, direction insyra.MergeDirection, mode insyra.MergeMode, on ...string) (*insyra.DataTable, error) {
+	return W.WMerge(other, direction, mode, on...)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) NumCols() int {
+	return W.WNumCols()
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) NumRows() int {
+	return W.WNumRows()
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) Replace(oldValue any, newValue any) *insyra.DataTable {
+	return W.WReplace(oldValue, newValue)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ReplaceInCol(colIndex string, oldValue any, newValue any, mode ...int) *insyra.DataTable {
+	return W.WReplaceInCol(colIndex, oldValue, newValue, mode...)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ReplaceInRow(rowIndex int, oldValue any, newValue any, mode ...int) *insyra.DataTable {
+	return W.WReplaceInRow(rowIndex, oldValue, newValue, mode...)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ReplaceNaNsAndNilsInCol(colIndex string, newValue any, mode ...int) *insyra.DataTable {
+	return W.WReplaceNaNsAndNilsInCol(colIndex, newValue, mode...)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ReplaceNaNsAndNilsInRow(rowIndex int, newValue any, mode ...int) *insyra.DataTable {
+	return W.WReplaceNaNsAndNilsInRow(rowIndex, newValue, mode...)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ReplaceNaNsAndNilsWith(newValue any) *insyra.DataTable {
+	return W.WReplaceNaNsAndNilsWith(newValue)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ReplaceNaNsInCol(colIndex string, newValue any, mode ...int) *insyra.DataTable {
+	return W.WReplaceNaNsInCol(colIndex, newValue, mode...)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ReplaceNaNsInRow(rowIndex int, newValue any, mode ...int) *insyra.DataTable {
+	return W.WReplaceNaNsInRow(rowIndex, newValue, mode...)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ReplaceNaNsWith(newValue any) *insyra.DataTable {
+	return W.WReplaceNaNsWith(newValue)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ReplaceNilsInCol(colIndex string, newValue any, mode ...int) *insyra.DataTable {
+	return W.WReplaceNilsInCol(colIndex, newValue, mode...)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ReplaceNilsInRow(rowIndex int, newValue any, mode ...int) *insyra.DataTable {
+	return W.WReplaceNilsInRow(rowIndex, newValue, mode...)
+}
+func (W _github_com_HazelnutParadise_insyra_IDataTable) ReplaceNilsWith(newValue any) *insyra.DataTable {
+	return W.WReplaceNilsWith(newValue)
+}
 func (W _github_com_HazelnutParadise_insyra_IDataTable) RowNames() []string {
 	return W.WRowNames()
 }
@@ -800,8 +874,8 @@ func (W _github_com_HazelnutParadise_insyra_IDataTable) SetHeaders(headers []str
 func (W _github_com_HazelnutParadise_insyra_IDataTable) SetName(name string) *insyra.DataTable {
 	return W.WSetName(name)
 }
-func (W _github_com_HazelnutParadise_insyra_IDataTable) SetRowNameByIndex(index int, name string) {
-	W.WSetRowNameByIndex(index, name)
+func (W _github_com_HazelnutParadise_insyra_IDataTable) SetRowNameByIndex(index int, name string) *insyra.DataTable {
+	return W.WSetRowNameByIndex(index, name)
 }
 func (W _github_com_HazelnutParadise_insyra_IDataTable) SetRowNames(rowNames []string) *insyra.DataTable {
 	return W.WSetRowNames(rowNames)

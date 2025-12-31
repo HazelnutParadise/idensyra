@@ -8,6 +8,8 @@
 //go:generate $GOPATH/bin/yaegi extract github.com/HazelnutParadise/insyra/gplot
 //go:generate $GOPATH/bin/yaegi extract github.com/HazelnutParadise/insyra/lpgen
 //go:generate $GOPATH/bin/yaegi extract github.com/HazelnutParadise/insyra/csvxl
+//go:generate $GOPATH/bin/yaegi extract github.com/HazelnutParadise/insyra/parquet
+//go:generate $GOPATH/bin/yaegi extract github.com/HazelnutParadise/insyra/mkt
 //go:generate $GOPATH/bin/yaegi extract github.com/HazelnutParadise/insyra/py
 
 package internal

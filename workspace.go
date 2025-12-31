@@ -15,9 +15,11 @@ import (
 
 // WorkspaceFile represents a single file in the workspace
 type WorkspaceFile struct {
-	Name     string `json:"name"`
-	Content  string `json:"content"`
-	Modified bool   `json:"modified"`
+	Name         string `json:"name"`
+	Content      string `json:"content"`
+	Modified     bool   `json:"modified"`
+	SavedContent string `json:"-"`
+	IsNew        bool   `json:"-"`
 }
 
 // Workspace manages a workspace with multiple Go files
@@ -53,9 +55,11 @@ func (a *App) InitWorkspace() error {
 
 	// Create default main.go file
 	defaultFile := &WorkspaceFile{
-		Name:     "main.go",
-		Content:  defaultCode,
-		Modified: false,
+		Name:         "main.go",
+		Content:      defaultCode,
+		SavedContent: defaultCode,
+		IsNew:        false,
+		Modified:     false,
 	}
 	globalWorkspace.files["main.go"] = defaultFile
 	globalWorkspace.activeFile = "main.go"
@@ -164,9 +168,13 @@ func (a *App) UpdateFileContent(filename string, content string) error {
 		return fmt.Errorf("file not found: %s", filename)
 	}
 
+	if file.Content == content {
+		return nil
+	}
+
 	file.Content = content
-	file.Modified = true
-	globalWorkspace.modified = true
+	file.Modified = file.IsNew || file.Content != file.SavedContent
+	updateWorkspaceModifiedLocked()
 
 	return nil
 }
@@ -212,18 +220,10 @@ func (a *App) SaveFile(filename string) error {
 	}
 
 	file.Modified = false
+	file.IsNew = false
+	file.SavedContent = file.Content
 
-	// Check if all files are saved
-	allSaved := true
-	for _, f := range globalWorkspace.files {
-		if f.Modified {
-			allSaved = false
-			break
-		}
-	}
-	if allSaved {
-		globalWorkspace.modified = false
-	}
+	updateWorkspaceModifiedLocked()
 
 	return nil
 }
@@ -264,9 +264,11 @@ func (a *App) SaveAllFiles() error {
 			return fmt.Errorf("failed to save file %s: %w", filename, err)
 		}
 		file.Modified = false
+		file.IsNew = false
+		file.SavedContent = file.Content
 	}
 
-	globalWorkspace.modified = false
+	updateWorkspaceModifiedLocked()
 	return nil
 }
 
@@ -294,12 +296,14 @@ func (a *App) CreateNewFile(filename string) error {
 	}
 
 	newFile := &WorkspaceFile{
-		Name:     filename,
-		Content:  content,
-		Modified: true,
+		Name:         filename,
+		Content:      content,
+		SavedContent: "",
+		IsNew:        true,
+		Modified:     true,
 	}
 	globalWorkspace.files[filename] = newFile
-	globalWorkspace.modified = true
+	updateWorkspaceModifiedLocked()
 
 	return nil
 }
@@ -337,6 +341,7 @@ func (a *App) DeleteFile(filename string) error {
 		}
 	}
 
+	updateWorkspaceModifiedLocked()
 	return nil
 }
 
@@ -426,9 +431,11 @@ func (a *App) OpenWorkspace() (string, error) {
 
 	for filename, content := range workspaceFiles {
 		globalWorkspace.files[filename] = &WorkspaceFile{
-			Name:     filename,
-			Content:  content,
-			Modified: false,
+			Name:         filename,
+			Content:      content,
+			SavedContent: content,
+			IsNew:        false,
+			Modified:     false,
 		}
 	}
 
@@ -489,9 +496,11 @@ func (a *App) CreateWorkspace() (string, error) {
 			return "", fmt.Errorf("failed to write file %s: %w", filename, err)
 		}
 		file.Modified = false
+		file.IsNew = false
+		file.SavedContent = file.Content
 	}
 
-	globalWorkspace.modified = false
+	updateWorkspaceModifiedLocked()
 
 	return selectedPath, nil
 }
@@ -571,11 +580,13 @@ func (a *App) ImportFileToWorkspace() error {
 	}
 
 	globalWorkspace.files[filename] = &WorkspaceFile{
-		Name:     filename,
-		Content:  contentStr,
-		Modified: true,
+		Name:         filename,
+		Content:      contentStr,
+		SavedContent: "",
+		IsNew:        true,
+		Modified:     true,
 	}
-	globalWorkspace.modified = true
+	updateWorkspaceModifiedLocked()
 
 	return nil
 }
@@ -651,6 +662,20 @@ func (a *App) IsWorkspaceModified() bool {
 	defer globalWorkspace.mu.RUnlock()
 
 	return globalWorkspace.modified
+}
+
+func updateWorkspaceModifiedLocked() {
+	if globalWorkspace == nil {
+		return
+	}
+
+	globalWorkspace.modified = false
+	for _, file := range globalWorkspace.files {
+		if file.Modified {
+			globalWorkspace.modified = true
+			break
+		}
+	}
 }
 
 // GetWorkspaceInfo returns information about the workspace

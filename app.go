@@ -33,6 +33,8 @@ var defaultCode = `import (
 	"github.com/HazelnutParadise/insyra/gplot"
 	"github.com/HazelnutParadise/insyra/lpgen"
 	"github.com/HazelnutParadise/insyra/csvxl"
+	"github.com/HazelnutParadise/insyra/parquet"
+	"github.com/HazelnutParadise/insyra/mkt"
 	"github.com/HazelnutParadise/insyra/py"
 
 	// No lp package support
@@ -42,8 +44,8 @@ var defaultCode = `import (
 func main() {
 	fmt.Println("Hello, World!")
 	log.Println("this is a log message")
-	dl := insyra.NewDataList(1, 2, 3)
-	fmt.Println("This is your data list:", dl.Data())
+	dl := isr.DL.Of(1, 2, 3)
+	insyra.Show("My_Data", dl)
 }`
 
 // App struct
