@@ -145,6 +145,16 @@ button.icon-only {
     min-width: unset;
 }
 
+button.icon-only.active {
+    background-color: var(--button-bg);
+    color: white;
+}
+
+button.secondary.icon-only.active {
+    background-color: var(--button-bg);
+    border-color: var(--button-bg);
+}
+
 /* Checkbox */
 .checkbox-container {
     display: flex;

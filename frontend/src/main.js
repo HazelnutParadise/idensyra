@@ -23,9 +23,23 @@ let editorFontSize = 14;
 let outputFontSize = 13;
 let isResizing = false;
 let editorWidth = 50; // percentage
+let minimapEnabled = false;
+let wordWrapEnabled = false;
+let currentNotification = null; // Track current notification
+
+// Detect system theme preference
+function getSystemTheme() {
+  if (
+    window.matchMedia &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  ) {
+    return "dark";
+  }
+  return "light";
+}
 
 // Initialize Monaco Editor
-async function initMonacoEditor() {
+async function initMonacoEditor(theme = "dark") {
   // Load symbols first
   try {
     goSymbols = await GetSymbols();
@@ -37,12 +51,12 @@ async function initMonacoEditor() {
   editor = monaco.editor.create(document.getElementById("code-editor"), {
     value: "",
     language: "go",
-    theme: "vs-dark",
+    theme: theme === "light" ? "vs-light" : "vs-dark",
     automaticLayout: true,
     fontSize: 14,
-    minimap: { enabled: true },
+    minimap: { enabled: minimapEnabled },
     scrollBeyondLastLine: false,
-    wordWrap: "on",
+    wordWrap: wordWrapEnabled ? "on" : "off",
     tabSize: 4,
     insertSpaces: false,
     lineNumbers: "on",
@@ -279,19 +293,86 @@ function toggleTheme() {
   localStorage.setItem("theme", newTheme);
 }
 
+// Toggle minimap
+function toggleMinimap() {
+  minimapEnabled = !minimapEnabled;
+  if (editor) {
+    editor.updateOptions({ minimap: { enabled: minimapEnabled } });
+  }
+  const minimapBtn = document.getElementById("minimap-toggle");
+  if (minimapEnabled) {
+    minimapBtn.classList.add("active");
+  } else {
+    minimapBtn.classList.remove("active");
+  }
+  localStorage.setItem("minimapEnabled", minimapEnabled);
+  showMessage(`Minimap ${minimapEnabled ? "enabled" : "disabled"}`, "success");
+}
+
+// Toggle word wrap
+function toggleWordWrap() {
+  wordWrapEnabled = !wordWrapEnabled;
+  if (editor) {
+    editor.updateOptions({ wordWrap: wordWrapEnabled ? "on" : "off" });
+  }
+  const wordwrapBtn = document.getElementById("wordwrap-toggle");
+  if (wordWrapEnabled) {
+    wordwrapBtn.classList.add("active");
+  } else {
+    wordwrapBtn.classList.remove("active");
+  }
+  localStorage.setItem("wordWrapEnabled", wordWrapEnabled);
+  showMessage(
+    `Word wrap ${wordWrapEnabled ? "enabled" : "disabled"}`,
+    "success",
+  );
+}
+
+// Undo
+function undo() {
+  if (editor) {
+    editor.trigger("keyboard", "undo", null);
+  }
+}
+
+// Redo
+function redo() {
+  if (editor) {
+    editor.trigger("keyboard", "redo", null);
+  }
+}
+
 // Show message
 function showMessage(message, type = "success") {
+  // Remove current notification if exists
+  if (currentNotification && document.body.contains(currentNotification)) {
+    currentNotification.style.animation = "slideOut 0.3s ease-out";
+    const oldNotification = currentNotification;
+    setTimeout(() => {
+      if (document.body.contains(oldNotification)) {
+        document.body.removeChild(oldNotification);
+      }
+    }, 300);
+  }
+
+  // Create new notification
   const messageDiv = document.createElement("div");
   messageDiv.className = `notification-message ${type}`;
   messageDiv.textContent = message;
   messageDiv.style.animation = "slideIn 0.3s ease-out";
 
   document.body.appendChild(messageDiv);
+  currentNotification = messageDiv;
 
   setTimeout(() => {
     messageDiv.style.animation = "slideOut 0.3s ease-out";
     setTimeout(() => {
-      document.body.removeChild(messageDiv);
+      if (document.body.contains(messageDiv)) {
+        document.body.removeChild(messageDiv);
+      }
+      if (currentNotification === messageDiv) {
+        currentNotification = null;
+      }
     }, 300);
   }, 3000);
 }
@@ -391,9 +472,14 @@ document.head.appendChild(style);
 
 // Initialize app
 async function initApp() {
-  // Load saved theme
-  const savedTheme = localStorage.getItem("theme") || "dark";
+  // Load saved preferences or use system theme
+  const systemTheme = getSystemTheme();
+  const savedTheme = localStorage.getItem("theme") || systemTheme;
   document.body.setAttribute("data-theme", savedTheme);
+
+  // Load saved editor preferences
+  minimapEnabled = localStorage.getItem("minimapEnabled") === "true";
+  wordWrapEnabled = localStorage.getItem("wordWrapEnabled") === "true";
 
   // Setup UI
   document.getElementById("app").innerHTML = `
@@ -407,6 +493,12 @@ async function initApp() {
                     <input type="checkbox" id="live-run-check">
                     <span>Live Run</span>
                 </label>
+                <button class="secondary icon-only" id="minimap-toggle" title="Toggle Minimap">
+                    <i class="fas fa-map"></i>
+                </button>
+                <button class="secondary icon-only" id="wordwrap-toggle" title="Toggle Word Wrap">
+                    <i class="fas fa-text-width"></i>
+                </button>
                 <button class="secondary icon-only" id="theme-toggle" title="Toggle Theme">
                     <i class="fas fa-adjust"></i>
                 </button>
@@ -490,8 +582,8 @@ async function initApp() {
     document.getElementById("version-info").textContent = "Version unavailable";
   }
 
-  // Initialize Monaco Editor
-  initMonacoEditor();
+  // Initialize Monaco Editor with theme
+  initMonacoEditor(savedTheme);
 
   // Initialize resizer
   initResizer();
@@ -547,8 +639,28 @@ async function initApp() {
         "Live Run enabled - code will execute automatically",
         "success",
       );
+    } else {
+      showMessage("Live Run disabled", "success");
     }
   });
+
+  // Minimap toggle
+  document
+    .getElementById("minimap-toggle")
+    .addEventListener("click", toggleMinimap);
+
+  // Word wrap toggle
+  document
+    .getElementById("wordwrap-toggle")
+    .addEventListener("click", toggleWordWrap);
+
+  // Set initial button states
+  if (minimapEnabled) {
+    document.getElementById("minimap-toggle").classList.add("active");
+  }
+  if (wordWrapEnabled) {
+    document.getElementById("wordwrap-toggle").classList.add("active");
+  }
 
   // Keyboard shortcuts
   document.addEventListener("keydown", (e) => {
@@ -561,6 +673,19 @@ async function initApp() {
     if ((e.ctrlKey || e.metaKey) && e.key === "s") {
       e.preventDefault();
       saveCode();
+    }
+    // Ctrl/Cmd + Z to undo
+    if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+      e.preventDefault();
+      undo();
+    }
+    // Ctrl/Cmd + Shift + Z or Ctrl/Cmd + Y to redo
+    if (
+      ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "Z") ||
+      ((e.ctrlKey || e.metaKey) && e.key === "y")
+    ) {
+      e.preventDefault();
+      redo();
     }
   });
 }
