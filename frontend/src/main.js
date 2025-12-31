@@ -596,14 +596,22 @@ function renderFileTree() {
   });
 }
 
-async function switchToFile(filename) {
-  if (filename === activeFileName) return;
+async function switchToFile(filename, force = false) {
+  if (!force && filename === activeFileName) return;
 
   try {
     // Save current file content (only if not in image preview mode)
     if (activeFileName && !isImagePreview) {
-      const currentContent = editor.getValue();
-      await UpdateFileContent(activeFileName, currentContent);
+      const isKnownFile = workspaceFiles.some(
+        (file) => file.name === activeFileName,
+      );
+      if (isKnownFile) {
+        const currentContent = editor.getValue();
+        await UpdateFileContent(activeFileName, currentContent);
+      } else {
+        activeFileName = "";
+        hideImagePreview();
+      }
     }
 
     // Switch to new file
@@ -669,11 +677,13 @@ async function deleteFileConfirm(filename) {
 
   try {
     await DeleteFile(filename);
+    activeFileName = "";
     await loadWorkspaceFiles();
 
     // If deleted file was active, switch to first available
-    if (filename === activeFileName && workspaceFiles.length > 0) {
-      await switchToFile(workspaceFiles[0].name);
+    if (workspaceFiles.length > 0) {
+      hideImagePreview();
+      await switchToFile(workspaceFiles[0].name, true);
     }
 
     showMessage(`File "${filename}" deleted`, "success");

@@ -422,9 +422,12 @@ func (a *App) DeleteFile(filename string) error {
 
 	delete(globalWorkspace.files, filename)
 
-	// Remove from disk if not temp workspace
-	if !globalWorkspace.isTemp {
-		os.Remove(filepath.Join(globalWorkspace.workDir, filename))
+	// Remove from disk regardless of temp workspace to prevent re-adding on refresh
+	if globalWorkspace.workDir != "" {
+		filePath := filepath.Join(globalWorkspace.workDir, filename)
+		if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to delete file: %w", err)
+		}
 	}
 
 	// If deleted file was active, switch to first available file
