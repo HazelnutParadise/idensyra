@@ -442,6 +442,54 @@ func (a *App) DeleteFile(filename string) error {
 	return nil
 }
 
+// RenameFile renames a file in the workspace
+func (a *App) RenameFile(oldName string, newName string) error {
+	if globalWorkspace == nil {
+		return fmt.Errorf("workspace not initialized")
+	}
+
+	newName = strings.TrimSpace(newName)
+	if newName == "" {
+		return fmt.Errorf("new filename cannot be empty")
+	}
+	if oldName == newName {
+		return fmt.Errorf("new filename is the same as the old filename")
+	}
+	if filepath.Base(newName) != newName {
+		return fmt.Errorf("invalid filename: %s", newName)
+	}
+
+	globalWorkspace.mu.Lock()
+	defer globalWorkspace.mu.Unlock()
+
+	file, exists := globalWorkspace.files[oldName]
+	if !exists {
+		return fmt.Errorf("file not found: %s", oldName)
+	}
+	if _, exists := globalWorkspace.files[newName]; exists {
+		return fmt.Errorf("file already exists: %s", newName)
+	}
+
+	if globalWorkspace.workDir != "" {
+		oldPath := filepath.Join(globalWorkspace.workDir, oldName)
+		newPath := filepath.Join(globalWorkspace.workDir, newName)
+		if err := os.Rename(oldPath, newPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to rename file: %w", err)
+		}
+	}
+
+	delete(globalWorkspace.files, oldName)
+	file.Name = newName
+	globalWorkspace.files[newName] = file
+
+	if globalWorkspace.activeFile == oldName {
+		globalWorkspace.activeFile = newName
+	}
+
+	updateWorkspaceModifiedLocked()
+	return nil
+}
+
 // OpenWorkspace opens an existing workspace from a directory
 func (a *App) OpenWorkspace() (string, error) {
 	if globalWorkspace == nil {

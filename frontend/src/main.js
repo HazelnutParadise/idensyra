@@ -2,6 +2,7 @@ import "./style.css";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "@fortawesome/fontawesome-free/css/all.min.css";
 import * as monaco from "monaco-editor";
+
 import {
   ExecuteCode,
   GetVersion,
@@ -28,6 +29,10 @@ import {
   IsWorkspaceModified,
   GetWorkspaceInfo,
 } from "../wailsjs/go/main/App";
+
+const RenameFile = (...args) => window.go.main.App.RenameFile(...args);
+const SaveResultToWorkspace = (...args) =>
+  window.go.main.App.SaveResultToWorkspace(...args);
 
 let editor;
 let liveRun = false;
@@ -395,8 +400,9 @@ async function saveResult() {
       return;
     }
 
-    await SaveResult(text);
-    showMessage("Result saved successfully!", "success");
+    const savedPath = await SaveResultToWorkspace(text);
+    await loadWorkspaceFiles();
+    showMessage(`Result saved to workspace: ${savedPath}`, "success");
   } catch (error) {
     if (error) {
       showMessage("Failed to save result: " + error, "error");
@@ -574,16 +580,28 @@ function renderFileTree() {
     fileItem.innerHTML = `
       <i class="fas ${iconClass}"></i>
       <span class="file-name">${file.name}</span>
-      ${file.modified ? '<span class="modified-indicator">●</span>' : ""}
+      ${file.modified ? '<span class="modified-indicator">*</span>' : ""}
+      <button class="file-rename-btn" title="Rename file">
+        <i class="fas fa-pen"></i>
+      </button>
       <button class="file-delete-btn" title="Delete file">
         <i class="fas fa-times"></i>
       </button>
     `;
 
     fileItem.addEventListener("click", (e) => {
-      if (!e.target.closest(".file-delete-btn")) {
+      if (
+        !e.target.closest(".file-delete-btn") &&
+        !e.target.closest(".file-rename-btn")
+      ) {
         switchToFile(file.name);
       }
+    });
+
+    const renameBtn = fileItem.querySelector(".file-rename-btn");
+    renameBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      renameFilePrompt(file.name);
     });
 
     const deleteBtn = fileItem.querySelector(".file-delete-btn");
@@ -690,6 +708,47 @@ async function deleteFileConfirm(filename) {
   } catch (error) {
     console.error("Failed to delete file:", error);
     showMessage("Failed to delete file: " + error, "error");
+  }
+}
+
+async function renameFilePrompt(filename) {
+  const newName = prompt("Enter new file name:", filename);
+  if (!newName) return;
+
+  const trimmedName = newName.trim();
+  if (!trimmedName) {
+    showMessage("File name cannot be empty", "error");
+    return;
+  }
+  if (trimmedName === filename) {
+    return;
+  }
+  if (workspaceFiles.some((file) => file.name === trimmedName)) {
+    showMessage(`File "${trimmedName}" already exists`, "error");
+    return;
+  }
+
+  try {
+    if (filename === activeFileName && !isImagePreview) {
+      const currentContent = editor.getValue();
+      await UpdateFileContent(filename, currentContent);
+    }
+
+    await RenameFile(filename, trimmedName);
+    const wasActive = filename === activeFileName;
+
+    activeFileName = "";
+    await loadWorkspaceFiles();
+
+    if (wasActive) {
+      hideImagePreview();
+      await switchToFile(trimmedName, true);
+    }
+
+    showMessage(`File renamed to "${trimmedName}"`, "success");
+  } catch (error) {
+    console.error("Failed to rename file:", error);
+    showMessage("Failed to rename file: " + error, "error");
   }
 }
 

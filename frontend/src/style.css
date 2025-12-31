@@ -273,6 +273,25 @@ button.secondary.icon-only.active {
     color: white;
 }
 
+.file-rename-btn {
+    display: none;
+    padding: 2px 6px;
+    font-size: 11px;
+    background-color: rgba(91, 140, 229, 0.8);
+    border: none;
+    border-radius: 3px;
+    color: white;
+    margin-left: 6px;
+}
+
+.file-item:hover .file-rename-btn {
+    display: flex;
+}
+
+.file-rename-btn:hover {
+    background-color: #4a7fe0;
+}
+
 .file-delete-btn {
     display: none;
     padding: 2px 6px;
@@ -281,7 +300,7 @@ button.secondary.icon-only.active {
     border: none;
     border-radius: 3px;
     color: white;
-    margin-left: auto;
+    margin-left: 6px;
 }
 
 .file-item:hover .file-delete-btn {
@@ -580,7 +599,7 @@ button.secondary {
     color: var(--text-color);
 }
 
-/* ANSI color support - 標準顏色 (暗色主題) */
+/* ANSI color support - 標�?顏色 (?�色主�?) */
 :root .ansi-fg-30,
 [data-theme="dark"] .ansi-fg-30 {
     color: #808080;
@@ -614,7 +633,7 @@ button.secondary {
     color: #e5e5e5;
 }
 
-/* ANSI 亮色 (暗色主題) */
+/* ANSI 亮色 (?�色主�?) */
 :root .ansi-fg-90,
 [data-theme="dark"] .ansi-fg-90 {
     color: #808080;
@@ -648,7 +667,7 @@ button.secondary {
     color: #f5f5f5;
 }
 
-/* ANSI 標準顏色 (明亮主題) */
+/* ANSI 標�?顏色 (?�亮主�?) */
 [data-theme="light"] .ansi-fg-30 {
     color: #000000;
 }
@@ -674,7 +693,7 @@ button.secondary {
     color: #555555;
 }
 
-/* ANSI 亮色 (明亮主題) */
+/* ANSI 亮色 (?�亮主�?) */
 [data-theme="light"] .ansi-fg-90 {
     color: #404040;
 }
@@ -700,7 +719,7 @@ button.secondary {
     color: #303030;
 }
 
-/* ANSI 背景色 */
+/* ANSI ?�景??*/
 .ansi-bg-40 {
     background-color: #000000;
 }
@@ -726,7 +745,7 @@ button.secondary {
     background-color: #e5e5e5;
 }
 
-/* ANSI 亮背景色 */
+/* ANSI 亮�??�色 */
 .ansi-bg-100 {
     background-color: #666666;
 }
@@ -752,7 +771,7 @@ button.secondary {
     background-color: #ffffff;
 }
 
-/* ANSI 樣式 */
+/* ANSI �?? */
 .ansi-bold {
     font-weight: bold;
 }

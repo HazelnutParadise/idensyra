@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/HazelnutParadise/idensyra/internal"
@@ -194,6 +195,39 @@ func (a *App) SaveResult(result string) error {
 	}
 
 	return os.WriteFile(filename, []byte(result), 0644)
+}
+
+// SaveResultToWorkspace saves execution result to a file in the workspace directory
+func (a *App) SaveResultToWorkspace(result string) (string, error) {
+	if globalWorkspace == nil || !globalWorkspace.initialized {
+		return "", fmt.Errorf("workspace not initialized")
+	}
+
+	globalWorkspace.mu.RLock()
+	dirPath := globalWorkspace.workDir
+	globalWorkspace.mu.RUnlock()
+
+	if dirPath == "" {
+		return "", fmt.Errorf("workspace directory not set")
+	}
+
+	filename := "result.txt"
+	fullPath := filepath.Join(dirPath, filename)
+	if _, err := os.Stat(fullPath); err == nil {
+		for i := 1; ; i++ {
+			filename = fmt.Sprintf("result_%d.txt", i)
+			fullPath = filepath.Join(dirPath, filename)
+			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+				break
+			}
+		}
+	}
+
+	if err := os.WriteFile(fullPath, []byte(result), 0644); err != nil {
+		return "", err
+	}
+
+	return fullPath, nil
 }
 
 // OpenGitHub opens the GitHub repository in the default browser
