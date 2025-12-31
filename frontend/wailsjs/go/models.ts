@@ -6,6 +6,7 @@ export namespace main {
 	    modified: boolean;
 	    size: number;
 	    tooLarge: boolean;
+	    isDir: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new WorkspaceFile(source);
@@ -18,6 +19,7 @@ export namespace main {
 	        this.modified = source["modified"];
 	        this.size = source["size"];
 	        this.tooLarge = source["tooLarge"];
+	        this.isDir = source["isDir"];
 	    }
 	}
 

@@ -22,6 +22,7 @@ type WorkspaceFile struct {
 	Modified     bool   `json:"modified"`
 	Size         int64  `json:"size"`
 	TooLarge     bool   `json:"tooLarge"`
+	IsDir        bool   `json:"isDir"`
 	SavedContent string `json:"-"`
 	IsNew        bool   `json:"-"`
 }
@@ -68,6 +69,9 @@ func (a *App) InitWorkspace() error {
 	defaultFile := &WorkspaceFile{
 		Name:         "main.go",
 		Content:      defaultCode,
+		Size:         int64(len(defaultCode)),
+		TooLarge:     false,
+		IsDir:        false,
 		SavedContent: defaultCode,
 		IsNew:        false,
 		Modified:     false,
@@ -118,73 +122,107 @@ func refreshWorkspaceFromDiskLocked() {
 		return
 	}
 
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return
-	}
-
-	diskFiles := make(map[string]struct{}, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if strings.HasPrefix(name, ".") {
-			continue
-		}
-
-		diskFiles[name] = struct{}{}
-
-		filePath := filepath.Join(dirPath, name)
-		info, err := entry.Info()
+	diskFiles := make(map[string]struct{})
+	_ = filepath.WalkDir(dirPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			continue
+			return nil
+		}
+
+		if path == dirPath {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(dirPath, path)
+		if err != nil {
+			return nil
+		}
+		if isHiddenPath(relPath) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		displayName := filepath.ToSlash(relPath)
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+
+		diskFiles[displayName] = struct{}{}
+
+		if d.IsDir() {
+			if existing, exists := globalWorkspace.files[displayName]; exists {
+				existing.Size = info.Size()
+				existing.TooLarge = false
+				existing.IsDir = true
+				existing.Content = ""
+				existing.SavedContent = ""
+				existing.Modified = false
+				existing.IsNew = false
+				return nil
+			}
+
+			globalWorkspace.files[displayName] = &WorkspaceFile{
+				Name:         displayName,
+				Content:      "",
+				Size:         info.Size(),
+				TooLarge:     false,
+				IsDir:        true,
+				SavedContent: "",
+				IsNew:        false,
+				Modified:     false,
+			}
+			return nil
 		}
 
 		var contentStr string
 		tooLarge := isFileTooLarge(info.Size())
 		if !tooLarge {
-			content, err := os.ReadFile(filePath)
+			content, err := os.ReadFile(path)
 			if err != nil {
-				continue
+				return nil
 			}
 
-			if isImageFile(name) {
+			if isImageFile(displayName) {
 				contentStr = base64.StdEncoding.EncodeToString(content)
 			} else {
 				contentStr = string(content)
-				if strings.HasSuffix(name, ".go") {
+				if strings.HasSuffix(displayName, ".go") {
 					contentStr = strings.TrimPrefix(contentStr, preCode+"\n")
 					contentStr = strings.TrimSuffix(contentStr, "\n"+endCode)
 				}
 			}
 		}
 
-		if existing, exists := globalWorkspace.files[name]; exists {
+		if existing, exists := globalWorkspace.files[displayName]; exists {
 			if existing.Modified || existing.IsNew {
-				continue
+				return nil
 			}
 			existing.Size = info.Size()
 			existing.TooLarge = tooLarge
+			existing.IsDir = false
 			if existing.Content != contentStr {
 				existing.Content = contentStr
 				existing.SavedContent = contentStr
 				existing.Modified = false
 				existing.IsNew = false
 			}
-			continue
+			return nil
 		}
 
-		globalWorkspace.files[name] = &WorkspaceFile{
-			Name:         name,
+		globalWorkspace.files[displayName] = &WorkspaceFile{
+			Name:         displayName,
 			Content:      contentStr,
 			Size:         info.Size(),
 			TooLarge:     tooLarge,
+			IsDir:        false,
 			SavedContent: contentStr,
 			IsNew:        false,
 			Modified:     false,
 		}
-	}
+		return nil
+	})
 
 	for name, file := range globalWorkspace.files {
 		if _, exists := diskFiles[name]; exists {
@@ -203,7 +241,10 @@ func refreshWorkspaceFromDiskLocked() {
 	}
 
 	if globalWorkspace.activeFile == "" {
-		for name := range globalWorkspace.files {
+		for name, file := range globalWorkspace.files {
+			if file.IsDir {
+				continue
+			}
 			globalWorkspace.activeFile = name
 			break
 		}
@@ -230,14 +271,22 @@ func (a *App) SetActiveFile(filename string) error {
 		return fmt.Errorf("workspace not initialized")
 	}
 
+	cleanName, err := cleanRelativePath(filename)
+	if err != nil {
+		return err
+	}
+
 	globalWorkspace.mu.Lock()
 	defer globalWorkspace.mu.Unlock()
 
-	if _, exists := globalWorkspace.files[filename]; !exists {
-		return fmt.Errorf("file not found: %s", filename)
+	if _, exists := globalWorkspace.files[cleanName]; !exists {
+		return fmt.Errorf("file not found: %s", cleanName)
+	}
+	if file := globalWorkspace.files[cleanName]; file.IsDir {
+		return fmt.Errorf("path is a directory: %s", cleanName)
 	}
 
-	globalWorkspace.activeFile = filename
+	globalWorkspace.activeFile = cleanName
 	return nil
 }
 
@@ -248,12 +297,20 @@ func (a *App) GetFileContent(filename string) (string, error) {
 		return "", fmt.Errorf("workspace not initialized")
 	}
 
+	cleanName, err := cleanRelativePath(filename)
+	if err != nil {
+		return "", err
+	}
+
 	globalWorkspace.mu.RLock()
 	defer globalWorkspace.mu.RUnlock()
 
-	file, exists := globalWorkspace.files[filename]
+	file, exists := globalWorkspace.files[cleanName]
 	if !exists {
-		return "", fmt.Errorf("file not found: %s", filename)
+		return "", fmt.Errorf("file not found: %s", cleanName)
+	}
+	if file.IsDir {
+		return "", fmt.Errorf("path is a directory: %s", cleanName)
 	}
 
 	if file.TooLarge {
@@ -281,12 +338,20 @@ func (a *App) UpdateFileContent(filename string, content string) error {
 		return fmt.Errorf("workspace not initialized")
 	}
 
+	cleanName, err := cleanRelativePath(filename)
+	if err != nil {
+		return err
+	}
+
 	globalWorkspace.mu.Lock()
 	defer globalWorkspace.mu.Unlock()
 
-	file, exists := globalWorkspace.files[filename]
+	file, exists := globalWorkspace.files[cleanName]
 	if !exists {
-		return fmt.Errorf("file not found: %s", filename)
+		return fmt.Errorf("file not found: %s", cleanName)
+	}
+	if file.IsDir {
+		return fmt.Errorf("path is a directory: %s", cleanName)
 	}
 	if file.TooLarge {
 		return fmt.Errorf("file too large to edit")
@@ -297,6 +362,7 @@ func (a *App) UpdateFileContent(filename string, content string) error {
 	}
 
 	file.Content = content
+	file.Size = int64(len(content))
 	file.Modified = file.IsNew || file.Content != file.SavedContent
 	updateWorkspaceModifiedLocked()
 
@@ -309,6 +375,11 @@ func (a *App) SaveFile(filename string) error {
 		return fmt.Errorf("workspace not initialized")
 	}
 
+	cleanName, err := cleanRelativePath(filename)
+	if err != nil {
+		return err
+	}
+
 	globalWorkspace.mu.Lock()
 	defer globalWorkspace.mu.Unlock()
 
@@ -317,9 +388,12 @@ func (a *App) SaveFile(filename string) error {
 		return fmt.Errorf("temporary workspace: please open or create a workspace first")
 	}
 
-	file, exists := globalWorkspace.files[filename]
+	file, exists := globalWorkspace.files[cleanName]
 	if !exists {
-		return fmt.Errorf("file not found: %s", filename)
+		return fmt.Errorf("file not found: %s", cleanName)
+	}
+	if file.IsDir {
+		return fmt.Errorf("path is a directory: %s", cleanName)
 	}
 	if file.TooLarge {
 		return fmt.Errorf("file too large to save")
@@ -327,21 +401,24 @@ func (a *App) SaveFile(filename string) error {
 
 	// Only wrap with preCode/endCode for .go files
 	var fullContent []byte
-	if isImageFile(filename) {
+	if isImageFile(cleanName) {
 		// Decode base64 for image files
 		decoded, err := base64.StdEncoding.DecodeString(file.Content)
 		if err != nil {
 			return fmt.Errorf("failed to decode image: %w", err)
 		}
 		fullContent = decoded
-	} else if strings.HasSuffix(filename, ".go") {
+	} else if strings.HasSuffix(cleanName, ".go") {
 		fullContent = []byte(preCode + "\n" + file.Content + "\n" + endCode)
 	} else {
 		fullContent = []byte(file.Content)
 	}
 
-	filePath := filepath.Join(globalWorkspace.workDir, filename)
-	err := os.WriteFile(filePath, fullContent, 0644)
+	filePath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanName))
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		return fmt.Errorf("failed to create parent directory: %w", err)
+	}
+	err = os.WriteFile(filePath, fullContent, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to save file: %w", err)
 	}
@@ -370,7 +447,7 @@ func (a *App) SaveAllFiles() error {
 	}
 
 	for filename, file := range globalWorkspace.files {
-		if file.TooLarge {
+		if file.IsDir || file.TooLarge {
 			continue
 		}
 		// Only wrap with preCode/endCode for .go files
@@ -388,7 +465,10 @@ func (a *App) SaveAllFiles() error {
 			fullContent = []byte(file.Content)
 		}
 
-		filePath := filepath.Join(globalWorkspace.workDir, filename)
+		filePath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(filename))
+		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+			return fmt.Errorf("failed to create parent directory: %w", err)
+		}
 		err := os.WriteFile(filePath, fullContent, 0644)
 		if err != nil {
 			return fmt.Errorf("failed to save file %s: %w", filename, err)
@@ -408,31 +488,64 @@ func (a *App) CreateNewFile(filename string) error {
 		return fmt.Errorf("workspace not initialized")
 	}
 
-	// No longer enforce .go extension - allow any filename
+	cleanName, err := cleanRelativePath(filename)
+	if err != nil {
+		return err
+	}
 
 	globalWorkspace.mu.Lock()
 	defer globalWorkspace.mu.Unlock()
 
-	if _, exists := globalWorkspace.files[filename]; exists {
-		return fmt.Errorf("file already exists: %s", filename)
+	if _, exists := globalWorkspace.files[cleanName]; exists {
+		return fmt.Errorf("file already exists: %s", cleanName)
 	}
 
 	// Create new file with appropriate default content based on extension
 	var content string
-	if strings.HasSuffix(filename, ".go") {
+	if strings.HasSuffix(cleanName, ".go") {
 		content = defaultCode
 	} else {
 		content = "" // Empty content for non-Go files
 	}
 
 	newFile := &WorkspaceFile{
-		Name:         filename,
+		Name:         cleanName,
 		Content:      content,
+		Size:         int64(len(content)),
+		TooLarge:     false,
+		IsDir:        false,
 		SavedContent: "",
 		IsNew:        true,
 		Modified:     true,
 	}
-	globalWorkspace.files[filename] = newFile
+	globalWorkspace.files[cleanName] = newFile
+
+	if globalWorkspace.workDir != "" {
+		fullPath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanName))
+		parentDir := filepath.Dir(fullPath)
+		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			return fmt.Errorf("failed to create parent directory: %w", err)
+		}
+	}
+
+	parentParts := strings.Split(cleanName, "/")
+	if len(parentParts) > 1 {
+		for i := 1; i < len(parentParts); i++ {
+			dirPath := strings.Join(parentParts[:i], "/")
+			if _, exists := globalWorkspace.files[dirPath]; !exists {
+				globalWorkspace.files[dirPath] = &WorkspaceFile{
+					Name:         dirPath,
+					Content:      "",
+					Size:         0,
+					TooLarge:     false,
+					IsDir:        true,
+					SavedContent: "",
+					IsNew:        false,
+					Modified:     false,
+				}
+			}
+		}
+	}
 	updateWorkspaceModifiedLocked()
 
 	return nil
@@ -444,6 +557,11 @@ func (a *App) DeleteFile(filename string) error {
 		return fmt.Errorf("workspace not initialized")
 	}
 
+	cleanName, err := cleanRelativePath(filename)
+	if err != nil {
+		return err
+	}
+
 	globalWorkspace.mu.Lock()
 	defer globalWorkspace.mu.Unlock()
 
@@ -452,22 +570,26 @@ func (a *App) DeleteFile(filename string) error {
 		return fmt.Errorf("cannot delete the last file in workspace")
 	}
 
-	if _, exists := globalWorkspace.files[filename]; !exists {
-		return fmt.Errorf("file not found: %s", filename)
+	file, exists := globalWorkspace.files[cleanName]
+	if !exists {
+		return fmt.Errorf("file not found: %s", cleanName)
+	}
+	if file.IsDir {
+		return fmt.Errorf("path is a directory: %s", cleanName)
 	}
 
-	delete(globalWorkspace.files, filename)
+	delete(globalWorkspace.files, cleanName)
 
 	// Remove from disk regardless of temp workspace to prevent re-adding on refresh
 	if globalWorkspace.workDir != "" {
-		filePath := filepath.Join(globalWorkspace.workDir, filename)
+		filePath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanName))
 		if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to delete file: %w", err)
 		}
 	}
 
 	// If deleted file was active, switch to first available file
-	if globalWorkspace.activeFile == filename {
+	if globalWorkspace.activeFile == cleanName {
 		for name := range globalWorkspace.files {
 			globalWorkspace.activeFile = name
 			break
@@ -484,42 +606,221 @@ func (a *App) RenameFile(oldName string, newName string) error {
 		return fmt.Errorf("workspace not initialized")
 	}
 
-	newName = strings.TrimSpace(newName)
-	if newName == "" {
+	cleanOld, err := cleanRelativePath(oldName)
+	if err != nil {
+		return err
+	}
+	cleanNew, err := cleanRelativePath(newName)
+	if err != nil {
+		return err
+	}
+
+	if cleanNew == "" {
 		return fmt.Errorf("new filename cannot be empty")
 	}
-	if oldName == newName {
+	if cleanOld == cleanNew {
 		return fmt.Errorf("new filename is the same as the old filename")
-	}
-	if filepath.Base(newName) != newName {
-		return fmt.Errorf("invalid filename: %s", newName)
 	}
 
 	globalWorkspace.mu.Lock()
 	defer globalWorkspace.mu.Unlock()
 
-	file, exists := globalWorkspace.files[oldName]
+	file, exists := globalWorkspace.files[cleanOld]
 	if !exists {
-		return fmt.Errorf("file not found: %s", oldName)
+		return fmt.Errorf("file not found: %s", cleanOld)
 	}
-	if _, exists := globalWorkspace.files[newName]; exists {
-		return fmt.Errorf("file already exists: %s", newName)
+	if file.IsDir {
+		return fmt.Errorf("path is a directory: %s", cleanOld)
+	}
+	if _, exists := globalWorkspace.files[cleanNew]; exists {
+		return fmt.Errorf("file already exists: %s", cleanNew)
 	}
 
 	if globalWorkspace.workDir != "" {
-		oldPath := filepath.Join(globalWorkspace.workDir, oldName)
-		newPath := filepath.Join(globalWorkspace.workDir, newName)
+		oldPath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanOld))
+		newPath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanNew))
+		parentDir := filepath.Dir(newPath)
+		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			return fmt.Errorf("failed to create parent directory: %w", err)
+		}
 		if err := os.Rename(oldPath, newPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to rename file: %w", err)
 		}
 	}
 
-	delete(globalWorkspace.files, oldName)
-	file.Name = newName
-	globalWorkspace.files[newName] = file
+	delete(globalWorkspace.files, cleanOld)
+	file.Name = cleanNew
+	globalWorkspace.files[cleanNew] = file
 
-	if globalWorkspace.activeFile == oldName {
-		globalWorkspace.activeFile = newName
+	if globalWorkspace.activeFile == cleanOld {
+		globalWorkspace.activeFile = cleanNew
+	}
+
+	updateWorkspaceModifiedLocked()
+	return nil
+}
+
+// CreateFolder creates a new folder in the workspace
+func (a *App) CreateFolder(folderPath string) error {
+	if globalWorkspace == nil {
+		return fmt.Errorf("workspace not initialized")
+	}
+
+	cleanPath, err := cleanRelativePath(folderPath)
+	if err != nil {
+		return err
+	}
+
+	globalWorkspace.mu.Lock()
+	defer globalWorkspace.mu.Unlock()
+
+	if _, exists := globalWorkspace.files[cleanPath]; exists {
+		return fmt.Errorf("path already exists: %s", cleanPath)
+	}
+
+	if globalWorkspace.workDir != "" {
+		fullPath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanPath))
+		if err := os.MkdirAll(fullPath, 0755); err != nil {
+			return fmt.Errorf("failed to create folder: %w", err)
+		}
+	}
+
+	globalWorkspace.files[cleanPath] = &WorkspaceFile{
+		Name:         cleanPath,
+		Content:      "",
+		Size:         0,
+		TooLarge:     false,
+		IsDir:        true,
+		SavedContent: "",
+		IsNew:        false,
+		Modified:     false,
+	}
+
+	parentParts := strings.Split(cleanPath, "/")
+	if len(parentParts) > 1 {
+		for i := 1; i < len(parentParts); i++ {
+			dirPath := strings.Join(parentParts[:i], "/")
+			if _, exists := globalWorkspace.files[dirPath]; !exists {
+				globalWorkspace.files[dirPath] = &WorkspaceFile{
+					Name:         dirPath,
+					Content:      "",
+					Size:         0,
+					TooLarge:     false,
+					IsDir:        true,
+					SavedContent: "",
+					IsNew:        false,
+					Modified:     false,
+				}
+			}
+		}
+	}
+
+	updateWorkspaceModifiedLocked()
+	return nil
+}
+
+// DeleteFolder removes a folder and its contents from the workspace
+func (a *App) DeleteFolder(folderPath string) error {
+	if globalWorkspace == nil {
+		return fmt.Errorf("workspace not initialized")
+	}
+
+	cleanPath, err := cleanRelativePath(folderPath)
+	if err != nil {
+		return err
+	}
+
+	globalWorkspace.mu.Lock()
+	defer globalWorkspace.mu.Unlock()
+
+	file, exists := globalWorkspace.files[cleanPath]
+	if !exists || !file.IsDir {
+		return fmt.Errorf("folder not found: %s", cleanPath)
+	}
+
+	prefix := cleanPath + "/"
+	for name := range globalWorkspace.files {
+		if name == cleanPath || strings.HasPrefix(name, prefix) {
+			delete(globalWorkspace.files, name)
+		}
+	}
+
+	if globalWorkspace.workDir != "" {
+		fullPath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanPath))
+		if err := os.RemoveAll(fullPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to delete folder: %w", err)
+		}
+	}
+
+	if strings.HasPrefix(globalWorkspace.activeFile, prefix) || globalWorkspace.activeFile == cleanPath {
+		globalWorkspace.activeFile = ""
+	}
+
+	updateWorkspaceModifiedLocked()
+	return nil
+}
+
+// RenameFolder renames a folder and updates its contents
+func (a *App) RenameFolder(oldPath string, newPath string) error {
+	if globalWorkspace == nil {
+		return fmt.Errorf("workspace not initialized")
+	}
+
+	cleanOld, err := cleanRelativePath(oldPath)
+	if err != nil {
+		return err
+	}
+	cleanNew, err := cleanRelativePath(newPath)
+	if err != nil {
+		return err
+	}
+	if cleanOld == cleanNew {
+		return fmt.Errorf("new folder name is the same as the old name")
+	}
+
+	globalWorkspace.mu.Lock()
+	defer globalWorkspace.mu.Unlock()
+
+	file, exists := globalWorkspace.files[cleanOld]
+	if !exists || !file.IsDir {
+		return fmt.Errorf("folder not found: %s", cleanOld)
+	}
+	if _, exists := globalWorkspace.files[cleanNew]; exists {
+		return fmt.Errorf("path already exists: %s", cleanNew)
+	}
+
+	if globalWorkspace.workDir != "" {
+		oldFull := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanOld))
+		newFull := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanNew))
+		parentDir := filepath.Dir(newFull)
+		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			return fmt.Errorf("failed to create parent directory: %w", err)
+		}
+		if err := os.Rename(oldFull, newFull); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to rename folder: %w", err)
+		}
+	}
+
+	updates := make(map[string]*WorkspaceFile)
+	oldPrefix := cleanOld + "/"
+	newPrefix := cleanNew + "/"
+	for name, entry := range globalWorkspace.files {
+		if name == cleanOld || strings.HasPrefix(name, oldPrefix) {
+			newName := strings.Replace(name, cleanOld, cleanNew, 1)
+			entry.Name = newName
+			updates[newName] = entry
+			delete(globalWorkspace.files, name)
+		}
+	}
+	globalWorkspace.files[cleanNew] = file
+	for name, entry := range updates {
+		globalWorkspace.files[name] = entry
+	}
+
+	if globalWorkspace.activeFile == cleanOld {
+		globalWorkspace.activeFile = cleanNew
+	} else if strings.HasPrefix(globalWorkspace.activeFile, oldPrefix) {
+		globalWorkspace.activeFile = strings.Replace(globalWorkspace.activeFile, oldPrefix, newPrefix, 1)
 	}
 
 	updateWorkspaceModifiedLocked()
@@ -554,59 +855,77 @@ func (a *App) OpenWorkspace() (string, error) {
 		return "", fmt.Errorf("not a directory: %s", dirPath)
 	}
 
-	// Find all files in the directory (skip directories and hidden files)
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read directory: %w", err)
-	}
-
 	workspaceFiles := make(map[string]*WorkspaceFile)
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	_ = filepath.WalkDir(dirPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
 		}
-		// Skip hidden files
-		if strings.HasPrefix(entry.Name(), ".") {
-			continue
+		if path == dirPath {
+			return nil
 		}
 
-		filePath := filepath.Join(dirPath, entry.Name())
-		info, err := entry.Info()
+		relPath, err := filepath.Rel(dirPath, path)
 		if err != nil {
-			continue
+			return nil
+		}
+		if isHiddenPath(relPath) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		displayName := filepath.ToSlash(relPath)
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+
+		if d.IsDir() {
+			workspaceFiles[displayName] = &WorkspaceFile{
+				Name:         displayName,
+				Content:      "",
+				Size:         info.Size(),
+				TooLarge:     false,
+				IsDir:        true,
+				SavedContent: "",
+				IsNew:        false,
+				Modified:     false,
+			}
+			return nil
 		}
 
 		var contentStr string
 		tooLarge := isFileTooLarge(info.Size())
 		if !tooLarge {
-			content, err := os.ReadFile(filePath)
+			content, err := os.ReadFile(path)
 			if err != nil {
-				continue // Skip files we can't read
+				return nil
 			}
 
-			// For image files, encode as base64
-			if isImageFile(entry.Name()) {
+			if isImageFile(displayName) {
 				contentStr = base64.StdEncoding.EncodeToString(content)
 			} else {
 				contentStr = string(content)
-				// Only remove preCode/endCode for .go files
-				if strings.HasSuffix(entry.Name(), ".go") {
+				if strings.HasSuffix(displayName, ".go") {
 					contentStr = strings.TrimPrefix(contentStr, preCode+"\n")
 					contentStr = strings.TrimSuffix(contentStr, "\n"+endCode)
 				}
 			}
 		}
 
-		workspaceFiles[entry.Name()] = &WorkspaceFile{
-			Name:         entry.Name(),
+		workspaceFiles[displayName] = &WorkspaceFile{
+			Name:         displayName,
 			Content:      contentStr,
 			Size:         info.Size(),
 			TooLarge:     tooLarge,
+			IsDir:        false,
 			SavedContent: contentStr,
 			IsNew:        false,
 			Modified:     false,
 		}
-	}
+		return nil
+	})
 
 	if len(workspaceFiles) == 0 {
 		return "", fmt.Errorf("no files found in selected directory")
@@ -630,7 +949,10 @@ func (a *App) OpenWorkspace() (string, error) {
 	}
 
 	// Set first file as active
-	for name := range globalWorkspace.files {
+	for name, file := range globalWorkspace.files {
+		if file.IsDir {
+			continue
+		}
 		globalWorkspace.activeFile = name
 		break
 	}
@@ -679,9 +1001,21 @@ func (a *App) CreateWorkspace() (string, error) {
 
 	// Save all current files to new workspace
 	for filename, file := range globalWorkspace.files {
-		filePath := filepath.Join(selectedPath, filename)
+		if file.IsDir {
+			folderPath := filepath.Join(selectedPath, filepath.FromSlash(filename))
+			if err := os.MkdirAll(folderPath, 0755); err != nil {
+				return "", fmt.Errorf("failed to create folder %s: %w", filename, err)
+			}
+		}
+	}
+
+	for filename, file := range globalWorkspace.files {
+		if file.IsDir {
+			continue
+		}
+		filePath := filepath.Join(selectedPath, filepath.FromSlash(filename))
 		if file.TooLarge {
-			sourcePath := filepath.Join(globalWorkspace.workDir, filename)
+			sourcePath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(filename))
 			if err := copyFile(sourcePath, filePath); err != nil {
 				return "", fmt.Errorf("failed to copy file %s: %w", filename, err)
 			}
@@ -704,8 +1038,18 @@ func (a *App) CreateWorkspace() (string, error) {
 
 // ImportFileToWorkspace imports an external file into the workspace
 func (a *App) ImportFileToWorkspace() error {
+	return a.ImportFileToWorkspaceAt("")
+}
+
+// ImportFileToWorkspaceAt imports an external file into the workspace at target folder
+func (a *App) ImportFileToWorkspaceAt(targetDir string) error {
 	if globalWorkspace == nil {
 		return fmt.Errorf("workspace not initialized")
+	}
+
+	cleanTarget, err := cleanOptionalRelativePath(targetDir)
+	if err != nil {
+		return err
 	}
 
 	// Let user select a file
@@ -791,15 +1135,20 @@ func (a *App) ImportFileToWorkspace() error {
 	globalWorkspace.mu.Lock()
 	defer globalWorkspace.mu.Unlock()
 
-	if _, exists := globalWorkspace.files[filename]; exists {
+	finalName := filename
+	if cleanTarget != "" {
+		finalName = cleanTarget + "/" + filename
+	}
+
+	if _, exists := globalWorkspace.files[finalName]; exists {
 		// Generate unique name
-		ext := filepath.Ext(filename)
-		base := strings.TrimSuffix(filename, ext)
+		ext := filepath.Ext(finalName)
+		base := strings.TrimSuffix(finalName, ext)
 		counter := 1
 		for {
 			newName := fmt.Sprintf("%s_%d%s", base, counter, ext)
 			if _, exists := globalWorkspace.files[newName]; !exists {
-				filename = newName
+				finalName = newName
 				break
 			}
 			counter++
@@ -809,7 +1158,7 @@ func (a *App) ImportFileToWorkspace() error {
 	// Convert content to string (base64 for images)
 	var contentStr string
 	if !tooLarge {
-		if isImageFile(filename) {
+		if isImageFile(finalName) {
 			contentStr = base64.StdEncoding.EncodeToString(content)
 		} else {
 			contentStr = string(content)
@@ -817,27 +1166,53 @@ func (a *App) ImportFileToWorkspace() error {
 	}
 
 	if tooLarge && globalWorkspace.workDir != "" {
-		targetPath := filepath.Join(globalWorkspace.workDir, filename)
+		targetPath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(finalName))
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+			return fmt.Errorf("failed to create parent directory: %w", err)
+		}
 		if err := copyFile(filePath, targetPath); err != nil {
 			if a.ctx != nil {
 				runtime.EventsEmit(a.ctx, "import:file-progress", map[string]any{
 					"phase":    "error",
-					"fileName": filename,
+					"fileName": finalName,
 					"message":  err.Error(),
 				})
 			}
 			return fmt.Errorf("failed to import large file: %w", err)
 		}
+		if progressFn != nil {
+			progressFn(0, info.Size())
+			progressFn(info.Size(), info.Size())
+		}
 	}
 
-	globalWorkspace.files[filename] = &WorkspaceFile{
-		Name:         filename,
+	globalWorkspace.files[finalName] = &WorkspaceFile{
+		Name:         finalName,
 		Content:      contentStr,
 		Size:         info.Size(),
 		TooLarge:     tooLarge,
 		SavedContent: "",
 		IsNew:        !tooLarge,
 		Modified:     !tooLarge,
+	}
+
+	parentParts := strings.Split(finalName, "/")
+	if len(parentParts) > 1 {
+		for i := 1; i < len(parentParts); i++ {
+			dirPath := strings.Join(parentParts[:i], "/")
+			if _, exists := globalWorkspace.files[dirPath]; !exists {
+				globalWorkspace.files[dirPath] = &WorkspaceFile{
+					Name:         dirPath,
+					Content:      "",
+					Size:         0,
+					TooLarge:     false,
+					IsDir:        true,
+					SavedContent: "",
+					IsNew:        false,
+					Modified:     false,
+				}
+			}
+		}
 	}
 	updateWorkspaceModifiedLocked()
 
@@ -965,6 +1340,9 @@ func (a *App) ExportCurrentFile() error {
 	if !exists {
 		return fmt.Errorf("active file not found")
 	}
+	if file.IsDir {
+		return fmt.Errorf("active path is a directory")
+	}
 
 	// Let user select where to save
 	filename, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
@@ -995,7 +1373,7 @@ func (a *App) ExportCurrentFile() error {
 		}
 		fullContent = decoded
 	} else if file.TooLarge {
-		sourcePath := filepath.Join(globalWorkspace.workDir, globalWorkspace.activeFile)
+		sourcePath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(globalWorkspace.activeFile))
 		if err := copyFile(sourcePath, filename); err != nil {
 			return fmt.Errorf("failed to export file: %w", err)
 		}
@@ -1043,6 +1421,42 @@ func updateWorkspaceModifiedLocked() {
 
 func isFileTooLarge(size int64) bool {
 	return size > maxPreviewBytes
+}
+
+func cleanRelativePath(input string) (string, error) {
+	clean := filepath.Clean(strings.TrimSpace(input))
+	if clean == "." || clean == "" {
+		return "", fmt.Errorf("path cannot be empty")
+	}
+	if filepath.IsAbs(clean) {
+		return "", fmt.Errorf("absolute paths are not allowed: %s", input)
+	}
+
+	for _, part := range strings.Split(clean, string(os.PathSeparator)) {
+		if part == ".." {
+			return "", fmt.Errorf("invalid path: %s", input)
+		}
+	}
+
+	return filepath.ToSlash(clean), nil
+}
+
+func cleanOptionalRelativePath(input string) (string, error) {
+	clean := strings.TrimSpace(input)
+	if clean == "" {
+		return "", nil
+	}
+	return cleanRelativePath(clean)
+}
+
+func isHiddenPath(relPath string) bool {
+	clean := filepath.Clean(relPath)
+	for _, part := range strings.Split(clean, string(os.PathSeparator)) {
+		if strings.HasPrefix(part, ".") {
+			return true
+		}
+	}
+	return false
 }
 
 func copyFile(sourcePath string, targetPath string) error {

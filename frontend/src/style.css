@@ -871,3 +871,72 @@ button.secondary {
     margin-left: 6px;
     margin-right: 6px;
 }
+
+.preview-frame-wrap {
+    width: 100%;
+    height: 100%;
+    background: var(--panel-background-color);
+}
+
+.preview-frame {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #ffffff;
+}
+
+.markdown-preview {
+    padding: 16px;
+    overflow: auto;
+    height: 100%;
+    color: var(--text-color);
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
+    margin: 16px 0 8px;
+    color: var(--title-color);
+}
+
+.markdown-preview p {
+    margin: 8px 0;
+    line-height: 1.6;
+}
+
+.markdown-preview code {
+    background: rgba(127, 127, 127, 0.2);
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-family: "Consolas", "Courier New", monospace;
+}
+
+.markdown-preview pre {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 12px;
+    border-radius: 6px;
+    overflow: auto;
+}
+
+.markdown-preview a {
+    color: var(--button-hover-bg);
+}
+
+.file-item {
+    color: var(--text-color);
+}
+
+.file-item .file-name {
+    color: var(--text-color);
+}
+
+[data-theme="dark"] .file-item .file-name {
+    color: #e6e6e6;
+}
+
+.file-item.selected {
+    background-color: rgba(78, 201, 176, 0.16);
+}

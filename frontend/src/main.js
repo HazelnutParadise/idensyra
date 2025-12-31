@@ -34,6 +34,11 @@ import { EventsOn } from "../wailsjs/runtime/runtime";
 const RenameFile = (...args) => window.go.main.App.RenameFile(...args);
 const SaveResultToWorkspace = (...args) =>
   window.go.main.App.SaveResultToWorkspace(...args);
+const CreateFolder = (...args) => window.go.main.App.CreateFolder(...args);
+const DeleteFolder = (...args) => window.go.main.App.DeleteFolder(...args);
+const RenameFolder = (...args) => window.go.main.App.RenameFolder(...args);
+const ImportFileToWorkspaceAt = (...args) =>
+  window.go.main.App.ImportFileToWorkspaceAt(...args);
 
 let editor;
 let liveRun = false;
@@ -53,6 +58,12 @@ let isWorkspaceInitialized = false;
 let isImagePreview = false; // Track if current file is an image
 let importProgressHideTimer = null;
 let isLargeFilePreview = false;
+const expandedDirs = new Set();
+let selectedFolderPath = "";
+let lastExecutionOutput =
+  '<div style="color: #888;">Run your code to see output here...</div>';
+let previewMode = null;
+let previewUpdateTimer = null;
 
 // Detect system theme preference
 function getSystemTheme() {
@@ -381,10 +392,20 @@ function debounceExecute() {
 // Execute code
 async function executeCode() {
   if (isExecuting) return;
+  if (!isRunnableActiveFile()) {
+    showMessage("Run is only available for .go files", "warning");
+    return;
+  }
 
   isExecuting = true;
   const runButton = document.getElementById("run-btn");
   const resultOutput = document.getElementById("result-output");
+  const resultLabel = document.querySelector(".result-label");
+
+  clearPreviewIfNeeded();
+  if (resultLabel) {
+    resultLabel.textContent = "Output";
+  }
 
   // Update button state
   runButton.disabled = true;
@@ -399,9 +420,9 @@ async function executeCode() {
     const theme = document.body.getAttribute("data-theme") || "dark";
     const result = await ExecuteCode(code);
 
-    resultOutput.innerHTML = result;
+    setResultOutput(result);
   } catch (error) {
-    resultOutput.innerHTML = `<div class="error-message">Error: ${error}</div>`;
+    setResultOutput(`<div class="error-message">Error: ${error}</div>`);
   } finally {
     isExecuting = false;
     runButton.disabled = false;
@@ -575,6 +596,129 @@ function formatBytes(bytes) {
   }`;
 }
 
+function getParentPath(path) {
+  const parts = path.split("/");
+  if (parts.length <= 1) return "";
+  return parts.slice(0, -1).join("/");
+}
+
+function getTargetFolder() {
+  if (selectedFolderPath) return selectedFolderPath;
+  if (activeFileName) return getParentPath(activeFileName);
+  return "";
+}
+
+function updateRunButtonState() {
+  const runButton = document.getElementById("run-btn");
+  if (!runButton) return;
+
+  const runnable =
+    activeFileName &&
+    activeFileName.endsWith(".go") &&
+    !isImagePreview &&
+    !isLargeFilePreview;
+
+  runButton.disabled = !runnable;
+  runButton.title = runnable ? "Run" : "Run is only available for .go files";
+}
+
+function isRunnableActiveFile() {
+  return (
+    activeFileName &&
+    activeFileName.endsWith(".go") &&
+    !isImagePreview &&
+    !isLargeFilePreview
+  );
+}
+
+function setResultOutput(html) {
+  const resultOutput = document.getElementById("result-output");
+  if (!resultOutput) return;
+  resultOutput.innerHTML = html;
+  lastExecutionOutput = html;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function renderMarkdown(markdownText) {
+  let html = escapeHtml(markdownText);
+
+  html = html.replace(/```([\s\S]*?)```/g, (match, code) => {
+    return `<pre><code>${code}</code></pre>`;
+  });
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/^###### (.*)$/gm, "<h6>$1</h6>");
+  html = html.replace(/^##### (.*)$/gm, "<h5>$1</h5>");
+  html = html.replace(/^#### (.*)$/gm, "<h4>$1</h4>");
+  html = html.replace(/^### (.*)$/gm, "<h3>$1</h3>");
+  html = html.replace(/^## (.*)$/gm, "<h2>$1</h2>");
+  html = html.replace(/^# (.*)$/gm, "<h1>$1</h1>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  html = html.replace(/(?:^|\n)(- .+(?:\n- .+)*)/g, (match) => {
+    const items = match
+      .trim()
+      .split("\n")
+      .map((line) => `<li>${line.replace(/^- /, "")}</li>`)
+      .join("");
+    return `<ul>${items}</ul>`;
+  });
+  html = html.replace(/\n{2,}/g, "</p><p>");
+  html = `<p>${html}</p>`;
+  html = html.replace(/<p>\s*<\/p>/g, "");
+
+  return html;
+}
+
+function showPreview(content, type) {
+  const resultOutput = document.getElementById("result-output");
+  const resultLabel = document.querySelector(".result-label");
+  if (!resultOutput || !resultLabel) return;
+
+  previewMode = type;
+  resultLabel.textContent = "Preview";
+
+  if (type === "html") {
+    resultOutput.innerHTML = `<div class="preview-frame-wrap"><iframe class="preview-frame" sandbox=""></iframe></div>`;
+    const iframe = resultOutput.querySelector("iframe");
+    if (iframe) {
+      iframe.srcdoc = content;
+    }
+    return;
+  }
+
+  if (type === "markdown") {
+    resultOutput.innerHTML = `<div class="markdown-preview">${renderMarkdown(
+      content,
+    )}</div>`;
+  }
+}
+
+function clearPreviewIfNeeded() {
+  if (!previewMode) return;
+  const resultLabel = document.querySelector(".result-label");
+  const resultOutput = document.getElementById("result-output");
+  if (!resultLabel || !resultOutput) return;
+
+  previewMode = null;
+  resultLabel.textContent = "Output";
+  resultOutput.innerHTML = lastExecutionOutput;
+}
+
+function schedulePreviewUpdate(content, type) {
+  if (previewUpdateTimer) {
+    clearTimeout(previewUpdateTimer);
+  }
+  previewUpdateTimer = setTimeout(() => {
+    showPreview(content, type);
+  }, 250);
+}
+
 function showImportProgress(filename) {
   const overlay = document.getElementById("import-progress-overlay");
   if (!overlay) return;
@@ -676,66 +820,164 @@ function renderFileTree() {
 
   fileTree.innerHTML = "";
 
-  workspaceFiles.forEach((file) => {
+  const treeRoot = buildFileTree(workspaceFiles);
+  const initialized = expandedDirs.size > 0;
+
+  renderTreeNodes(treeRoot, fileTree, 0, initialized);
+}
+
+function buildFileTree(files) {
+  const root = {
+    name: "",
+    path: "",
+    isDir: true,
+    meta: null,
+    children: new Map(),
+  };
+
+  files.forEach((file) => {
+    const parts = file.name.split("/");
+    let node = root;
+
+    parts.forEach((part, index) => {
+      const path = parts.slice(0, index + 1).join("/");
+      let child = node.children.get(part);
+      const isLeaf = index === parts.length - 1;
+
+      if (!child) {
+        child = {
+          name: part,
+          path,
+          isDir: !isLeaf || file.isDir,
+          meta: null,
+          children: new Map(),
+        };
+        node.children.set(part, child);
+      }
+
+      if (isLeaf) {
+        child.isDir = file.isDir;
+        child.meta = file;
+      }
+
+      node = child;
+    });
+  });
+
+  return root;
+}
+
+function renderTreeNodes(node, container, depth, initialized) {
+  const entries = Array.from(node.children.values()).sort((a, b) => {
+    if (a.isDir !== b.isDir) {
+      return a.isDir ? -1 : 1;
+    }
+    return a.name.localeCompare(b.name);
+  });
+
+  entries.forEach((entry) => {
+    if (entry.isDir && !initialized) {
+      expandedDirs.add(entry.path);
+    }
+
     const fileItem = document.createElement("div");
     fileItem.className = "file-item";
-    if (file.tooLarge) {
+    fileItem.style.paddingLeft = `${8 + depth * 14}px`;
+
+    if (entry.meta && entry.meta.tooLarge) {
       fileItem.classList.add("file-large");
     }
-    if (file.name === activeFileName) {
+    if (!entry.isDir && entry.path === activeFileName) {
       fileItem.classList.add("active");
     }
-    if (file.modified) {
+    if (entry.isDir && entry.path === selectedFolderPath) {
+      fileItem.classList.add("selected");
+    }
+    if (entry.meta && entry.meta.modified) {
       fileItem.classList.add("modified");
     }
 
-    // Choose icon based on file type
     let iconClass = "fa-file-code";
-    if (isImageFile(file.name)) {
+    if (entry.isDir) {
+      iconClass = expandedDirs.has(entry.path) ? "fa-folder-open" : "fa-folder";
+    } else if (isImageFile(entry.path)) {
       iconClass = "fa-file-image";
-    } else if (file.name.endsWith(".md")) {
+    } else if (entry.path.endsWith(".md")) {
       iconClass = "fa-file-lines";
-    } else if (file.name.endsWith(".json")) {
+    } else if (entry.path.endsWith(".json")) {
       iconClass = "fa-file-code";
-    } else if (file.name.endsWith(".txt")) {
+    } else if (entry.path.endsWith(".txt")) {
       iconClass = "fa-file-lines";
     }
 
     fileItem.innerHTML = `
       <i class="fas ${iconClass}"></i>
-      <span class="file-name">${file.name}</span>
-      ${file.tooLarge ? '<span class="large-indicator" title="Large file">L</span>' : ""}
-      ${file.modified ? '<span class="modified-indicator">*</span>' : ""}
-      <button class="file-rename-btn" title="Rename file">
+      <span class="file-name">${entry.name}</span>
+      ${
+        entry.meta && entry.meta.tooLarge
+          ? '<span class="large-indicator" title="Large file">L</span>'
+          : ""
+      }
+      ${
+        entry.meta && entry.meta.modified
+          ? '<span class="modified-indicator">*</span>'
+          : ""
+      }
+      <button class="file-rename-btn" title="Rename">
         <i class="fas fa-pen"></i>
       </button>
-      <button class="file-delete-btn" title="Delete file">
+      <button class="file-delete-btn" title="Delete">
         <i class="fas fa-times"></i>
       </button>
     `;
 
     fileItem.addEventListener("click", (e) => {
       if (
-        !e.target.closest(".file-delete-btn") &&
-        !e.target.closest(".file-rename-btn")
+        e.target.closest(".file-delete-btn") ||
+        e.target.closest(".file-rename-btn")
       ) {
-        switchToFile(file.name);
+        return;
       }
+
+      if (entry.isDir) {
+        selectedFolderPath = entry.path;
+        if (expandedDirs.has(entry.path)) {
+          expandedDirs.delete(entry.path);
+        } else {
+          expandedDirs.add(entry.path);
+        }
+        renderFileTree();
+        return;
+      }
+
+      switchToFile(entry.path);
     });
 
     const renameBtn = fileItem.querySelector(".file-rename-btn");
     renameBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      renameFilePrompt(file.name);
+      if (entry.isDir) {
+        renameFolderPrompt(entry.path);
+      } else {
+        renameFilePrompt(entry.path);
+      }
     });
 
     const deleteBtn = fileItem.querySelector(".file-delete-btn");
     deleteBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      deleteFileConfirm(file.name);
+      if (entry.isDir) {
+        deleteFolderConfirm(entry.path);
+      } else {
+        deleteFileConfirm(entry.path);
+      }
     });
 
-    fileTree.appendChild(fileItem);
+    container.appendChild(fileItem);
+
+    if (entry.isDir && expandedDirs.has(entry.path)) {
+      renderTreeNodes(entry, container, depth + 1, true);
+    }
   });
 }
 
@@ -762,10 +1004,13 @@ async function switchToFile(filename, force = false) {
     await SetActiveFile(filename);
     const selectedFile = workspaceFiles.find((file) => file.name === filename);
     activeFileName = filename;
+    selectedFolderPath = getParentPath(filename);
     document.getElementById("active-file-label").textContent = filename;
 
     if (selectedFile && selectedFile.tooLarge) {
       showLargeFilePreview(filename, selectedFile.size || 0);
+      clearPreviewIfNeeded();
+      updateRunButtonState();
       await loadWorkspaceFiles();
       return;
     }
@@ -775,6 +1020,7 @@ async function switchToFile(filename, force = false) {
     // Check if this is an image file
     if (isImageFile(filename)) {
       showImagePreview(filename, content);
+      clearPreviewIfNeeded();
     } else {
       // Hide image preview if it was showing
       hideImagePreview();
@@ -794,8 +1040,17 @@ async function switchToFile(filename, force = false) {
       } else {
         editor.updateOptions({ insertSpaces: true, tabSize: 2 });
       }
+
+      if (filename.endsWith(".html") || filename.endsWith(".htm")) {
+        showPreview(content, "html");
+      } else if (filename.endsWith(".md")) {
+        showPreview(content, "markdown");
+      } else {
+        clearPreviewIfNeeded();
+      }
     }
 
+    updateRunButtonState();
     // Refresh file tree
     await loadWorkspaceFiles();
   } catch (error) {
@@ -805,24 +1060,56 @@ async function switchToFile(filename, force = false) {
 }
 
 async function createNewFile() {
+  const targetFolder = getTargetFolder();
   const filename = prompt(
     "Enter new file name (e.g., test.go, notes.txt, config.json):",
   );
   if (!filename) return;
 
+  const finalName = targetFolder ? `${targetFolder}/${filename}` : filename;
+
   try {
-    await CreateNewFile(filename);
+    await CreateNewFile(finalName);
+    const parentPath = getParentPath(finalName);
+    if (parentPath) {
+      expandedDirs.add(parentPath);
+    }
     await loadWorkspaceFiles();
-    showMessage(`File "${filename}" created successfully`, "success");
-    await switchToFile(filename);
+    showMessage(`File "${finalName}" created successfully`, "success");
+    await switchToFile(finalName);
   } catch (error) {
     console.error("Failed to create file:", error);
     showMessage(`Failed to create file: ${error}`, "error");
   }
 }
 
+async function createNewFolder() {
+  const targetFolder = getTargetFolder();
+  const folderName = prompt(
+    "Enter new folder name (e.g., docs, assets/icons):",
+  );
+  if (!folderName) return;
+
+  const finalName = targetFolder ? `${targetFolder}/${folderName}` : folderName;
+
+  try {
+    await CreateFolder(finalName);
+    const parentPath = getParentPath(finalName);
+    if (parentPath) {
+      expandedDirs.add(parentPath);
+    }
+    expandedDirs.add(finalName);
+    await loadWorkspaceFiles();
+    showMessage(`Folder "${finalName}" created successfully`, "success");
+  } catch (error) {
+    console.error("Failed to create folder:", error);
+    showMessage(`Failed to create folder: ${error}`, "error");
+  }
+}
+
 async function deleteFileConfirm(filename) {
-  if (workspaceFiles.length <= 1) {
+  const fileCount = workspaceFiles.filter((file) => !file.isDir).length;
+  if (fileCount <= 1) {
     showMessage("Cannot delete the last file in workspace", "error");
     return;
   }
@@ -844,6 +1131,35 @@ async function deleteFileConfirm(filename) {
   } catch (error) {
     console.error("Failed to delete file:", error);
     showMessage("Failed to delete file: " + error, "error");
+  }
+}
+
+async function deleteFolderConfirm(folderPath) {
+  if (!confirm(`Delete folder "${folderPath}" and all its contents?`)) return;
+
+  try {
+    await DeleteFolder(folderPath);
+    Array.from(expandedDirs).forEach((path) => {
+      if (path === folderPath || path.startsWith(`${folderPath}/`)) {
+        expandedDirs.delete(path);
+      }
+    });
+    if (
+      selectedFolderPath === folderPath ||
+      selectedFolderPath.startsWith(`${folderPath}/`)
+    ) {
+      selectedFolderPath = "";
+    }
+    if (activeFileName && activeFileName.startsWith(`${folderPath}/`)) {
+      activeFileName = "";
+      hideImagePreview();
+      hideLargeFilePreview();
+    }
+    await loadWorkspaceFiles();
+    showMessage(`Folder "${folderPath}" deleted`, "success");
+  } catch (error) {
+    console.error("Failed to delete folder:", error);
+    showMessage("Failed to delete folder: " + error, "error");
   }
 }
 
@@ -885,6 +1201,48 @@ async function renameFilePrompt(filename) {
   } catch (error) {
     console.error("Failed to rename file:", error);
     showMessage("Failed to rename file: " + error, "error");
+  }
+}
+
+async function renameFolderPrompt(folderPath) {
+  const newName = prompt("Enter new folder name:", folderPath);
+  if (!newName) return;
+
+  const trimmedName = newName.trim();
+  if (!trimmedName) {
+    showMessage("Folder name cannot be empty", "error");
+    return;
+  }
+  if (trimmedName === folderPath) {
+    showMessage("Folder name is unchanged", "warning");
+    return;
+  }
+
+  try {
+    await RenameFolder(folderPath, trimmedName);
+    if (activeFileName && activeFileName.startsWith(`${folderPath}/`)) {
+      activeFileName = activeFileName.replace(
+        `${folderPath}/`,
+        `${trimmedName}/`,
+      );
+    }
+    if (selectedFolderPath === folderPath) {
+      selectedFolderPath = trimmedName;
+    } else if (selectedFolderPath.startsWith(`${folderPath}/`)) {
+      selectedFolderPath = selectedFolderPath.replace(
+        `${folderPath}/`,
+        `${trimmedName}/`,
+      );
+    }
+    if (expandedDirs.has(folderPath)) {
+      expandedDirs.delete(folderPath);
+      expandedDirs.add(trimmedName);
+    }
+    await loadWorkspaceFiles();
+    showMessage(`Folder renamed to "${trimmedName}"`, "success");
+  } catch (error) {
+    console.error("Failed to rename folder:", error);
+    showMessage("Failed to rename folder: " + error, "error");
   }
 }
 
@@ -1011,10 +1369,30 @@ async function openWorkspace() {
     // Load the active file
     if (workspaceFiles.length > 0) {
       const activeFile = await GetActiveFile();
-      const content = await GetFileContent(activeFile);
-      editor.setValue(content);
       activeFileName = activeFile;
       document.getElementById("active-file-label").textContent = activeFile;
+      selectedFolderPath = getParentPath(activeFile);
+
+      const activeMeta = workspaceFiles.find(
+        (file) => file.name === activeFile,
+      );
+      if (activeMeta && activeMeta.tooLarge) {
+        showLargeFilePreview(activeFile, activeMeta.size || 0);
+        updateRunButtonState();
+        return;
+      }
+
+      const content = await GetFileContent(activeFile);
+      editor.setValue(content);
+
+      if (activeFile.endsWith(".html") || activeFile.endsWith(".htm")) {
+        showPreview(content, "html");
+      } else if (activeFile.endsWith(".md")) {
+        showPreview(content, "markdown");
+      } else {
+        clearPreviewIfNeeded();
+      }
+      updateRunButtonState();
     }
 
     showMessage(`Workspace opened: ${workspacePath}`, "success");
@@ -1029,19 +1407,29 @@ async function openWorkspace() {
 
 async function importFileToWorkspace() {
   try {
-    await ImportFileToWorkspace();
+    const existingNames = new Set(workspaceFiles.map((file) => file.name));
+    const targetFolder = getTargetFolder();
+    if (targetFolder) {
+      await ImportFileToWorkspaceAt(targetFolder);
+    } else {
+      await ImportFileToWorkspace();
+    }
     await loadWorkspaceFiles();
 
     // Get the newly added file (last modified file in the list)
     if (workspaceFiles.length > 0) {
-      const lastFile = workspaceFiles[workspaceFiles.length - 1];
-      const largeNote = lastFile.tooLarge ? " (large file)" : "";
+      const newFile = workspaceFiles.find(
+        (file) => !existingNames.has(file.name),
+      );
+      const fallbackFile = workspaceFiles[workspaceFiles.length - 1];
+      const importedFile = newFile || fallbackFile;
+      const largeNote = importedFile.tooLarge ? " (large file)" : "";
       showMessage(
-        `File "${lastFile.name}" imported successfully${largeNote}`,
+        `File "${importedFile.name}" imported successfully${largeNote}`,
         "success",
       );
       // Switch to the newly imported file
-      await switchToFile(lastFile.name);
+      await switchToFile(importedFile.name);
     }
   } catch (error) {
     console.error("Failed to import file:", error);
@@ -1179,6 +1567,9 @@ async function initApp() {
                         <button class="secondary icon-only" id="new-file-btn" title="New File (Ctrl+N)">
                             <i class="fas fa-file-circle-plus"></i>
                         </button>
+                        <button class="secondary icon-only" id="new-folder-btn" title="New Folder">
+                            <i class="fas fa-folder-plus"></i>
+                        </button>
                         <button class="secondary icon-only" id="import-file-btn" title="Import File to Workspace">
                             <i class="fas fa-file-import"></i>
                         </button>
@@ -1266,6 +1657,11 @@ async function initApp() {
         </div>
     `;
 
+  const resultOutput = document.getElementById("result-output");
+  if (resultOutput) {
+    lastExecutionOutput = resultOutput.innerHTML;
+  }
+
   // Load version info after UI is created
   try {
     const versionInfo = await GetVersion();
@@ -1306,6 +1702,9 @@ async function initApp() {
   document
     .getElementById("new-file-btn")
     .addEventListener("click", createNewFile);
+  document
+    .getElementById("new-folder-btn")
+    .addEventListener("click", createNewFolder);
   document
     .getElementById("import-file-btn")
     .addEventListener("click", importFileToWorkspace);
@@ -1372,6 +1771,8 @@ async function initApp() {
     document.getElementById("wordwrap-toggle").classList.add("active");
   }
 
+  updateRunButtonState();
+
   // Keyboard shortcuts
   document.addEventListener("keydown", (e) => {
     // Ctrl/Cmd + Enter to run
@@ -1424,6 +1825,8 @@ async function initApp() {
           showLargeFilePreview(activeFileName, activeMeta.size || 0);
           document.getElementById("active-file-label").textContent =
             activeFileName;
+          selectedFolderPath = getParentPath(activeFileName);
+          updateRunButtonState();
           return;
         }
 
@@ -1441,7 +1844,20 @@ async function initApp() {
           editor.setValue(content);
           document.getElementById("active-file-label").textContent =
             activeFileName;
+          selectedFolderPath = getParentPath(activeFileName);
+
+          if (
+            activeFileName.endsWith(".html") ||
+            activeFileName.endsWith(".htm")
+          ) {
+            showPreview(content, "html");
+          } else if (activeFileName.endsWith(".md")) {
+            showPreview(content, "markdown");
+          } else {
+            clearPreviewIfNeeded();
+          }
         }
+        updateRunButtonState();
       } catch (error) {
         console.error("Failed to load initial file:", error);
       }
@@ -1454,6 +1870,17 @@ async function initApp() {
   // Mark file as modified on content change
   editor.onDidChangeModelContent(() => {
     if (activeFileName) {
+      if (!isImagePreview && !isLargeFilePreview) {
+        if (
+          activeFileName.endsWith(".html") ||
+          activeFileName.endsWith(".htm")
+        ) {
+          schedulePreviewUpdate(editor.getValue(), "html");
+        } else if (activeFileName.endsWith(".md")) {
+          schedulePreviewUpdate(editor.getValue(), "markdown");
+        }
+      }
+
       // Update content in memory
       clearTimeout(window.autoUpdateTimer);
       window.autoUpdateTimer = setTimeout(async () => {
