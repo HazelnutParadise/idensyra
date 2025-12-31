@@ -347,22 +347,9 @@ func (a *App) OpenWorkspace() (string, error) {
 	}
 
 	// Prompt user to select workspace directory
-	// On Windows, we'll show a message and use file dialog
-	selection, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-		Type:    runtime.InfoDialog,
-		Title:   "Open Workspace",
-		Message: "Please select a folder for your workspace.\nYou can select any file in the folder, or type the folder path directly.",
-		Buttons: []string{"Browse", "Cancel"},
+	selectedPath, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select Workspace Folder",
 	})
-	if err != nil || selection == "Cancel" {
-		return "", nil
-	}
-
-	// Let user select any file in the directory
-	selectedPath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Select Workspace Folder (choose any file inside the folder)",
-	})
-
 	if err != nil {
 		return "", fmt.Errorf("failed to select directory: %w", err)
 	}
@@ -370,8 +357,7 @@ func (a *App) OpenWorkspace() (string, error) {
 		return "", nil // User cancelled
 	}
 
-	// Get directory from selected file
-	dirPath := filepath.Dir(selectedPath)
+	dirPath := selectedPath
 
 	// Check if directory exists
 	info, err := os.Stat(dirPath)
