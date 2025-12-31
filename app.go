@@ -61,6 +61,7 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	fmt.Println("Idensyra is starting...")
+	// Workspace initialization is done in domReady to ensure frontend is ready
 }
 
 // ExecuteCode executes Go code and returns the result as HTML

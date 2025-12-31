@@ -12,6 +12,21 @@ import {
   SaveResult,
   OpenGitHub,
   OpenHazelnutParadise,
+  GetWorkspaceFiles,
+  GetActiveFile,
+  SetActiveFile,
+  GetFileContent,
+  UpdateFileContent,
+  CreateNewFile,
+  DeleteFile,
+  SaveFile,
+  SaveAllFiles,
+  OpenWorkspace,
+  CreateWorkspace,
+  ImportFileToWorkspace,
+  ExportCurrentFile,
+  IsWorkspaceModified,
+  GetWorkspaceInfo,
 } from "../wailsjs/go/main/App";
 
 let editor;
@@ -26,6 +41,10 @@ let editorWidth = 50; // percentage
 let minimapEnabled = false;
 let wordWrapEnabled = false;
 let currentNotification = null; // Track current notification
+let workspaceFiles = [];
+let activeFileName = "";
+let isWorkspaceInitialized = false;
+let isImagePreview = false; // Track if current file is an image
 
 // Detect system theme preference
 function getSystemTheme() {
@@ -36,6 +55,110 @@ function getSystemTheme() {
     return "dark";
   }
   return "light";
+}
+
+// Get Monaco language from file extension
+function getLanguageFromFilename(filename) {
+  const ext = filename.split(".").pop().toLowerCase();
+  const languageMap = {
+    go: "go",
+    js: "javascript",
+    ts: "typescript",
+    jsx: "javascript",
+    tsx: "typescript",
+    json: "json",
+    html: "html",
+    htm: "html",
+    css: "css",
+    scss: "scss",
+    sass: "sass",
+    less: "less",
+    md: "markdown",
+    txt: "plaintext",
+    xml: "xml",
+    yaml: "yaml",
+    yml: "yaml",
+    py: "python",
+    rb: "ruby",
+    java: "java",
+    c: "c",
+    cpp: "cpp",
+    cs: "csharp",
+    php: "php",
+    sh: "shell",
+    bash: "shell",
+    sql: "sql",
+    r: "r",
+    swift: "swift",
+    kt: "kotlin",
+    rs: "rust",
+    dockerfile: "dockerfile",
+  };
+  return languageMap[ext] || "plaintext";
+}
+
+// Check if file is an image
+function isImageFile(filename) {
+  const ext = filename.split(".").pop().toLowerCase();
+  return ["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg", "ico"].includes(
+    ext,
+  );
+}
+
+// Show image preview
+function showImagePreview(filename, base64Data) {
+  const editorContainer = document.getElementById("code-editor");
+  editorContainer.style.display = "none";
+
+  let imageContainer = document.getElementById("image-preview-container");
+  if (!imageContainer) {
+    imageContainer = document.createElement("div");
+    imageContainer.id = "image-preview-container";
+    imageContainer.style.cssText = `
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--panel-background-color);
+      padding: 20px;
+      box-sizing: border-box;
+      overflow: auto;
+    `;
+    editorContainer.parentElement.appendChild(imageContainer);
+  }
+
+  const ext = filename.split(".").pop().toLowerCase();
+  const mimeType = ext === "svg" ? "image/svg+xml" : `image/${ext}`;
+
+  imageContainer.innerHTML = `
+    <div style="text-align: center; width: 100%;">
+      <div style="margin-bottom: 15px; color: var(--text-color); font-size: 14px;">
+        <i class="fas fa-image"></i> ${filename}
+      </div>
+      <img src="data:${mimeType};base64,${base64Data}"
+           alt="${filename}"
+           style="max-width: 100%; max-height: calc(100% - 60px); object-fit: contain;
+                  border: 1px solid var(--border-color); border-radius: 4px; background: white;" />
+      <div style="margin-top: 15px; color: var(--text-color); opacity: 0.7; font-size: 12px;">
+        Image preview mode - this file cannot be edited
+      </div>
+    </div>
+  `;
+  imageContainer.style.display = "flex";
+  isImagePreview = true;
+}
+
+// Hide image preview and show editor
+function hideImagePreview() {
+  const imageContainer = document.getElementById("image-preview-container");
+  if (imageContainer) {
+    imageContainer.style.display = "none";
+  }
+  const editorContainer = document.getElementById("code-editor");
+  editorContainer.style.display = "block";
+  isImagePreview = false;
 }
 
 // Initialize Monaco Editor
@@ -58,7 +181,7 @@ async function initMonacoEditor(theme = "dark") {
     scrollBeyondLastLine: false,
     wordWrap: wordWrapEnabled ? "on" : "off",
     tabSize: 4,
-    insertSpaces: false,
+    insertSpaces: true, // Use spaces for non-Go files
     lineNumbers: "on",
     renderWhitespace: "selection",
     folding: true,
@@ -223,7 +346,7 @@ async function executeCode() {
   } finally {
     isExecuting = false;
     runButton.disabled = false;
-    runButton.innerHTML = '<i class="fas fa-play"></i> Run Code';
+    runButton.innerHTML = '<i class="fas fa-play"></i> Run';
   }
 }
 
@@ -377,20 +500,342 @@ function showMessage(message, type = "success") {
   }, 3000);
 }
 
-// Load code from file
-async function loadCode() {
+// Workspace functions
+async function loadWorkspaceFiles() {
   try {
-    const code = await LoadCode();
-    if (code) {
-      editor.setValue(code);
-      showMessage("Code loaded successfully!", "success");
-    }
+    workspaceFiles = await GetWorkspaceFiles();
+    activeFileName = await GetActiveFile();
+    renderFileTree();
   } catch (error) {
-    if (error) {
-      showMessage("Failed to load code: " + error, "error");
+    console.error("Failed to load workspace files:", error);
+  }
+}
+
+// Load workspace with retry logic to ensure backend is ready
+async function loadWorkspaceWithRetry(maxRetries = 5, delayMs = 100) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      workspaceFiles = await GetWorkspaceFiles();
+      activeFileName = await GetActiveFile();
+
+      // Check if we got any files
+      if (workspaceFiles && workspaceFiles.length > 0) {
+        renderFileTree();
+        console.log(
+          "Workspace loaded successfully with",
+          workspaceFiles.length,
+          "files",
+        );
+        return true;
+      }
+
+      // If no files yet, wait and retry
+      console.log(`Workspace not ready, retrying (${i + 1}/${maxRetries})...`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    } catch (error) {
+      console.error(`Failed to load workspace (attempt ${i + 1}):`, error);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  console.error("Failed to load workspace after", maxRetries, "attempts");
+  return false;
+}
+
+function renderFileTree() {
+  const fileTree = document.getElementById("file-tree");
+  if (!fileTree) return;
+
+  fileTree.innerHTML = "";
+
+  workspaceFiles.forEach((file) => {
+    const fileItem = document.createElement("div");
+    fileItem.className = "file-item";
+    if (file.name === activeFileName) {
+      fileItem.classList.add("active");
+    }
+    if (file.modified) {
+      fileItem.classList.add("modified");
+    }
+
+    // Choose icon based on file type
+    let iconClass = "fa-file-code";
+    if (isImageFile(file.name)) {
+      iconClass = "fa-file-image";
+    } else if (file.name.endsWith(".md")) {
+      iconClass = "fa-file-lines";
+    } else if (file.name.endsWith(".json")) {
+      iconClass = "fa-file-code";
+    } else if (file.name.endsWith(".txt")) {
+      iconClass = "fa-file-lines";
+    }
+
+    fileItem.innerHTML = `
+      <i class="fas ${iconClass}"></i>
+      <span class="file-name">${file.name}</span>
+      ${file.modified ? '<span class="modified-indicator">●</span>' : ""}
+      <button class="file-delete-btn" title="Delete file">
+        <i class="fas fa-times"></i>
+      </button>
+    `;
+
+    fileItem.addEventListener("click", (e) => {
+      if (!e.target.closest(".file-delete-btn")) {
+        switchToFile(file.name);
+      }
+    });
+
+    const deleteBtn = fileItem.querySelector(".file-delete-btn");
+    deleteBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteFileConfirm(file.name);
+    });
+
+    fileTree.appendChild(fileItem);
+  });
+}
+
+async function switchToFile(filename) {
+  if (filename === activeFileName) return;
+
+  try {
+    // Save current file content (only if not in image preview mode)
+    if (activeFileName && !isImagePreview) {
+      const currentContent = editor.getValue();
+      await UpdateFileContent(activeFileName, currentContent);
+    }
+
+    // Switch to new file
+    await SetActiveFile(filename);
+    const content = await GetFileContent(filename);
+    activeFileName = filename;
+
+    // Check if this is an image file
+    if (isImageFile(filename)) {
+      showImagePreview(filename, content);
+    } else {
+      // Hide image preview if it was showing
+      hideImagePreview();
+
+      // Set the language based on file extension
+      const language = getLanguageFromFilename(filename);
+      const model = editor.getModel();
+      monaco.editor.setModelLanguage(model, language);
+
+      // Set editor content
+      editor.setValue(content);
+
+      // Adjust editor options based on file type
+      if (language === "go") {
+        editor.updateOptions({ insertSpaces: false, tabSize: 4 });
+      } else {
+        editor.updateOptions({ insertSpaces: true, tabSize: 2 });
+      }
+    }
+
+    // Refresh file tree
+    await loadWorkspaceFiles();
+  } catch (error) {
+    console.error("Failed to switch file:", error);
+    showMessage("Failed to switch file: " + error, "error");
+  }
+}
+
+async function createNewFile() {
+  const filename = prompt(
+    "Enter new file name (e.g., test.go, notes.txt, config.json):",
+  );
+  if (!filename) return;
+
+  try {
+    await CreateNewFile(filename);
+    await loadWorkspaceFiles();
+    showMessage(`File "${filename}" created successfully`, "success");
+    await switchToFile(filename);
+  } catch (error) {
+    console.error("Failed to create file:", error);
+    showMessage(`Failed to create file: ${error}`, "error");
+  }
+}
+
+async function deleteFileConfirm(filename) {
+  if (workspaceFiles.length <= 1) {
+    showMessage("Cannot delete the last file in workspace", "error");
+    return;
+  }
+
+  if (!confirm(`Delete file "${filename}"?`)) return;
+
+  try {
+    await DeleteFile(filename);
+    await loadWorkspaceFiles();
+
+    // If deleted file was active, switch to first available
+    if (filename === activeFileName && workspaceFiles.length > 0) {
+      await switchToFile(workspaceFiles[0].name);
+    }
+
+    showMessage(`File "${filename}" deleted`, "success");
+  } catch (error) {
+    console.error("Failed to delete file:", error);
+    showMessage("Failed to delete file: " + error, "error");
+  }
+}
+
+async function saveCurrentFile() {
+  if (!activeFileName) return;
+
+  // Cannot save image files
+  if (isImagePreview) {
+    showMessage("Image files cannot be edited", "warning");
+    return;
+  }
+
+  try {
+    const currentContent = editor.getValue();
+    await UpdateFileContent(activeFileName, currentContent);
+
+    // Try to save to disk
+    await SaveFile(activeFileName);
+    await loadWorkspaceFiles();
+    showMessage(`Saved ${activeFileName}`, "success");
+  } catch (error) {
+    console.error("Failed to save file:", error);
+    if (error && error.toString().includes("temporary workspace")) {
+      // Prompt to create workspace
+      if (
+        confirm(
+          "You are in a temporary workspace. Would you like to create a workspace folder to save your files?",
+        )
+      ) {
+        await createWorkspace();
+      }
+    } else {
+      showMessage("Failed to save file: " + error, "error");
     }
   }
 }
+
+async function saveAllFiles() {
+  try {
+    // Update current file content first (only if not in image preview mode)
+    if (activeFileName && !isImagePreview) {
+      const currentContent = editor.getValue();
+      await UpdateFileContent(activeFileName, currentContent);
+    }
+
+    await SaveAllFiles();
+    await loadWorkspaceFiles();
+    showMessage("All files saved", "success");
+  } catch (error) {
+    console.error("Failed to save files:", error);
+    if (error && error.toString().includes("temporary workspace")) {
+      if (
+        confirm(
+          "You are in a temporary workspace. Would you like to create a workspace folder to save your files?",
+        )
+      ) {
+        await createWorkspace();
+      }
+    } else {
+      showMessage("Failed to save files: " + error, "error");
+    }
+  }
+}
+
+async function createWorkspace() {
+  try {
+    const workspacePath = await CreateWorkspace();
+    if (!workspacePath) {
+      return; // User cancelled
+    }
+
+    await loadWorkspaceFiles();
+    showMessage(`Workspace created at: ${workspacePath}`, "success");
+  } catch (error) {
+    console.error("Failed to create workspace:", error);
+    showMessage("Failed to create workspace: " + error, "error");
+  }
+}
+
+async function exportCurrentFile() {
+  try {
+    // Update current file content first
+    if (activeFileName) {
+      const currentContent = editor.getValue();
+      await UpdateFileContent(activeFileName, currentContent);
+    }
+
+    await ExportCurrentFile();
+    showMessage(`File exported successfully`, "success");
+  } catch (error) {
+    console.error("Failed to export file:", error);
+    if (error && error.toString().includes("User cancelled")) {
+      return;
+    }
+    showMessage("Failed to export file: " + error, "error");
+  }
+}
+
+async function openWorkspace() {
+  try {
+    // Check for unsaved changes
+    const modified = await IsWorkspaceModified();
+    if (modified) {
+      if (
+        !confirm(
+          "Opening a workspace will discard all unsaved changes. Continue?",
+        )
+      ) {
+        return;
+      }
+    }
+
+    const workspacePath = await OpenWorkspace();
+    if (!workspacePath) {
+      return; // User cancelled
+    }
+
+    await loadWorkspaceFiles();
+
+    // Load the active file
+    if (workspaceFiles.length > 0) {
+      const activeFile = await GetActiveFile();
+      const content = await GetFileContent(activeFile);
+      editor.setValue(content);
+      activeFileName = activeFile;
+      document.getElementById("active-file-label").textContent = activeFile;
+    }
+
+    showMessage(`Workspace opened: ${workspacePath}`, "success");
+  } catch (error) {
+    console.error("Failed to open workspace:", error);
+    if (error && error.toString().includes("User cancelled")) {
+      return;
+    }
+    showMessage("Failed to open workspace: " + error, "error");
+  }
+}
+
+async function importFileToWorkspace() {
+  try {
+    await ImportFileToWorkspace();
+    await loadWorkspaceFiles();
+
+    // Get the newly added file (last modified file in the list)
+    if (workspaceFiles.length > 0) {
+      const lastFile = workspaceFiles[workspaceFiles.length - 1];
+      showMessage(`File "${lastFile.name}" imported successfully`, "success");
+      // Switch to the newly imported file
+      await switchToFile(lastFile.name);
+    }
+  } catch (error) {
+    console.error("Failed to import file:", error);
+    showMessage("Failed to import file: " + error, "error");
+  }
+}
+
+// Note: beforeunload removed to allow proper window closing in Wails
 
 // Change editor font size
 function changeEditorFontSize(delta) {
@@ -481,7 +926,7 @@ async function initApp() {
   minimapEnabled = localStorage.getItem("minimapEnabled") === "true";
   wordWrapEnabled = localStorage.getItem("wordWrapEnabled") === "true";
 
-  // Setup UI
+  // Setup UI with workspace sidebar
   document.getElementById("app").innerHTML = `
         <div class="header">
             <div class="header-left">
@@ -511,9 +956,29 @@ async function initApp() {
             </div>
         </div>
         <div class="main-content">
+            <div class="workspace-sidebar">
+                <div class="workspace-header">
+                    <span class="workspace-label">Workspace</span>
+                    <div class="workspace-buttons">
+                        <button class="secondary icon-only" id="new-file-btn" title="New File (Ctrl+N)">
+                            <i class="fas fa-file-circle-plus"></i>
+                        </button>
+                        <button class="secondary icon-only" id="import-file-btn" title="Import File to Workspace">
+                            <i class="fas fa-file-import"></i>
+                        </button>
+                        <button class="secondary icon-only" id="open-workspace-btn" title="Open Workspace Folder">
+                            <i class="fas fa-folder-open"></i>
+                        </button>
+                        <button class="secondary icon-only" id="save-workspace-btn" title="Save All Files (Ctrl+Shift+S)">
+                            <i class="fas fa-save"></i>
+                        </button>
+                    </div>
+                </div>
+                <div id="file-tree" class="file-tree"></div>
+            </div>
             <div class="editor-section">
                 <div class="editor-header">
-                    <span class="editor-label">Code Input</span>
+                    <span class="editor-label" id="active-file-label">Code Input</span>
                     <div class="editor-actions">
                         <div class="font-size-controls">
                             <span class="font-size-label">Font:</span>
@@ -525,11 +990,11 @@ async function initApp() {
                                 <i class="fas fa-plus"></i>
                             </button>
                         </div>
-                        <button class="secondary" id="load-code-btn">
-                            <i class="fas fa-folder-open"></i> Load
-                        </button>
-                        <button class="secondary" id="save-code-btn">
+                        <button class="secondary" id="save-code-btn" title="Save Current File (Ctrl+S)">
                             <i class="fas fa-save"></i> Save
+                        </button>
+                        <button class="secondary" id="export-file-btn" title="Export Current File">
+                            <i class="fas fa-file-export"></i> Export
                         </button>
                     </div>
                 </div>
@@ -553,7 +1018,7 @@ async function initApp() {
                             </button>
                         </div>
                         <button class="success" id="run-btn">
-                            <i class="fas fa-play"></i> Run Code
+                            <i class="fas fa-play"></i> Run
                         </button>
                         <button class="secondary" id="copy-result-btn">
                             <i class="fas fa-copy"></i> Copy
@@ -603,8 +1068,24 @@ async function initApp() {
   document
     .getElementById("copy-result-btn")
     .addEventListener("click", copyResult);
-  document.getElementById("save-code-btn").addEventListener("click", saveCode);
-  document.getElementById("load-code-btn").addEventListener("click", loadCode);
+  document
+    .getElementById("save-code-btn")
+    .addEventListener("click", saveCurrentFile);
+  document
+    .getElementById("export-file-btn")
+    .addEventListener("click", exportCurrentFile);
+  document
+    .getElementById("new-file-btn")
+    .addEventListener("click", createNewFile);
+  document
+    .getElementById("import-file-btn")
+    .addEventListener("click", importFileToWorkspace);
+  document
+    .getElementById("open-workspace-btn")
+    .addEventListener("click", openWorkspace);
+  document
+    .getElementById("save-workspace-btn")
+    .addEventListener("click", saveAllFiles);
   document
     .getElementById("save-result-btn")
     .addEventListener("click", saveResult);
@@ -669,10 +1150,20 @@ async function initApp() {
       e.preventDefault();
       executeCode();
     }
-    // Ctrl/Cmd + S to save code
-    if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+    // Ctrl/Cmd + S to save current file
+    if ((e.ctrlKey || e.metaKey) && e.key === "s" && !e.shiftKey) {
       e.preventDefault();
-      saveCode();
+      saveCurrentFile();
+    }
+    // Ctrl/Cmd + Shift + S to save all files
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "S") {
+      e.preventDefault();
+      saveAllFiles();
+    }
+    // Ctrl/Cmd + N to create new file
+    if ((e.ctrlKey || e.metaKey) && e.key === "n") {
+      e.preventDefault();
+      createNewFile();
     }
     // Ctrl/Cmd + Z to undo
     if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
@@ -686,6 +1177,50 @@ async function initApp() {
     ) {
       e.preventDefault();
       redo();
+    }
+  });
+
+  // Load workspace files with retry to ensure backend is initialized
+  const loaded = await loadWorkspaceWithRetry();
+
+  if (loaded) {
+    // Load initial file content
+    if (activeFileName) {
+      try {
+        const content = await GetFileContent(activeFileName);
+
+        // Check if this is an image file
+        if (isImageFile(activeFileName)) {
+          showImagePreview(activeFileName, content);
+        } else {
+          // Set the language based on file extension
+          const language = getLanguageFromFilename(activeFileName);
+          const model = editor.getModel();
+          monaco.editor.setModelLanguage(model, language);
+
+          editor.setValue(content);
+          document.getElementById("active-file-label").textContent =
+            activeFileName;
+        }
+      } catch (error) {
+        console.error("Failed to load initial file:", error);
+      }
+    }
+  } else {
+    console.error("Workspace failed to initialize properly");
+    showMessage("Failed to initialize workspace", "error");
+  }
+
+  // Mark file as modified on content change
+  editor.onDidChangeModelContent(() => {
+    if (activeFileName) {
+      // Update content in memory
+      clearTimeout(window.autoUpdateTimer);
+      window.autoUpdateTimer = setTimeout(async () => {
+        const currentContent = editor.getValue();
+        await UpdateFileContent(activeFileName, currentContent);
+        await loadWorkspaceFiles(); // Refresh to show modified indicator
+      }, 1000);
     }
   });
 }

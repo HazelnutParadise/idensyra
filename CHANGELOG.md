@@ -6,6 +6,30 @@ All notable changes to this project will be documented in this file.
 
 ### ✨ New Features
 
+#### Virtual Workspace System
+- **Temporary Workspace Management**: Automatic creation and cleanup of temporary workspace
+  - All generated files stored in system temp directory
+  - Automatic cleanup when application closes
+  - Warning dialog when closing with unsaved changes
+- **Multiple File Support**: Create and manage multiple Go files in workspace
+  - Each new file initialized with default template
+  - Easy switching between files via file tree sidebar
+  - File modification status tracking (● indicator for unsaved changes)
+- **File Operations**:
+  - Create new Go files with custom names
+  - Delete files (with confirmation)
+  - Auto-save every 2 seconds after editing
+  - Active file highlighted in blue
+- **Workspace Export**: One-click export entire workspace to persistent location
+  - Exports to `Documents/idensyra-exports/` with timestamp
+  - All files exported with complete `package main` structure
+  - Marks workspace as saved after successful export
+- **File Tree Sidebar**: Visual file management interface
+  - Icons and names for all workspace files
+  - Modification indicators
+  - Quick file switching
+  - Hover-to-delete functionality
+
 #### Theme System
 - **Follow System Theme**: Automatically detects and follows OS dark/light theme on startup
   - Windows: Follows "Settings > Personalization > Colors"
@@ -48,12 +72,31 @@ All notable changes to this project will be documented in this file.
 - **Autocompletion Range**: Fixed completion range to prevent overwriting previous text
 
 ### 🔧 Technical Changes
+- **Backend Workspace Manager** (`workspace.go`):
+  - `InitWorkspace()`: Creates temporary workspace on app start
+  - `GetWorkspaceFiles()`: Returns all files in workspace
+  - `CreateNewFile()`, `DeleteFile()`, `RenameFile()`: File operations
+  - `UpdateFileContent()`: Saves file content to temp directory
+  - `ExportWorkspace()`: Exports to persistent location
+  - `IsWorkspaceModified()`: Tracks unsaved changes
+  - `CleanupWorkspace()`: Automatic cleanup on shutdown
+  - `beforeClose()`: Prevents closing with unsaved changes
+- **Frontend Workspace UI**:
+  - File tree sidebar component with icons and indicators
+  - `loadWorkspaceFiles()`: Syncs file list from backend
+  - `switchToFile()`: Changes active file and loads content
+  - `createNewFile()`: Prompts for filename and creates file
+  - `deleteFileConfirm()`: Confirms and deletes file
+  - `exportWorkspace()`: Triggers workspace export
+  - `saveCurrentFile()`: Manual save with auto-save timer
+  - `beforeunload` event handler for unsaved changes warning
 - Added system theme detection using `window.matchMedia('prefers-color-scheme: dark')`
 - Improved Monaco Editor initialization to accept theme parameter
 - Added notification queue management to prevent message stacking
 - Fixed autocompletion to insert full symbol names (changed `insertText` from `funcName` to `symbol`)
 - Fixed autocompletion range to use `position.column` instead of `word.endColumn`
 - All frontend assets (Monaco Editor, Bootstrap, Font Awesome) fully localized without CDN dependencies
+- Application lifecycle hooks: `OnDomReady`, `OnBeforeClose`, `OnShutdown`
 
 ---
 

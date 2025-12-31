@@ -182,6 +182,116 @@ button.secondary.icon-only.active {
     position: relative;
 }
 
+/* Workspace Sidebar */
+.workspace-sidebar {
+    width: 200px;
+    background-color: var(--panel-background-color);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+.workspace-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 8px;
+    background-color: var(--panel-background-color);
+    border-bottom: 1px solid var(--border-color);
+    min-height: 40px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.workspace-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-color);
+    margin-right: 4px;
+}
+
+.workspace-buttons {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.file-tree {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 4px 0;
+}
+
+.file-item {
+    display: flex;
+    align-items: center;
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+    gap: 8px;
+    position: relative;
+}
+
+.file-item:hover {
+    background-color: var(--border-color);
+}
+
+.file-item.active {
+    background-color: var(--button-bg);
+    color: white;
+}
+
+.file-item i {
+    font-size: 12px;
+    color: var(--success-color);
+    flex-shrink: 0;
+}
+
+.file-item.active i {
+    color: white;
+}
+
+.file-name {
+    flex: 1;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.modified-indicator {
+    color: var(--warning-color);
+    font-size: 16px;
+    line-height: 1;
+    margin-left: auto;
+}
+
+.file-item.active .modified-indicator {
+    color: white;
+}
+
+.file-delete-btn {
+    display: none;
+    padding: 2px 6px;
+    font-size: 11px;
+    background-color: rgba(244, 135, 113, 0.8);
+    border: none;
+    border-radius: 3px;
+    color: white;
+    margin-left: auto;
+}
+
+.file-item:hover .file-delete-btn {
+    display: flex;
+}
+
+.file-delete-btn:hover {
+    background-color: var(--error-color);
+}
+
 /* Editor Section */
 .editor-section {
     display: flex;
@@ -419,14 +529,21 @@ button.secondary.icon-only.active {
         flex-direction: column;
     }
 
+    .workspace-sidebar {
+        width: 100%;
+        height: 150px;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+    }
+
     .editor-section {
         border-right: none;
         border-bottom: 1px solid var(--border-color);
-        height: 50vh;
+        height: 40vh;
     }
 
     .result-section {
-        height: 50vh;
+        height: 40vh;
     }
 
     .header {
