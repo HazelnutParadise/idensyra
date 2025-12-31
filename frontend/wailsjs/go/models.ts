@@ -6,6 +6,7 @@ export namespace main {
 	    modified: boolean;
 	    size: number;
 	    tooLarge: boolean;
+	    isBinary: boolean;
 	    isDir: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -19,6 +20,7 @@ export namespace main {
 	        this.modified = source["modified"];
 	        this.size = source["size"];
 	        this.tooLarge = source["tooLarge"];
+	        this.isBinary = source["isBinary"];
 	        this.isDir = source["isDir"];
 	    }
 	}

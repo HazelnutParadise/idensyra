@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/xuri/excelize/v2"
@@ -25,6 +26,7 @@ type WorkspaceFile struct {
 	Modified     bool   `json:"modified"`
 	Size         int64  `json:"size"`
 	TooLarge     bool   `json:"tooLarge"`
+	IsBinary     bool   `json:"isBinary"`
 	IsDir        bool   `json:"isDir"`
 	SavedContent string `json:"-"`
 	IsNew        bool   `json:"-"`
@@ -43,12 +45,37 @@ type Workspace struct {
 
 var globalWorkspace *Workspace
 
+type workspaceScanEntry struct {
+	path        string
+	displayName string
+	isDir       bool
+	size        int64
+}
+
 const (
 	concurrentReadThreshold = 4 * 1024 * 1024
 	concurrentReadChunkSize = 2 * 1024 * 1024
 	concurrentReadWorkers   = 4
-	maxPreviewBytes         = 50 * 1024 * 1024
+	maxPreviewBytes         = 55 * 1024 * 1024
 )
+
+func emitWorkspaceOpenProgress(ctx context.Context, phase string, fileName string, bytesRead int64, totalBytes int64, processedFiles int, totalFiles int, message string) {
+	if ctx == nil {
+		return
+	}
+	payload := map[string]any{
+		"phase":          phase,
+		"fileName":       fileName,
+		"bytesRead":      bytesRead,
+		"totalBytes":     totalBytes,
+		"processedFiles": processedFiles,
+		"totalFiles":     totalFiles,
+	}
+	if message != "" {
+		payload["message"] = message
+	}
+	runtime.EventsEmit(ctx, "workspace:open-progress", payload)
+}
 
 // InitWorkspace initializes the workspace with a temporary directory
 func (a *App) InitWorkspace() error {
@@ -158,6 +185,7 @@ func refreshWorkspaceFromDiskLocked() {
 			if existing, exists := globalWorkspace.files[displayName]; exists {
 				existing.Size = info.Size()
 				existing.TooLarge = false
+				existing.IsBinary = false
 				existing.IsDir = true
 				existing.Content = ""
 				existing.SavedContent = ""
@@ -171,6 +199,7 @@ func refreshWorkspaceFromDiskLocked() {
 				Content:      "",
 				Size:         info.Size(),
 				TooLarge:     false,
+				IsBinary:     false,
 				IsDir:        true,
 				SavedContent: "",
 				IsNew:        false,
@@ -180,6 +209,7 @@ func refreshWorkspaceFromDiskLocked() {
 		}
 
 		var contentStr string
+		var isBinary bool
 		tooLarge := isFileTooLarge(info.Size())
 		if !tooLarge {
 			content, err := os.ReadFile(path)
@@ -187,7 +217,8 @@ func refreshWorkspaceFromDiskLocked() {
 				return nil
 			}
 
-			if isBinaryPreviewFile(displayName) {
+			isBinary = shouldTreatAsBinary(displayName, content)
+			if isBinary {
 				contentStr = base64.StdEncoding.EncodeToString(content)
 			} else {
 				contentStr = string(content)
@@ -204,6 +235,7 @@ func refreshWorkspaceFromDiskLocked() {
 			}
 			existing.Size = info.Size()
 			existing.TooLarge = tooLarge
+			existing.IsBinary = isBinary
 			existing.IsDir = false
 			if existing.Content != contentStr {
 				existing.Content = contentStr
@@ -219,6 +251,7 @@ func refreshWorkspaceFromDiskLocked() {
 			Content:      contentStr,
 			Size:         info.Size(),
 			TooLarge:     tooLarge,
+			IsBinary:     isBinary,
 			IsDir:        false,
 			SavedContent: contentStr,
 			IsNew:        false,
@@ -341,11 +374,38 @@ func isBinaryPreviewFile(filename string) bool {
 	case ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".ico",
 		".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v", ".mpg", ".mpeg",
 		".mp3", ".wav", ".flac", ".ogg", ".aac", ".m4a",
+		".pdf",
 		".xlsx", ".xlsm", ".xltx", ".xltm":
 		return true
 	default:
 		return false
 	}
+}
+
+func isBinaryContent(content []byte) bool {
+	if len(content) == 0 {
+		return false
+	}
+	if bytes.IndexByte(content, 0x00) != -1 {
+		return true
+	}
+	if !utf8.Valid(content) {
+		return true
+	}
+	var nonPrintable int
+	for _, b := range content {
+		if b < 9 || (b > 13 && b < 32) {
+			nonPrintable++
+		}
+	}
+	return float64(nonPrintable)/float64(len(content)) > 0.3
+}
+
+func shouldTreatAsBinary(filename string, content []byte) bool {
+	if isBinaryPreviewFile(filename) {
+		return true
+	}
+	return isBinaryContent(content)
 }
 
 // UpdateFileContent updates the content of a file
@@ -369,7 +429,7 @@ func (a *App) UpdateFileContent(filename string, content string) error {
 	if file.IsDir {
 		return fmt.Errorf("path is a directory: %s", cleanName)
 	}
-	if isBinaryPreviewFile(cleanName) {
+	if file.IsBinary {
 		return fmt.Errorf("binary files cannot be edited: %s", cleanName)
 	}
 	if file.TooLarge {
@@ -420,7 +480,7 @@ func (a *App) SaveFile(filename string) error {
 
 	// Only wrap with preCode/endCode for .go files
 	var fullContent []byte
-	if isBinaryPreviewFile(cleanName) {
+	if file.IsBinary {
 		decoded, err := base64.StdEncoding.DecodeString(file.Content)
 		if err != nil {
 			return fmt.Errorf("failed to decode file: %w", err)
@@ -470,7 +530,7 @@ func (a *App) SaveAllFiles() error {
 		}
 		// Only wrap with preCode/endCode for .go files
 		var fullContent []byte
-		if isBinaryPreviewFile(filename) {
+		if file.IsBinary {
 			decoded, err := base64.StdEncoding.DecodeString(file.Content)
 			if err != nil {
 				return fmt.Errorf("failed to decode file %s: %w", filename, err)
@@ -530,6 +590,7 @@ func (a *App) CreateNewFile(filename string) error {
 		Content:      content,
 		Size:         int64(len(content)),
 		TooLarge:     false,
+		IsBinary:     isBinaryPreviewFile(cleanName),
 		IsDir:        false,
 		SavedContent: "",
 		IsNew:        true,
@@ -872,7 +933,9 @@ func (a *App) OpenWorkspace() (string, error) {
 		return "", fmt.Errorf("not a directory: %s", dirPath)
 	}
 
-	workspaceFiles := make(map[string]*WorkspaceFile)
+	entries := make([]workspaceScanEntry, 0)
+	var totalBytes int64
+	totalFiles := 0
 	_ = filepath.WalkDir(dirPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -898,55 +961,93 @@ func (a *App) OpenWorkspace() (string, error) {
 			return nil
 		}
 
-		if d.IsDir() {
-			workspaceFiles[displayName] = &WorkspaceFile{
-				Name:         displayName,
+		entry := workspaceScanEntry{
+			path:        path,
+			displayName: displayName,
+			isDir:       d.IsDir(),
+			size:        info.Size(),
+		}
+		entries = append(entries, entry)
+
+		if !entry.isDir {
+			totalBytes += entry.size
+			totalFiles++
+		}
+		return nil
+	})
+
+	if len(entries) == 0 {
+		emitWorkspaceOpenProgress(a.ctx, "error", "", 0, 0, 0, 0, "no files found in selected directory")
+		return "", fmt.Errorf("no files found in selected directory")
+	}
+
+	emitWorkspaceOpenProgress(a.ctx, "start", "Opening workspace...", 0, totalBytes, 0, totalFiles, "")
+
+	workspaceFiles := make(map[string]*WorkspaceFile)
+	var processedBytes int64
+	processedFiles := 0
+	for _, entry := range entries {
+		if entry.isDir {
+			workspaceFiles[entry.displayName] = &WorkspaceFile{
+				Name:         entry.displayName,
 				Content:      "",
-				Size:         info.Size(),
+				Size:         entry.size,
 				TooLarge:     false,
 				IsDir:        true,
 				SavedContent: "",
 				IsNew:        false,
 				Modified:     false,
 			}
-			return nil
+			continue
 		}
 
 		var contentStr string
-		tooLarge := isFileTooLarge(info.Size())
+		var isBinary bool
+		tooLarge := isFileTooLarge(entry.size)
 		if !tooLarge {
-			content, err := os.ReadFile(path)
+			content, err := os.ReadFile(entry.path)
 			if err != nil {
-				return nil
+				processedBytes += entry.size
+				processedFiles++
+				emitWorkspaceOpenProgress(a.ctx, "progress", entry.displayName, processedBytes, totalBytes, processedFiles, totalFiles, "")
+				continue
 			}
 
-			if isBinaryPreviewFile(displayName) {
+			isBinary = shouldTreatAsBinary(entry.displayName, content)
+			if isBinary {
 				contentStr = base64.StdEncoding.EncodeToString(content)
 			} else {
 				contentStr = string(content)
-				if strings.HasSuffix(displayName, ".go") {
+				if strings.HasSuffix(entry.displayName, ".go") {
 					contentStr = strings.TrimPrefix(contentStr, preCode+"\n")
 					contentStr = strings.TrimSuffix(contentStr, "\n"+endCode)
 				}
 			}
 		}
 
-		workspaceFiles[displayName] = &WorkspaceFile{
-			Name:         displayName,
+		workspaceFiles[entry.displayName] = &WorkspaceFile{
+			Name:         entry.displayName,
 			Content:      contentStr,
-			Size:         info.Size(),
+			Size:         entry.size,
 			TooLarge:     tooLarge,
+			IsBinary:     isBinary,
 			IsDir:        false,
 			SavedContent: contentStr,
 			IsNew:        false,
 			Modified:     false,
 		}
-		return nil
-	})
+
+		processedBytes += entry.size
+		processedFiles++
+		emitWorkspaceOpenProgress(a.ctx, "progress", entry.displayName, processedBytes, totalBytes, processedFiles, totalFiles, "")
+	}
 
 	if len(workspaceFiles) == 0 {
+		emitWorkspaceOpenProgress(a.ctx, "error", "", processedBytes, totalBytes, processedFiles, totalFiles, "no files found in selected directory")
 		return "", fmt.Errorf("no files found in selected directory")
 	}
+
+	emitWorkspaceOpenProgress(a.ctx, "done", "Workspace ready", processedBytes, totalBytes, processedFiles, totalFiles, "")
 
 	// Clean up old temp workspace if it was temp
 	globalWorkspace.mu.Lock()
@@ -1038,7 +1139,7 @@ func (a *App) CreateWorkspace() (string, error) {
 			}
 		} else {
 			var fullContent []byte
-			if isBinaryPreviewFile(filename) {
+			if file.IsBinary {
 				decoded, err := base64.StdEncoding.DecodeString(file.Content)
 				if err != nil {
 					return "", fmt.Errorf("failed to decode file %s: %w", filename, err)
@@ -1184,14 +1285,18 @@ func (a *App) ImportFileToWorkspaceAt(targetDir string) error {
 		}
 	}
 
-	// Convert content to string (base64 for binary previews)
+	// Convert content to string (base64 for binary files)
 	var contentStr string
+	isBinary := false
 	if !tooLarge {
-		if isBinaryPreviewFile(finalName) {
+		isBinary = shouldTreatAsBinary(finalName, content)
+		if isBinary {
 			contentStr = base64.StdEncoding.EncodeToString(content)
 		} else {
 			contentStr = string(content)
 		}
+	} else {
+		isBinary = isBinaryPreviewFile(finalName)
 	}
 
 	if tooLarge && globalWorkspace.workDir != "" {
@@ -1220,6 +1325,7 @@ func (a *App) ImportFileToWorkspaceAt(targetDir string) error {
 		Content:      contentStr,
 		Size:         info.Size(),
 		TooLarge:     tooLarge,
+		IsBinary:     isBinary,
 		SavedContent: "",
 		IsNew:        !tooLarge,
 		Modified:     !tooLarge,
@@ -1389,7 +1495,7 @@ func (a *App) ExportCurrentFile() error {
 		return fmt.Errorf("failed to save file: %w", err)
 	}
 	if filename == "" {
-		return nil // User cancelled
+		return fmt.Errorf("User cancelled")
 	}
 
 	// Write file content based on file type
@@ -1400,7 +1506,7 @@ func (a *App) ExportCurrentFile() error {
 			return fmt.Errorf("failed to export file: %w", err)
 		}
 		return nil
-	} else if isBinaryPreviewFile(globalWorkspace.activeFile) {
+	} else if file.IsBinary {
 		decoded, err := base64.StdEncoding.DecodeString(file.Content)
 		if err != nil {
 			return fmt.Errorf("failed to decode file: %w", err)
@@ -1530,19 +1636,39 @@ func (a *App) GetWorkspaceInfo() map[string]interface{} {
 
 // GetExcelPreview returns an HTML table preview for the first sheet.
 func (a *App) GetExcelPreview(filename string, maxRows int, maxCols int) (string, error) {
+	return a.getExcelPreview(filename, "", maxRows, maxCols)
+}
+
+// GetExcelSheets returns all worksheet names in the Excel file.
+func (a *App) GetExcelSheets(filename string) ([]string, error) {
+	excel, err := openExcelFromWorkspace(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = excel.Close()
+	}()
+
+	sheets := excel.GetSheetList()
+	if len(sheets) == 0 {
+		return nil, fmt.Errorf("no sheets found")
+	}
+	return sheets, nil
+}
+
+// GetExcelSheetPreview returns an HTML table preview for the specified sheet.
+func (a *App) GetExcelSheetPreview(filename string, sheetName string, maxRows int, maxCols int) (string, error) {
+	return a.getExcelPreview(filename, sheetName, maxRows, maxCols)
+}
+
+func openExcelFromWorkspace(filename string) (*excelize.File, error) {
 	if globalWorkspace == nil {
-		return "", fmt.Errorf("workspace not initialized")
-	}
-	if maxRows <= 0 {
-		maxRows = 50
-	}
-	if maxCols <= 0 {
-		maxCols = 20
+		return nil, fmt.Errorf("workspace not initialized")
 	}
 
 	cleanName, err := cleanRelativePath(filename)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	globalWorkspace.mu.RLock()
@@ -1550,28 +1676,43 @@ func (a *App) GetExcelPreview(filename string, maxRows int, maxCols int) (string
 	globalWorkspace.mu.RUnlock()
 
 	if !exists {
-		return "", fmt.Errorf("file not found: %s", cleanName)
+		return nil, fmt.Errorf("file not found: %s", cleanName)
 	}
 	if file.IsDir {
-		return "", fmt.Errorf("path is a directory: %s", cleanName)
+		return nil, fmt.Errorf("path is a directory: %s", cleanName)
 	}
 	if file.TooLarge {
-		return "", fmt.Errorf("file too large to preview")
+		return nil, fmt.Errorf("file too large to preview")
 	}
 
 	if file.Content == "" {
-		return "", fmt.Errorf("file content unavailable")
+		return nil, fmt.Errorf("file content unavailable")
 	}
 
 	data, err := base64.StdEncoding.DecodeString(file.Content)
 	if err != nil {
-		return "", fmt.Errorf("failed to decode file content: %w", err)
+		return nil, fmt.Errorf("failed to decode file content: %w", err)
 	}
 
 	reader := bytes.NewReader(data)
 	excel, err := excelize.OpenReader(reader)
 	if err != nil {
-		return "", fmt.Errorf("failed to open excel file: %w", err)
+		return nil, fmt.Errorf("failed to open excel file: %w", err)
+	}
+	return excel, nil
+}
+
+func (a *App) getExcelPreview(filename string, sheetName string, maxRows int, maxCols int) (string, error) {
+	if maxRows <= 0 {
+		maxRows = 50
+	}
+	if maxCols <= 0 {
+		maxCols = 20
+	}
+
+	excel, err := openExcelFromWorkspace(filename)
+	if err != nil {
+		return "", err
 	}
 	defer func() {
 		_ = excel.Close()
@@ -1582,7 +1723,23 @@ func (a *App) GetExcelPreview(filename string, maxRows int, maxCols int) (string
 		return "", fmt.Errorf("no sheets found")
 	}
 
-	rows, err := excel.Rows(sheets[0])
+	targetSheet := sheetName
+	if targetSheet == "" {
+		targetSheet = sheets[0]
+	} else {
+		found := false
+		for _, sheet := range sheets {
+			if sheet == targetSheet {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return "", fmt.Errorf("sheet not found: %s", targetSheet)
+		}
+	}
+
+	rows, err := excel.Rows(targetSheet)
 	if err != nil {
 		return "", fmt.Errorf("failed to read rows: %w", err)
 	}
@@ -1668,8 +1825,48 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	}
 	globalWorkspace.mu.RUnlock()
 
-	// Warn user if they're in temporary workspace and haven't saved to disk
 	if isTemp && hasFiles {
+		var message string
+		if hasModified {
+			message = "You have unsaved changes in a temporary workspace.\nClosing will discard these files.\n\nDo you want to create a workspace and save them first?\n\nChoose \"Yes (Y)\" to create a workspace and save.\nChoose \"No (N)\" to close without saving."
+		} else {
+			message = "You are working in a temporary workspace.\nClosing will discard these files.\n\nDo you want to create a workspace and save them first?\n\nChoose \"Yes (Y)\" to create a workspace and save.\nChoose \"No (N)\" to close without saving."
+		}
+
+		selection, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+			Type:    runtime.QuestionDialog,
+			Title:   "Save Workspace",
+			Message: message,
+			Buttons: []string{"Yes (Y)", "No (N)"},
+		})
+
+		if err != nil {
+			fmt.Printf("Dialog error: %v\n", err)
+			return true // Prevent closing on error
+		}
+
+		fmt.Printf("Dialog selection: '%s'\n", selection)
+
+		if selection == "Yes (Y)" || selection == "Y" || selection == "Yes" {
+			path, err := a.CreateWorkspace()
+			if err != nil {
+				runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+					Type:    runtime.ErrorDialog,
+					Title:   "Save Failed",
+					Message: "Failed to create workspace: " + err.Error() + "\n\nThe app will continue closing after you confirm.",
+				})
+			}
+			if path == "" {
+				return true
+			}
+		}
+
+		a.CleanupWorkspace()
+		return false
+	}
+
+	// Warn user if they're in temporary workspace and haven't saved to disk
+	if false && isTemp && hasFiles {
 		var message string
 		if hasModified {
 			message = "您在臨時工作區中有未儲存的變更。\n關閉後這些檔案將會遺失。\n\n是否先建立工作區並儲存檔案？\n\n點「是(Y)」: 建立工作區並儲存\n點「否(N)」: 直接關閉不儲存"

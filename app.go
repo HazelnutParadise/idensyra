@@ -294,7 +294,7 @@ func executeGoCode(code string, colorBG string) string {
 		w.Close()
 		os.Stdout = oldStdout
 		os.Stderr = oldStderr
-		return fmt.Sprintf("執行代碼失敗: %v", err)
+		return fmt.Sprintf("Failed to execute code: %v", err)
 	}
 
 	// Restore standard output and standard error

@@ -53,6 +53,7 @@ let editorWidth = 50; // percentage
 let minimapEnabled = false;
 let wordWrapEnabled = false;
 let currentNotification = null; // Track current notification
+let currentActionMenu = null;
 let workspaceFiles = [];
 let activeFileName = "";
 let isWorkspaceInitialized = false;
@@ -66,6 +67,8 @@ let lastExecutionOutput =
   '<div style="color: #888;">Run your code to see output here...</div>';
 let previewMode = null;
 let previewUpdateTimer = null;
+const excelSheetSelections = new Map();
+let excelPreviewToken = 0;
 
 // Detect system theme preference
 function getSystemTheme() {
@@ -116,6 +119,94 @@ function getLanguageFromFilename(filename) {
     dockerfile: "dockerfile",
   };
   return languageMap[ext] || "plaintext";
+}
+
+let cachedGoParse = {
+  versionId: null,
+  structs: new Map(),
+  varTypes: new Map(),
+};
+
+function parseGoStructs(source) {
+  const structs = new Map();
+  const structRegex = /type\s+([A-Za-z_]\w*)\s+struct\s*\{([\s\S]*?)\n\}/g;
+  let match;
+
+  while ((match = structRegex.exec(source))) {
+    const name = match[1];
+    const body = match[2];
+    const fields = new Set();
+
+    body.split(/\r?\n/).forEach((line) => {
+      const cleaned = line.split("//")[0].trim();
+      if (!cleaned) return;
+      if (cleaned.startsWith("}")) return;
+      const fieldMatch = cleaned.match(/^([A-Za-z_]\w*)\b/);
+      if (fieldMatch) {
+        fields.add(fieldMatch[1]);
+      }
+    });
+
+    structs.set(name, { fields: Array.from(fields), methods: [] });
+  }
+
+  const methodRegex =
+    /func\s*\(\s*\w+\s*(?:\*\s*)?([A-Za-z_]\w*)\s*\)\s*([A-Za-z_]\w*)\s*\(/g;
+  while ((match = methodRegex.exec(source))) {
+    const typeName = match[1];
+    const methodName = match[2];
+    const info = structs.get(typeName) || { fields: [], methods: [] };
+    if (!info.methods.includes(methodName)) {
+      info.methods.push(methodName);
+    }
+    structs.set(typeName, info);
+  }
+
+  return structs;
+}
+
+function parseGoVarTypes(source, structNames) {
+  const varTypes = new Map();
+  const lines = source.split(/\r?\n/);
+
+  lines.forEach((line) => {
+    const cleaned = line.split("//")[0];
+    let match = cleaned.match(
+      /\bvar\s+([A-Za-z_]\w*)\s+(?:\*\s*)?([A-Za-z_]\w*)\b/,
+    );
+    if (match && structNames.has(match[2])) {
+      varTypes.set(match[1], match[2]);
+    }
+
+    match = cleaned.match(/\b([A-Za-z_]\w*)\s*:=\s*&?\s*([A-Za-z_]\w*)\s*\{/);
+    if (match && structNames.has(match[2])) {
+      varTypes.set(match[1], match[2]);
+    }
+
+    match = cleaned.match(
+      /\b([A-Za-z_]\w*)\s*:=\s*new\(\s*([A-Za-z_]\w*)\s*\)/,
+    );
+    if (match && structNames.has(match[2])) {
+      varTypes.set(match[1], match[2]);
+    }
+  });
+
+  return varTypes;
+}
+
+function getGoParse(model) {
+  const versionId = model.getVersionId();
+  if (cachedGoParse.versionId === versionId) {
+    return cachedGoParse;
+  }
+
+  const source = model.getValue();
+  const structs = parseGoStructs(source);
+  const structNames = new Set(structs.keys());
+  const varTypes = parseGoVarTypes(source, structNames);
+
+  cachedGoParse = { versionId, structs, varTypes };
+  return cachedGoParse;
 }
 
 // Check if file is an image
@@ -320,6 +411,7 @@ async function initMonacoEditor(theme = "dark") {
 
   // Register completion provider for Go
   monaco.languages.registerCompletionItemProvider("go", {
+    triggerCharacters: ["."],
     provideCompletionItems: (model, position) => {
       const word = model.getWordUntilPosition(position);
       const range = {
@@ -329,10 +421,61 @@ async function initMonacoEditor(theme = "dark") {
         endColumn: position.column,
       };
 
+      const linePrefix = model
+        .getLineContent(position.lineNumber)
+        .slice(0, position.column - 1);
+      const memberMatch = linePrefix.match(/([A-Za-z_]\w*)\.$/);
+
+      if (memberMatch) {
+        const target = memberMatch[1];
+        const suggestions = [];
+        const { structs, varTypes } = getGoParse(model);
+        const typeName = varTypes.get(target) || target;
+        const typeInfo = structs.get(typeName);
+
+        if (typeInfo) {
+          typeInfo.fields.forEach((field) => {
+            suggestions.push({
+              label: field,
+              kind: monaco.languages.CompletionItemKind.Field,
+              detail: `${typeName} field`,
+              insertText: field,
+              range: range,
+            });
+          });
+
+          typeInfo.methods.forEach((method) => {
+            suggestions.push({
+              label: method,
+              kind: monaco.languages.CompletionItemKind.Method,
+              detail: `${typeName} method`,
+              insertText: method,
+              range: range,
+            });
+          });
+        }
+
+        const packageSuggestions = goSymbols
+          .filter((symbol) => symbol.startsWith(`${target}.`))
+          .map((symbol) => {
+            const memberName = symbol.slice(target.length + 1);
+            return {
+              label: memberName,
+              kind: monaco.languages.CompletionItemKind.Function,
+              detail: `${target} package`,
+              documentation: `Member from ${target}`,
+              insertText: memberName,
+              range: range,
+            };
+          });
+
+        suggestions.push(...packageSuggestions);
+        return { suggestions: suggestions };
+      }
+
       const suggestions = goSymbols.map((symbol) => {
         const parts = symbol.split(".");
         const packageName = parts[0];
-        const funcName = parts.slice(1).join(".");
 
         return {
           label: symbol,
@@ -411,6 +554,17 @@ async function initMonacoEditor(theme = "dark") {
           range: range,
         });
       });
+
+      const { structs } = getGoParse(model);
+      for (const [structName] of structs) {
+        suggestions.push({
+          label: structName,
+          kind: monaco.languages.CompletionItemKind.Struct,
+          detail: "struct type",
+          insertText: structName,
+          range: range,
+        });
+      }
 
       return { suggestions: suggestions };
     },
@@ -633,6 +787,16 @@ function showMessage(message, type = "success") {
   }, 3000);
 }
 
+function closeActionMenu() {
+  if (!currentActionMenu) return;
+  currentActionMenu.classList.remove("active");
+  const actions = currentActionMenu.closest(".file-actions");
+  if (actions) {
+    actions.classList.remove("open");
+  }
+  currentActionMenu = null;
+}
+
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -670,10 +834,12 @@ function getMediaKind(filename) {
   const imageExts = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg", "ico"];
   const videoExts = ["mp4", "webm", "mov", "avi", "mkv", "m4v", "mpg", "mpeg"];
   const audioExts = ["mp3", "wav", "flac", "ogg", "aac", "m4a"];
+  const documentExts = ["pdf"];
 
   if (imageExts.includes(ext)) return "image";
   if (videoExts.includes(ext)) return "video";
   if (audioExts.includes(ext)) return "audio";
+  if (documentExts.includes(ext)) return "pdf";
   return "";
 }
 
@@ -702,6 +868,7 @@ function getMimeType(filename) {
     ogg: "audio/ogg",
     aac: "audio/aac",
     m4a: "audio/mp4",
+    pdf: "application/pdf",
   };
   return map[ext] || "application/octet-stream";
 }
@@ -761,7 +928,7 @@ function showPreview(content, type) {
 
   previewMode = type;
   resultLabel.textContent = "Preview";
-  resultContainer.classList.add("preview-mode");
+  setResultPreviewState(true);
 
   if (type === "html") {
     resultOutput.innerHTML = `<div class="preview-frame-wrap"><iframe class="preview-frame" sandbox=""></iframe></div>`;
@@ -779,6 +946,20 @@ function showPreview(content, type) {
   }
 }
 
+function setResultPreviewState(isPreview) {
+  const resultSection = document.querySelector(".result-section");
+  const resultContainer = document.querySelector(".result-container");
+  if (!resultSection || !resultContainer) return;
+
+  if (isPreview) {
+    resultSection.classList.add("preview-mode");
+    resultContainer.classList.add("preview-mode");
+  } else {
+    resultSection.classList.remove("preview-mode");
+    resultContainer.classList.remove("preview-mode");
+  }
+}
+
 function showMediaPreview(content, filename) {
   const resultOutput = document.getElementById("result-output");
   const resultContainer = document.querySelector(".result-container");
@@ -790,7 +971,7 @@ function showMediaPreview(content, filename) {
 
   previewMode = "media";
   resultLabel.textContent = "Preview";
-  resultContainer.classList.add("preview-mode");
+  setResultPreviewState(true);
 
   const mimeType = getMimeType(filename);
   const dataUrl = `data:${mimeType};base64,${content || ""}`;
@@ -811,6 +992,12 @@ function showMediaPreview(content, filename) {
     resultOutput.innerHTML = `
       <div class="media-preview">
         <audio controls src="${dataUrl}"></audio>
+      </div>
+    `;
+  } else if (mediaKind === "pdf") {
+    resultOutput.innerHTML = `
+      <div class="media-preview">
+        <iframe class="pdf-preview" src="${dataUrl}"></iframe>
       </div>
     `;
   }
@@ -884,7 +1071,7 @@ function showTablePreviewFromText(content, delimiter) {
 
   previewMode = "table";
   resultLabel.textContent = "Preview";
-  resultContainer.classList.add("preview-mode");
+  setResultPreviewState(true);
 
   const rows = parseDelimited(content || "", delimiter);
   resultOutput.innerHTML = `<div class="table-preview">${renderTable(rows)}</div>`;
@@ -896,17 +1083,89 @@ async function showExcelPreview(filename) {
   const resultLabel = document.querySelector(".result-label");
   if (!resultOutput || !resultLabel || !resultContainer) return;
 
+  const previewToken = ++excelPreviewToken;
   previewMode = "table";
   resultLabel.textContent = "Preview";
-  resultContainer.classList.add("preview-mode");
-  resultOutput.innerHTML =
-    '<div class="table-preview">Loading preview...</div>';
+  setResultPreviewState(true);
+  resultOutput.innerHTML = `
+    <div class="excel-preview">
+      <div class="excel-preview-toolbar">
+        <span class="excel-preview-label">Sheet</span>
+        <select id="excel-sheet-select" class="excel-sheet-select" disabled></select>
+        <span id="excel-preview-meta" class="excel-preview-meta"></span>
+      </div>
+      <div id="excel-preview-table" class="table-preview">Loading preview...</div>
+    </div>
+  `;
+
+  const sheetSelect = document.getElementById("excel-sheet-select");
+  const tableContainer = document.getElementById("excel-preview-table");
+  const metaEl = document.getElementById("excel-preview-meta");
+
+  if (!sheetSelect || !tableContainer) return;
 
   try {
-    const html = await window.go.main.App.GetExcelPreview(filename, 100, 30);
-    resultOutput.innerHTML = `<div class="table-preview">${html}</div>`;
+    const sheets = await window.go.main.App.GetExcelSheets(filename);
+    if (previewToken !== excelPreviewToken) return;
+
+    if (!Array.isArray(sheets) || sheets.length === 0) {
+      tableContainer.innerHTML =
+        '<div class="error-message">No sheets found</div>';
+      return;
+    }
+
+    sheetSelect.innerHTML = sheets
+      .map(
+        (sheet) =>
+          `<option value="${escapeHtml(sheet)}">${escapeHtml(sheet)}</option>`,
+      )
+      .join("");
+
+    let selectedSheet = excelSheetSelections.get(filename) || sheets[0];
+    if (!sheets.includes(selectedSheet)) {
+      selectedSheet = sheets[0];
+    }
+    sheetSelect.value = selectedSheet;
+    sheetSelect.disabled = false;
+
+    const updateMeta = (sheetName) => {
+      const index = sheets.indexOf(sheetName);
+      if (metaEl) {
+        metaEl.textContent = `Sheet ${index + 1} / ${sheets.length}`;
+      }
+    };
+
+    const loadSheetPreview = async (sheetName) => {
+      excelSheetSelections.set(filename, sheetName);
+      updateMeta(sheetName);
+      tableContainer.innerHTML = "Loading preview...";
+
+      try {
+        const html = await window.go.main.App.GetExcelSheetPreview(
+          filename,
+          sheetName,
+          100,
+          30,
+        );
+        if (previewToken !== excelPreviewToken) return;
+        tableContainer.innerHTML = html;
+      } catch (error) {
+        if (previewToken !== excelPreviewToken) return;
+        tableContainer.innerHTML = `<div class="error-message">Preview failed: ${escapeHtml(
+          String(error),
+        )}</div>`;
+      }
+    };
+
+    sheetSelect.addEventListener("change", (event) => {
+      const value = event.target.value;
+      loadSheetPreview(value);
+    });
+
+    await loadSheetPreview(selectedSheet);
   } catch (error) {
-    resultOutput.innerHTML = `<div class="error-message">Preview failed: ${escapeHtml(
+    if (previewToken !== excelPreviewToken) return;
+    tableContainer.innerHTML = `<div class="error-message">Preview failed: ${escapeHtml(
       String(error),
     )}</div>`;
   }
@@ -922,7 +1181,7 @@ function clearPreviewIfNeeded() {
   previewMode = null;
   resultLabel.textContent = "Output";
   resultOutput.innerHTML = lastExecutionOutput;
-  resultContainer.classList.remove("preview-mode");
+  setResultPreviewState(false);
 }
 
 function schedulePreviewUpdate(content, type) {
@@ -942,7 +1201,11 @@ function schedulePreviewUpdate(content, type) {
   }, 250);
 }
 
-function showImportProgress(filename) {
+function showImportProgress(
+  filename,
+  title = "Importing file",
+  detailText = "",
+) {
   const overlay = document.getElementById("import-progress-overlay");
   if (!overlay) return;
 
@@ -952,27 +1215,44 @@ function showImportProgress(filename) {
   }
 
   overlay.classList.add("active");
+  const titleEl = document.getElementById("import-progress-title");
+  if (titleEl) {
+    titleEl.textContent = title;
+  }
   document.getElementById("import-progress-filename").textContent =
     filename || "Importing file...";
   document.getElementById("import-progress-percent").textContent = "0%";
-  document.getElementById("import-progress-bytes").textContent = "";
+  document.getElementById("import-progress-bytes").textContent = detailText;
   document.getElementById("import-progress-fill").style.width = "0%";
 }
 
-function updateImportProgress(filename, percent, bytesRead, totalBytes) {
+function updateImportProgress(
+  filename,
+  percent,
+  bytesRead,
+  totalBytes,
+  title = "Importing file",
+  detailText = "",
+) {
   const overlay = document.getElementById("import-progress-overlay");
   if (!overlay) return;
 
   if (!overlay.classList.contains("active")) {
-    showImportProgress(filename);
+    showImportProgress(filename, title, detailText);
   }
 
+  const titleEl = document.getElementById("import-progress-title");
+  if (titleEl) {
+    titleEl.textContent = title;
+  }
   document.getElementById("import-progress-filename").textContent =
     filename || "Importing file...";
   document.getElementById("import-progress-percent").textContent =
     `${percent}%`;
 
-  if (totalBytes > 0) {
+  if (detailText) {
+    document.getElementById("import-progress-bytes").textContent = detailText;
+  } else if (totalBytes > 0) {
     document.getElementById("import-progress-bytes").textContent =
       `${formatBytes(bytesRead)} / ${formatBytes(totalBytes)}`;
   } else {
@@ -1041,6 +1321,7 @@ function renderFileTree() {
   const fileTree = document.getElementById("file-tree");
   if (!fileTree) return;
 
+  closeActionMenu();
   fileTree.innerHTML = "";
 
   const treeRoot = buildFileTree(workspaceFiles);
@@ -1106,6 +1387,7 @@ function renderTreeNodes(node, container, depth, initialized) {
     const fileItem = document.createElement("div");
     fileItem.className = "file-item";
     fileItem.style.paddingLeft = `${8 + depth * 14}px`;
+    fileItem.title = entry.name;
 
     if (entry.meta && entry.meta.tooLarge) {
       fileItem.classList.add("file-large");
@@ -1146,19 +1428,23 @@ function renderTreeNodes(node, container, depth, initialized) {
           ? '<span class="modified-indicator">*</span>'
           : ""
       }
-      <button class="file-rename-btn" title="Rename">
-        <i class="fas fa-pen"></i>
-      </button>
-      <button class="file-delete-btn" title="Delete">
-        <i class="fas fa-times"></i>
-      </button>
+      <div class="file-actions">
+        <button class="file-action-btn" title="Actions" type="button">
+          <i class="fas fa-ellipsis-h"></i>
+        </button>
+        <div class="file-action-menu">
+          <button class="file-action-item file-action-rename" type="button">
+            Rename
+          </button>
+          <button class="file-action-item file-action-delete" type="button">
+            Delete
+          </button>
+        </div>
+      </div>
     `;
 
     fileItem.addEventListener("click", (e) => {
-      if (
-        e.target.closest(".file-delete-btn") ||
-        e.target.closest(".file-rename-btn")
-      ) {
+      if (e.target.closest(".file-actions")) {
         return;
       }
 
@@ -1176,9 +1462,26 @@ function renderTreeNodes(node, container, depth, initialized) {
       switchToFile(entry.path);
     });
 
-    const renameBtn = fileItem.querySelector(".file-rename-btn");
+    const fileActions = fileItem.querySelector(".file-actions");
+    const actionBtn = fileItem.querySelector(".file-action-btn");
+    const actionMenu = fileItem.querySelector(".file-action-menu");
+    const renameBtn = fileItem.querySelector(".file-action-rename");
+    const deleteBtn = fileItem.querySelector(".file-action-delete");
+
+    actionBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const wasOpen = actionMenu.classList.contains("active");
+      closeActionMenu();
+      if (!wasOpen) {
+        actionMenu.classList.add("active");
+        fileActions.classList.add("open");
+        currentActionMenu = actionMenu;
+      }
+    });
+
     renameBtn.addEventListener("click", (e) => {
       e.stopPropagation();
+      closeActionMenu();
       if (entry.isDir) {
         renameFolderPrompt(entry.path);
       } else {
@@ -1186,9 +1489,9 @@ function renderTreeNodes(node, container, depth, initialized) {
       }
     });
 
-    const deleteBtn = fileItem.querySelector(".file-delete-btn");
     deleteBtn.addEventListener("click", (e) => {
       e.stopPropagation();
+      closeActionMenu();
       if (entry.isDir) {
         deleteFolderConfirm(entry.path);
       } else {
@@ -1253,10 +1556,11 @@ async function switchToFile(filename, force = false) {
       clearPreviewIfNeeded();
       showMediaPreview(content, filename);
     } else if (getMediaKind(filename)) {
+      const mediaKind = getMediaKind(filename);
       hideImagePreview();
       hideLargeFilePreview();
       hideBinaryPreview();
-      showBinaryPreview(filename, "Media");
+      showBinaryPreview(filename, mediaKind === "pdf" ? "PDF" : "Media");
       showMediaPreview(content, filename);
     } else if (
       filename.endsWith(".xlsx") ||
@@ -1269,6 +1573,12 @@ async function switchToFile(filename, force = false) {
       hideBinaryPreview();
       showBinaryPreview(filename, "Spreadsheet");
       await showExcelPreview(filename);
+    } else if (selectedFile && selectedFile.isBinary) {
+      hideImagePreview();
+      hideLargeFilePreview();
+      hideBinaryPreview();
+      showBinaryPreview(filename, "Binary");
+      clearPreviewIfNeeded();
     } else {
       // Hide binary/image preview if it was showing
       hideImagePreview();
@@ -1594,7 +1904,12 @@ async function createWorkspace() {
 async function exportCurrentFile() {
   try {
     // Update current file content first
-    if (activeFileName) {
+    if (
+      activeFileName &&
+      !isImagePreview &&
+      !isLargeFilePreview &&
+      !isBinaryPreview
+    ) {
       const currentContent = editor.getValue();
       await UpdateFileContent(activeFileName, currentContent);
     }
@@ -1653,10 +1968,11 @@ async function openWorkspace() {
         showImagePreview(activeFile, content);
         showMediaPreview(content, activeFile);
       } else if (getMediaKind(activeFile)) {
+        const mediaKind = getMediaKind(activeFile);
         hideImagePreview();
         hideLargeFilePreview();
         hideBinaryPreview();
-        showBinaryPreview(activeFile, "Media");
+        showBinaryPreview(activeFile, mediaKind === "pdf" ? "PDF" : "Media");
         showMediaPreview(content, activeFile);
       } else if (
         activeFile.endsWith(".xlsx") ||
@@ -1669,6 +1985,12 @@ async function openWorkspace() {
         hideBinaryPreview();
         showBinaryPreview(activeFile, "Spreadsheet");
         await showExcelPreview(activeFile);
+      } else if (activeMeta && activeMeta.isBinary) {
+        hideImagePreview();
+        hideLargeFilePreview();
+        hideBinaryPreview();
+        showBinaryPreview(activeFile, "Binary");
+        clearPreviewIfNeeded();
       } else {
         hideImagePreview();
         hideLargeFilePreview();
@@ -1849,7 +2171,7 @@ async function initApp() {
                 <button class="secondary" id="github-btn" title="View on GitHub">
                     <i class="fab fa-github"></i>
                 </button>
-                <button class="secondary" id="hazelnut-btn" title="HazelnutParadise">
+                <button class="secondary" id="hazelnut-btn" title="Official Website">
                     <i class="fas fa-link"></i>
                 </button>
             </div>
@@ -1939,7 +2261,7 @@ async function initApp() {
         </div>
         <div id="import-progress-overlay" class="import-progress-overlay">
             <div class="import-progress-card">
-                <div class="import-progress-title">Importing file</div>
+                <div id="import-progress-title" class="import-progress-title">Importing file</div>
                 <div id="import-progress-filename" class="import-progress-filename"></div>
                 <div class="import-progress-bar">
                     <div id="import-progress-fill" class="import-progress-fill"></div>
@@ -1951,6 +2273,12 @@ async function initApp() {
             </div>
         </div>
     `;
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".file-actions")) {
+      closeActionMenu();
+    }
+  });
 
   const resultOutput = document.getElementById("result-output");
   if (resultOutput) {
@@ -2133,10 +2461,14 @@ async function initApp() {
           showImagePreview(activeFileName, content);
           showMediaPreview(content, activeFileName);
         } else if (getMediaKind(activeFileName)) {
+          const mediaKind = getMediaKind(activeFileName);
           hideImagePreview();
           hideLargeFilePreview();
           hideBinaryPreview();
-          showBinaryPreview(activeFileName, "Media");
+          showBinaryPreview(
+            activeFileName,
+            mediaKind === "pdf" ? "PDF" : "Media",
+          );
           showMediaPreview(content, activeFileName);
         } else if (
           activeFileName.endsWith(".xlsx") ||
@@ -2149,6 +2481,12 @@ async function initApp() {
           hideBinaryPreview();
           showBinaryPreview(activeFileName, "Spreadsheet");
           await showExcelPreview(activeFileName);
+        } else if (activeMeta && activeMeta.isBinary) {
+          hideImagePreview();
+          hideLargeFilePreview();
+          hideBinaryPreview();
+          showBinaryPreview(activeFileName, "Binary");
+          clearPreviewIfNeeded();
         } else {
           // Set the language based on file extension
           const language = getLanguageFromFilename(activeFileName);
@@ -2204,15 +2542,14 @@ async function initApp() {
         } else if (activeFileName.endsWith(".tsv")) {
           schedulePreviewUpdate(editor.getValue(), "tsv");
         }
+        // Update content in memory
+        clearTimeout(window.autoUpdateTimer);
+        window.autoUpdateTimer = setTimeout(async () => {
+          const currentContent = editor.getValue();
+          await UpdateFileContent(activeFileName, currentContent);
+          await loadWorkspaceFiles(); // Refresh to show modified indicator
+        }, 1000);
       }
-
-      // Update content in memory
-      clearTimeout(window.autoUpdateTimer);
-      window.autoUpdateTimer = setTimeout(async () => {
-        const currentContent = editor.getValue();
-        await UpdateFileContent(activeFileName, currentContent);
-        await loadWorkspaceFiles(); // Refresh to show modified indicator
-      }, 1000);
     }
   });
 
@@ -2220,6 +2557,7 @@ async function initApp() {
     const data = Array.isArray(payload) ? payload[0] : payload;
     if (!data) return;
 
+    const title = "Importing file";
     const fileName = data.fileName || "Importing file...";
     const bytesRead = Number(data.bytesRead || 0);
     const totalBytes = Number(data.totalBytes || 0);
@@ -2229,18 +2567,87 @@ async function initApp() {
         : 100;
 
     if (data.phase === "start") {
-      showImportProgress(fileName);
-      updateImportProgress(fileName, 0, bytesRead, totalBytes);
+      showImportProgress(fileName, title);
+      updateImportProgress(fileName, 0, bytesRead, totalBytes, title);
       return;
     }
 
     if (data.phase === "progress") {
-      updateImportProgress(fileName, percent, bytesRead, totalBytes);
+      updateImportProgress(fileName, percent, bytesRead, totalBytes, title);
       return;
     }
 
     if (data.phase === "done") {
-      updateImportProgress(fileName, 100, totalBytes, totalBytes);
+      updateImportProgress(fileName, 100, totalBytes, totalBytes, title);
+      hideImportProgress(400);
+      return;
+    }
+
+    if (data.phase === "error") {
+      if (data.message) {
+        showMessage(data.message, "error");
+      }
+      hideImportProgress(0);
+    }
+  });
+
+  EventsOn("workspace:open-progress", (payload) => {
+    const data = Array.isArray(payload) ? payload[0] : payload;
+    if (!data) return;
+
+    const title = "Opening workspace";
+    const fileName = data.fileName || "Opening workspace...";
+    const bytesRead = Number(data.bytesRead || 0);
+    const totalBytes = Number(data.totalBytes || 0);
+    const processedFiles = Number(data.processedFiles || 0);
+    const totalFiles = Number(data.totalFiles || 0);
+    const progressTotal = totalBytes > 0 ? totalBytes : totalFiles;
+    const progressValue = totalBytes > 0 ? bytesRead : processedFiles;
+    const percent =
+      progressTotal > 0
+        ? Math.min(100, Math.round((progressValue / progressTotal) * 100))
+        : 100;
+    const detailText =
+      totalBytes > 0
+        ? `${formatBytes(bytesRead)} / ${formatBytes(totalBytes)}`
+        : totalFiles > 0
+          ? `${processedFiles} / ${totalFiles} files`
+          : "";
+
+    if (data.phase === "start") {
+      showImportProgress(fileName, title, detailText);
+      updateImportProgress(
+        fileName,
+        0,
+        bytesRead,
+        totalBytes,
+        title,
+        detailText,
+      );
+      return;
+    }
+
+    if (data.phase === "progress") {
+      updateImportProgress(
+        fileName,
+        percent,
+        bytesRead,
+        totalBytes,
+        title,
+        detailText,
+      );
+      return;
+    }
+
+    if (data.phase === "done") {
+      updateImportProgress(
+        fileName,
+        100,
+        bytesRead,
+        totalBytes,
+        title,
+        detailText,
+      );
       hideImportProgress(400);
       return;
     }

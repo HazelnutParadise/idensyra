@@ -273,7 +273,14 @@ button.secondary.icon-only.active {
     color: white;
 }
 
-.file-rename-btn {
+.file-actions {
+    display: flex;
+    align-items: center;
+    position: relative;
+    margin-left: 4px;
+}
+
+.file-action-btn {
     display: none;
     padding: 2px 6px;
     font-size: 11px;
@@ -281,34 +288,62 @@ button.secondary.icon-only.active {
     border: none;
     border-radius: 3px;
     color: white;
-    margin-left: 6px;
 }
 
-.file-item:hover .file-rename-btn {
+.file-item:hover .file-action-btn,
+.file-actions.open .file-action-btn {
     display: flex;
 }
 
-.file-rename-btn:hover {
+.file-action-btn:hover {
     background-color: #4a7fe0;
 }
 
-.file-delete-btn {
+.file-action-menu {
     display: none;
-    padding: 2px 6px;
-    font-size: 11px;
-    background-color: rgba(244, 135, 113, 0.8);
-    border: none;
-    border-radius: 3px;
-    color: white;
-    margin-left: 6px;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    min-width: 110px;
+    padding: 4px;
+    background-color: var(--panel-background-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+    z-index: 20;
+    flex-direction: column;
+    gap: 4px;
 }
 
-.file-item:hover .file-delete-btn {
+.file-action-menu.active {
     display: flex;
 }
 
-.file-delete-btn:hover {
-    background-color: var(--error-color);
+.file-action-item {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    padding: 6px 8px;
+    border: none;
+    background: transparent;
+    color: var(--text-color);
+    font-size: 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.file-action-item:hover {
+    background-color: var(--border-color);
+}
+
+.file-action-item.file-action-delete {
+    color: #f48771;
+}
+
+.file-action-item.file-action-delete:hover {
+    background-color: rgba(244, 135, 113, 0.16);
 }
 
 /* Editor Section */
@@ -321,12 +356,13 @@ button.secondary.icon-only.active {
 
 .editor-header {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 12px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 6px 12px;
     background-color: var(--panel-background-color);
     border-bottom: 1px solid var(--border-color);
-    height: 40px;
+    height: auto;
     flex-shrink: 0;
 }
 
@@ -338,7 +374,9 @@ button.secondary.icon-only.active {
 
 .editor-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
+    width: 100%;
 }
 
 .editor-container {
@@ -387,12 +425,13 @@ button.secondary.icon-only.active {
 
 .result-header {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 12px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 6px 12px;
     background-color: var(--panel-background-color);
     border-bottom: 1px solid var(--border-color);
-    height: 40px;
+    height: auto;
     flex-shrink: 0;
 }
 
@@ -404,7 +443,20 @@ button.secondary.icon-only.active {
 
 .result-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
+    width: 100%;
+}
+
+.result-section.preview-mode .result-actions {
+    display: none;
+}
+
+.editor-actions button:not(.font-size-btn),
+.result-actions button:not(.font-size-btn) {
+    padding: 4px 8px;
+    font-size: 12px;
+    line-height: 1.1;
 }
 
 .result-container {
@@ -487,7 +539,7 @@ button.secondary.icon-only.active {
 /* Notification message styling */
 .notification-message {
     position: fixed;
-    top: 60px;
+    bottom: 20px;
     right: 20px;
     z-index: 1000;
     min-width: 250px;
@@ -599,7 +651,7 @@ button.secondary {
     color: var(--text-color);
 }
 
-/* ANSI color support - 標�?顏色 (?�色主�?) */
+/* ANSI color support - 標�?顏色 (?�色主�?) */
 :root .ansi-fg-30,
 [data-theme="dark"] .ansi-fg-30 {
     color: #808080;
@@ -633,7 +685,7 @@ button.secondary {
     color: #e5e5e5;
 }
 
-/* ANSI 亮色 (?�色主�?) */
+/* ANSI 亮色 (?�色主�?) */
 :root .ansi-fg-90,
 [data-theme="dark"] .ansi-fg-90 {
     color: #808080;
@@ -667,7 +719,7 @@ button.secondary {
     color: #f5f5f5;
 }
 
-/* ANSI 標�?顏色 (?�亮主�?) */
+/* ANSI 標�?顏色 (?�亮主�?) */
 [data-theme="light"] .ansi-fg-30 {
     color: #000000;
 }
@@ -693,7 +745,7 @@ button.secondary {
     color: #555555;
 }
 
-/* ANSI 亮色 (?�亮主�?) */
+/* ANSI 亮色 (?�亮主�?) */
 [data-theme="light"] .ansi-fg-90 {
     color: #404040;
 }
@@ -719,7 +771,7 @@ button.secondary {
     color: #303030;
 }
 
-/* ANSI ?�景??*/
+/* ANSI ?�景??*/
 .ansi-bg-40 {
     background-color: #000000;
 }
@@ -745,7 +797,7 @@ button.secondary {
     background-color: #e5e5e5;
 }
 
-/* ANSI 亮�??�色 */
+/* ANSI 亮�??�色 */
 .ansi-bg-100 {
     background-color: #666666;
 }
@@ -771,7 +823,7 @@ button.secondary {
     background-color: #ffffff;
 }
 
-/* ANSI �?? */
+/* ANSI �?? */
 .ansi-bold {
     font-weight: bold;
 }
@@ -937,6 +989,10 @@ button.secondary {
     color: #e6e6e6;
 }
 
+.file-item.active .file-name {
+    color: #ffffff;
+}
+
 .file-item.selected {
     background-color: rgba(78, 201, 176, 0.16);
 }
@@ -983,12 +1039,62 @@ button.secondary {
     width: min(600px, 90%);
 }
 
+.media-preview .pdf-preview {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: var(--panel-background-color);
+}
+
 .table-preview {
     width: 100%;
     height: 100%;
     overflow: auto;
     padding: 16px;
     background: var(--background-color);
+}
+
+.excel-preview {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.excel-preview-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--panel-background-color);
+}
+
+.excel-preview-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--label-text-color);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.excel-sheet-select {
+    background: var(--panel-background-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    min-width: 160px;
+}
+
+.excel-preview-meta {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--label-text-color);
+}
+
+.excel-preview .table-preview {
+    flex: 1;
 }
 
 .table-preview table {
