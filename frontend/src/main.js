@@ -82,7 +82,7 @@ async function initMonacoEditor(theme = "dark") {
         startLineNumber: position.lineNumber,
         endLineNumber: position.lineNumber,
         startColumn: word.startColumn,
-        endColumn: word.endColumn,
+        endColumn: position.column,
       };
 
       const suggestions = goSymbols.map((symbol) => {
@@ -95,7 +95,7 @@ async function initMonacoEditor(theme = "dark") {
           kind: monaco.languages.CompletionItemKind.Function,
           detail: `${packageName} package`,
           documentation: `Function from ${packageName}`,
-          insertText: funcName || symbol,
+          insertText: symbol,
           range: range,
         };
       });

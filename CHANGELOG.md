@@ -43,10 +43,14 @@ All notable changes to this project will be documented in this file.
 ### 🗑️ Removed
 - **Live Run Confirmation**: Removed confirmation dialog when disabling Live Run (now shows notification only)
 
+### 🐛 Bug Fixes
+- **Autocompletion Range**: Fixed completion suggestions overwriting previous text when selected
+
 ### 🔧 Technical Changes
 - Added system theme detection using `window.matchMedia('prefers-color-scheme: dark')`
 - Improved Monaco Editor initialization to accept theme parameter
 - Added notification queue management to prevent message stacking
+- Fixed autocompletion range to use `position.column` instead of `word.endColumn`
 - All frontend assets (Monaco Editor, Bootstrap, Font Awesome) fully localized without CDN dependencies
 
 ---
