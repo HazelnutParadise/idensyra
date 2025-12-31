@@ -6,6 +6,7 @@ require (
 	github.com/HazelnutParadise/insyra v0.2.11
 	github.com/traefik/yaegi v0.16.1
 	github.com/wailsapp/wails/v2 v2.11.0
+	github.com/xuri/excelize/v2 v2.10.0
 	gorm.io/gorm v1.31.1
 )
 
@@ -79,7 +80,6 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.23 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/xuri/efp v0.0.1 // indirect
-	github.com/xuri/excelize/v2 v2.10.0 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/exp v0.0.0-20250911091902-df9299821621 // indirect

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
+	"html"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"sync/atomic"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/xuri/excelize/v2"
 )
 
 // WorkspaceFile represents a single file in the workspace
@@ -184,7 +187,7 @@ func refreshWorkspaceFromDiskLocked() {
 				return nil
 			}
 
-			if isImageFile(displayName) {
+			if isBinaryPreviewFile(displayName) {
 				contentStr = base64.StdEncoding.EncodeToString(content)
 			} else {
 				contentStr = string(content)
@@ -332,6 +335,19 @@ func isImageFile(filename string) bool {
 	return false
 }
 
+func isBinaryPreviewFile(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg", ".ico",
+		".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v", ".mpg", ".mpeg",
+		".mp3", ".wav", ".flac", ".ogg", ".aac", ".m4a",
+		".xlsx", ".xlsm", ".xltx", ".xltm":
+		return true
+	default:
+		return false
+	}
+}
+
 // UpdateFileContent updates the content of a file
 func (a *App) UpdateFileContent(filename string, content string) error {
 	if globalWorkspace == nil {
@@ -352,6 +368,9 @@ func (a *App) UpdateFileContent(filename string, content string) error {
 	}
 	if file.IsDir {
 		return fmt.Errorf("path is a directory: %s", cleanName)
+	}
+	if isBinaryPreviewFile(cleanName) {
+		return fmt.Errorf("binary files cannot be edited: %s", cleanName)
 	}
 	if file.TooLarge {
 		return fmt.Errorf("file too large to edit")
@@ -401,11 +420,10 @@ func (a *App) SaveFile(filename string) error {
 
 	// Only wrap with preCode/endCode for .go files
 	var fullContent []byte
-	if isImageFile(cleanName) {
-		// Decode base64 for image files
+	if isBinaryPreviewFile(cleanName) {
 		decoded, err := base64.StdEncoding.DecodeString(file.Content)
 		if err != nil {
-			return fmt.Errorf("failed to decode image: %w", err)
+			return fmt.Errorf("failed to decode file: %w", err)
 		}
 		fullContent = decoded
 	} else if strings.HasSuffix(cleanName, ".go") {
@@ -452,11 +470,10 @@ func (a *App) SaveAllFiles() error {
 		}
 		// Only wrap with preCode/endCode for .go files
 		var fullContent []byte
-		if isImageFile(filename) {
-			// Decode base64 for image files
+		if isBinaryPreviewFile(filename) {
 			decoded, err := base64.StdEncoding.DecodeString(file.Content)
 			if err != nil {
-				return fmt.Errorf("failed to decode image %s: %w", filename, err)
+				return fmt.Errorf("failed to decode file %s: %w", filename, err)
 			}
 			fullContent = decoded
 		} else if strings.HasSuffix(filename, ".go") {
@@ -903,7 +920,7 @@ func (a *App) OpenWorkspace() (string, error) {
 				return nil
 			}
 
-			if isImageFile(displayName) {
+			if isBinaryPreviewFile(displayName) {
 				contentStr = base64.StdEncoding.EncodeToString(content)
 			} else {
 				contentStr = string(content)
@@ -1020,8 +1037,20 @@ func (a *App) CreateWorkspace() (string, error) {
 				return "", fmt.Errorf("failed to copy file %s: %w", filename, err)
 			}
 		} else {
-			fullContent := preCode + "\n" + file.Content + "\n" + endCode
-			err = os.WriteFile(filePath, []byte(fullContent), 0644)
+			var fullContent []byte
+			if isBinaryPreviewFile(filename) {
+				decoded, err := base64.StdEncoding.DecodeString(file.Content)
+				if err != nil {
+					return "", fmt.Errorf("failed to decode file %s: %w", filename, err)
+				}
+				fullContent = decoded
+			} else if strings.HasSuffix(filename, ".go") {
+				fullContent = []byte(preCode + "\n" + file.Content + "\n" + endCode)
+			} else {
+				fullContent = []byte(file.Content)
+			}
+
+			err = os.WriteFile(filePath, fullContent, 0644)
 			if err != nil {
 				return "", fmt.Errorf("failed to write file %s: %w", filename, err)
 			}
@@ -1155,10 +1184,10 @@ func (a *App) ImportFileToWorkspaceAt(targetDir string) error {
 		}
 	}
 
-	// Convert content to string (base64 for images)
+	// Convert content to string (base64 for binary previews)
 	var contentStr string
 	if !tooLarge {
-		if isImageFile(finalName) {
+		if isBinaryPreviewFile(finalName) {
 			contentStr = base64.StdEncoding.EncodeToString(content)
 		} else {
 			contentStr = string(content)
@@ -1365,19 +1394,18 @@ func (a *App) ExportCurrentFile() error {
 
 	// Write file content based on file type
 	var fullContent []byte
-	if isImageFile(globalWorkspace.activeFile) {
-		// Decode base64 for image files
-		decoded, err := base64.StdEncoding.DecodeString(file.Content)
-		if err != nil {
-			return fmt.Errorf("failed to decode image: %w", err)
-		}
-		fullContent = decoded
-	} else if file.TooLarge {
+	if file.TooLarge {
 		sourcePath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(globalWorkspace.activeFile))
 		if err := copyFile(sourcePath, filename); err != nil {
 			return fmt.Errorf("failed to export file: %w", err)
 		}
 		return nil
+	} else if isBinaryPreviewFile(globalWorkspace.activeFile) {
+		decoded, err := base64.StdEncoding.DecodeString(file.Content)
+		if err != nil {
+			return fmt.Errorf("failed to decode file: %w", err)
+		}
+		fullContent = decoded
 	} else if strings.HasSuffix(globalWorkspace.activeFile, ".go") {
 		fullContent = []byte(preCode + "\n" + file.Content + "\n" + endCode)
 	} else {
@@ -1498,6 +1526,94 @@ func (a *App) GetWorkspaceInfo() map[string]interface{} {
 		"activeFile":  globalWorkspace.activeFile,
 		"modified":    globalWorkspace.modified,
 	}
+}
+
+// GetExcelPreview returns an HTML table preview for the first sheet.
+func (a *App) GetExcelPreview(filename string, maxRows int, maxCols int) (string, error) {
+	if globalWorkspace == nil {
+		return "", fmt.Errorf("workspace not initialized")
+	}
+	if maxRows <= 0 {
+		maxRows = 50
+	}
+	if maxCols <= 0 {
+		maxCols = 20
+	}
+
+	cleanName, err := cleanRelativePath(filename)
+	if err != nil {
+		return "", err
+	}
+
+	globalWorkspace.mu.RLock()
+	file, exists := globalWorkspace.files[cleanName]
+	globalWorkspace.mu.RUnlock()
+
+	if !exists {
+		return "", fmt.Errorf("file not found: %s", cleanName)
+	}
+	if file.IsDir {
+		return "", fmt.Errorf("path is a directory: %s", cleanName)
+	}
+	if file.TooLarge {
+		return "", fmt.Errorf("file too large to preview")
+	}
+
+	if file.Content == "" {
+		return "", fmt.Errorf("file content unavailable")
+	}
+
+	data, err := base64.StdEncoding.DecodeString(file.Content)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode file content: %w", err)
+	}
+
+	reader := bytes.NewReader(data)
+	excel, err := excelize.OpenReader(reader)
+	if err != nil {
+		return "", fmt.Errorf("failed to open excel file: %w", err)
+	}
+	defer func() {
+		_ = excel.Close()
+	}()
+
+	sheets := excel.GetSheetList()
+	if len(sheets) == 0 {
+		return "", fmt.Errorf("no sheets found")
+	}
+
+	rows, err := excel.Rows(sheets[0])
+	if err != nil {
+		return "", fmt.Errorf("failed to read rows: %w", err)
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var builder strings.Builder
+	builder.WriteString("<table><tbody>")
+
+	rowCount := 0
+	for rows.Next() && rowCount < maxRows {
+		cols, err := rows.Columns()
+		if err != nil {
+			return "", fmt.Errorf("failed to read row: %w", err)
+		}
+		builder.WriteString("<tr>")
+		for colIdx, col := range cols {
+			if colIdx >= maxCols {
+				break
+			}
+			builder.WriteString("<td>")
+			builder.WriteString(html.EscapeString(col))
+			builder.WriteString("</td>")
+		}
+		builder.WriteString("</tr>")
+		rowCount++
+	}
+	builder.WriteString("</tbody></table>")
+
+	return builder.String(), nil
 }
 
 // CleanupWorkspace removes the temporary workspace directory if temp

@@ -2,6 +2,7 @@ import "./style.css";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "@fortawesome/fontawesome-free/css/all.min.css";
 import * as monaco from "monaco-editor";
+import { marked } from "marked";
 
 import {
   ExecuteCode,
@@ -58,6 +59,7 @@ let isWorkspaceInitialized = false;
 let isImagePreview = false; // Track if current file is an image
 let importProgressHideTimer = null;
 let isLargeFilePreview = false;
+let isBinaryPreview = false;
 const expandedDirs = new Set();
 let selectedFolderPath = "";
 let lastExecutionOutput =
@@ -180,8 +182,57 @@ function hideImagePreview() {
   isImagePreview = false;
 }
 
+function showBinaryPreview(filename, label) {
+  hideImagePreview();
+  const editorContainer = document.getElementById("code-editor");
+  editorContainer.style.display = "none";
+
+  let binaryContainer = document.getElementById("binary-file-container");
+  if (!binaryContainer) {
+    binaryContainer = document.createElement("div");
+    binaryContainer.id = "binary-file-container";
+    binaryContainer.style.cssText = `
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--panel-background-color);
+      padding: 24px;
+      box-sizing: border-box;
+      text-align: center;
+      color: var(--text-color);
+    `;
+    editorContainer.parentElement.appendChild(binaryContainer);
+  }
+
+  binaryContainer.innerHTML = `
+    <div style="font-size: 18px; margin-bottom: 8px;">
+      <i class="fas fa-file"></i> ${filename}
+    </div>
+    <div style="opacity: 0.7; font-size: 13px;">
+      ${label} preview only.
+    </div>
+  `;
+
+  binaryContainer.style.display = "flex";
+  isBinaryPreview = true;
+}
+
+function hideBinaryPreview() {
+  const binaryContainer = document.getElementById("binary-file-container");
+  if (binaryContainer) {
+    binaryContainer.style.display = "none";
+  }
+  const editorContainer = document.getElementById("code-editor");
+  editorContainer.style.display = "block";
+  isBinaryPreview = false;
+}
+
 function showLargeFilePreview(filename, size) {
   hideImagePreview();
+  hideBinaryPreview();
   const editorContainer = document.getElementById("code-editor");
   editorContainer.style.display = "none";
 
@@ -608,6 +659,53 @@ function getTargetFolder() {
   return "";
 }
 
+function getFileExtension(filename) {
+  const parts = filename.split(".");
+  if (parts.length <= 1) return "";
+  return parts.pop().toLowerCase();
+}
+
+function getMediaKind(filename) {
+  const ext = getFileExtension(filename);
+  const imageExts = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg", "ico"];
+  const videoExts = ["mp4", "webm", "mov", "avi", "mkv", "m4v", "mpg", "mpeg"];
+  const audioExts = ["mp3", "wav", "flac", "ogg", "aac", "m4a"];
+
+  if (imageExts.includes(ext)) return "image";
+  if (videoExts.includes(ext)) return "video";
+  if (audioExts.includes(ext)) return "audio";
+  return "";
+}
+
+function getMimeType(filename) {
+  const ext = getFileExtension(filename);
+  const map = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    gif: "image/gif",
+    bmp: "image/bmp",
+    webp: "image/webp",
+    svg: "image/svg+xml",
+    ico: "image/x-icon",
+    mp4: "video/mp4",
+    webm: "video/webm",
+    mov: "video/quicktime",
+    avi: "video/x-msvideo",
+    mkv: "video/x-matroska",
+    m4v: "video/x-m4v",
+    mpg: "video/mpeg",
+    mpeg: "video/mpeg",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    flac: "audio/flac",
+    ogg: "audio/ogg",
+    aac: "audio/aac",
+    m4a: "audio/mp4",
+  };
+  return map[ext] || "application/octet-stream";
+}
+
 function updateRunButtonState() {
   const runButton = document.getElementById("run-btn");
   if (!runButton) return;
@@ -616,7 +714,8 @@ function updateRunButtonState() {
     activeFileName &&
     activeFileName.endsWith(".go") &&
     !isImagePreview &&
-    !isLargeFilePreview;
+    !isLargeFilePreview &&
+    !isBinaryPreview;
 
   runButton.disabled = !runnable;
   runButton.title = runnable ? "Run" : "Run is only available for .go files";
@@ -627,7 +726,8 @@ function isRunnableActiveFile() {
     activeFileName &&
     activeFileName.endsWith(".go") &&
     !isImagePreview &&
-    !isLargeFilePreview
+    !isLargeFilePreview &&
+    !isBinaryPreview
   );
 }
 
@@ -644,44 +744,24 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+marked.setOptions({
+  gfm: true,
+  breaks: true,
+});
+
 function renderMarkdown(markdownText) {
-  let html = escapeHtml(markdownText);
-
-  html = html.replace(/```([\s\S]*?)```/g, (match, code) => {
-    return `<pre><code>${code}</code></pre>`;
-  });
-  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
-  html = html.replace(/^###### (.*)$/gm, "<h6>$1</h6>");
-  html = html.replace(/^##### (.*)$/gm, "<h5>$1</h5>");
-  html = html.replace(/^#### (.*)$/gm, "<h4>$1</h4>");
-  html = html.replace(/^### (.*)$/gm, "<h3>$1</h3>");
-  html = html.replace(/^## (.*)$/gm, "<h2>$1</h2>");
-  html = html.replace(/^# (.*)$/gm, "<h1>$1</h1>");
-  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-  html = html.replace(/(?:^|\n)(- .+(?:\n- .+)*)/g, (match) => {
-    const items = match
-      .trim()
-      .split("\n")
-      .map((line) => `<li>${line.replace(/^- /, "")}</li>`)
-      .join("");
-    return `<ul>${items}</ul>`;
-  });
-  html = html.replace(/\n{2,}/g, "</p><p>");
-  html = `<p>${html}</p>`;
-  html = html.replace(/<p>\s*<\/p>/g, "");
-
-  return html;
+  return marked.parse(markdownText || "");
 }
 
 function showPreview(content, type) {
   const resultOutput = document.getElementById("result-output");
+  const resultContainer = document.querySelector(".result-container");
   const resultLabel = document.querySelector(".result-label");
-  if (!resultOutput || !resultLabel) return;
+  if (!resultOutput || !resultLabel || !resultContainer) return;
 
   previewMode = type;
   resultLabel.textContent = "Preview";
+  resultContainer.classList.add("preview-mode");
 
   if (type === "html") {
     resultOutput.innerHTML = `<div class="preview-frame-wrap"><iframe class="preview-frame" sandbox=""></iframe></div>`;
@@ -699,15 +779,150 @@ function showPreview(content, type) {
   }
 }
 
+function showMediaPreview(content, filename) {
+  const resultOutput = document.getElementById("result-output");
+  const resultContainer = document.querySelector(".result-container");
+  const resultLabel = document.querySelector(".result-label");
+  if (!resultOutput || !resultLabel || !resultContainer) return;
+
+  const mediaKind = getMediaKind(filename);
+  if (!mediaKind) return;
+
+  previewMode = "media";
+  resultLabel.textContent = "Preview";
+  resultContainer.classList.add("preview-mode");
+
+  const mimeType = getMimeType(filename);
+  const dataUrl = `data:${mimeType};base64,${content || ""}`;
+
+  if (mediaKind === "image") {
+    resultOutput.innerHTML = `
+      <div class="media-preview">
+        <img src="${dataUrl}" alt="${filename}" />
+      </div>
+    `;
+  } else if (mediaKind === "video") {
+    resultOutput.innerHTML = `
+      <div class="media-preview">
+        <video controls playsinline src="${dataUrl}"></video>
+      </div>
+    `;
+  } else if (mediaKind === "audio") {
+    resultOutput.innerHTML = `
+      <div class="media-preview">
+        <audio controls src="${dataUrl}"></audio>
+      </div>
+    `;
+  }
+}
+
+function parseDelimited(text, delimiter) {
+  const rows = [];
+  let row = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"';
+      i += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (!inQuotes && char === delimiter) {
+      row.push(current);
+      current = "";
+      continue;
+    }
+
+    if (!inQuotes && (char === "\n" || char === "\r")) {
+      if (char === "\r" && next === "\n") {
+        i += 1;
+      }
+      row.push(current);
+      rows.push(row);
+      row = [];
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  row.push(current);
+  rows.push(row);
+  return rows;
+}
+
+function renderTable(rows, maxRows = 200, maxCols = 50) {
+  const limitedRows = rows.slice(0, maxRows);
+  const htmlRows = limitedRows
+    .map((row) => {
+      const cells = row
+        .slice(0, maxCols)
+        .map((cell) => `<td>${escapeHtml(cell || "")}</td>`)
+        .join("");
+      return `<tr>${cells}</tr>`;
+    })
+    .join("");
+  return `<table><tbody>${htmlRows}</tbody></table>`;
+}
+
+function showTablePreviewFromText(content, delimiter) {
+  const resultOutput = document.getElementById("result-output");
+  const resultContainer = document.querySelector(".result-container");
+  const resultLabel = document.querySelector(".result-label");
+  if (!resultOutput || !resultLabel || !resultContainer) return;
+
+  previewMode = "table";
+  resultLabel.textContent = "Preview";
+  resultContainer.classList.add("preview-mode");
+
+  const rows = parseDelimited(content || "", delimiter);
+  resultOutput.innerHTML = `<div class="table-preview">${renderTable(rows)}</div>`;
+}
+
+async function showExcelPreview(filename) {
+  const resultOutput = document.getElementById("result-output");
+  const resultContainer = document.querySelector(".result-container");
+  const resultLabel = document.querySelector(".result-label");
+  if (!resultOutput || !resultLabel || !resultContainer) return;
+
+  previewMode = "table";
+  resultLabel.textContent = "Preview";
+  resultContainer.classList.add("preview-mode");
+  resultOutput.innerHTML =
+    '<div class="table-preview">Loading preview...</div>';
+
+  try {
+    const html = await window.go.main.App.GetExcelPreview(filename, 100, 30);
+    resultOutput.innerHTML = `<div class="table-preview">${html}</div>`;
+  } catch (error) {
+    resultOutput.innerHTML = `<div class="error-message">Preview failed: ${escapeHtml(
+      String(error),
+    )}</div>`;
+  }
+}
+
 function clearPreviewIfNeeded() {
   if (!previewMode) return;
   const resultLabel = document.querySelector(".result-label");
   const resultOutput = document.getElementById("result-output");
-  if (!resultLabel || !resultOutput) return;
+  const resultContainer = document.querySelector(".result-container");
+  if (!resultLabel || !resultOutput || !resultContainer) return;
 
   previewMode = null;
   resultLabel.textContent = "Output";
   resultOutput.innerHTML = lastExecutionOutput;
+  resultContainer.classList.remove("preview-mode");
 }
 
 function schedulePreviewUpdate(content, type) {
@@ -715,6 +930,14 @@ function schedulePreviewUpdate(content, type) {
     clearTimeout(previewUpdateTimer);
   }
   previewUpdateTimer = setTimeout(() => {
+    if (type === "csv") {
+      showTablePreviewFromText(content, ",");
+      return;
+    }
+    if (type === "tsv") {
+      showTablePreviewFromText(content, "\t");
+      return;
+    }
     showPreview(content, type);
   }, 250);
 }
@@ -986,7 +1209,12 @@ async function switchToFile(filename, force = false) {
 
   try {
     // Save current file content (only if not in image preview mode)
-    if (activeFileName && !isImagePreview && !isLargeFilePreview) {
+    if (
+      activeFileName &&
+      !isImagePreview &&
+      !isLargeFilePreview &&
+      !isBinaryPreview
+    ) {
       const isKnownFile = workspaceFiles.some(
         (file) => file.name === activeFileName,
       );
@@ -997,6 +1225,7 @@ async function switchToFile(filename, force = false) {
         activeFileName = "";
         hideImagePreview();
         hideLargeFilePreview();
+        hideBinaryPreview();
       }
     }
 
@@ -1019,12 +1248,32 @@ async function switchToFile(filename, force = false) {
 
     // Check if this is an image file
     if (isImageFile(filename)) {
+      hideBinaryPreview();
       showImagePreview(filename, content);
       clearPreviewIfNeeded();
-    } else {
-      // Hide image preview if it was showing
+      showMediaPreview(content, filename);
+    } else if (getMediaKind(filename)) {
       hideImagePreview();
       hideLargeFilePreview();
+      hideBinaryPreview();
+      showBinaryPreview(filename, "Media");
+      showMediaPreview(content, filename);
+    } else if (
+      filename.endsWith(".xlsx") ||
+      filename.endsWith(".xlsm") ||
+      filename.endsWith(".xltx") ||
+      filename.endsWith(".xltm")
+    ) {
+      hideImagePreview();
+      hideLargeFilePreview();
+      hideBinaryPreview();
+      showBinaryPreview(filename, "Spreadsheet");
+      await showExcelPreview(filename);
+    } else {
+      // Hide binary/image preview if it was showing
+      hideImagePreview();
+      hideLargeFilePreview();
+      hideBinaryPreview();
 
       // Set the language based on file extension
       const language = getLanguageFromFilename(filename);
@@ -1045,6 +1294,10 @@ async function switchToFile(filename, force = false) {
         showPreview(content, "html");
       } else if (filename.endsWith(".md")) {
         showPreview(content, "markdown");
+      } else if (filename.endsWith(".csv")) {
+        showTablePreviewFromText(content, ",");
+      } else if (filename.endsWith(".tsv")) {
+        showTablePreviewFromText(content, "\t");
       } else {
         clearPreviewIfNeeded();
       }
@@ -1124,6 +1377,7 @@ async function deleteFileConfirm(filename) {
     // If deleted file was active, switch to first available
     if (workspaceFiles.length > 0) {
       hideImagePreview();
+      hideBinaryPreview();
       await switchToFile(workspaceFiles[0].name, true);
     }
 
@@ -1154,6 +1408,7 @@ async function deleteFolderConfirm(folderPath) {
       activeFileName = "";
       hideImagePreview();
       hideLargeFilePreview();
+      hideBinaryPreview();
     }
     await loadWorkspaceFiles();
     showMessage(`Folder "${folderPath}" deleted`, "success");
@@ -1194,6 +1449,7 @@ async function renameFilePrompt(filename) {
 
     if (wasActive) {
       hideImagePreview();
+      hideBinaryPreview();
       await switchToFile(trimmedName, true);
     }
 
@@ -1254,6 +1510,10 @@ async function saveCurrentFile() {
     showMessage("Image files cannot be edited", "warning");
     return;
   }
+  if (isBinaryPreview) {
+    showMessage("This file type cannot be edited in the editor", "warning");
+    return;
+  }
   if (isLargeFilePreview) {
     showMessage("Large files cannot be edited in the editor", "warning");
     return;
@@ -1287,7 +1547,12 @@ async function saveCurrentFile() {
 async function saveAllFiles() {
   try {
     // Update current file content first (only if not in image preview mode)
-    if (activeFileName && !isImagePreview && !isLargeFilePreview) {
+    if (
+      activeFileName &&
+      !isImagePreview &&
+      !isLargeFilePreview &&
+      !isBinaryPreview
+    ) {
       const currentContent = editor.getValue();
       await UpdateFileContent(activeFileName, currentContent);
     }
@@ -1383,14 +1648,44 @@ async function openWorkspace() {
       }
 
       const content = await GetFileContent(activeFile);
-      editor.setValue(content);
-
-      if (activeFile.endsWith(".html") || activeFile.endsWith(".htm")) {
-        showPreview(content, "html");
-      } else if (activeFile.endsWith(".md")) {
-        showPreview(content, "markdown");
+      if (isImageFile(activeFile)) {
+        hideBinaryPreview();
+        showImagePreview(activeFile, content);
+        showMediaPreview(content, activeFile);
+      } else if (getMediaKind(activeFile)) {
+        hideImagePreview();
+        hideLargeFilePreview();
+        hideBinaryPreview();
+        showBinaryPreview(activeFile, "Media");
+        showMediaPreview(content, activeFile);
+      } else if (
+        activeFile.endsWith(".xlsx") ||
+        activeFile.endsWith(".xlsm") ||
+        activeFile.endsWith(".xltx") ||
+        activeFile.endsWith(".xltm")
+      ) {
+        hideImagePreview();
+        hideLargeFilePreview();
+        hideBinaryPreview();
+        showBinaryPreview(activeFile, "Spreadsheet");
+        await showExcelPreview(activeFile);
       } else {
-        clearPreviewIfNeeded();
+        hideImagePreview();
+        hideLargeFilePreview();
+        hideBinaryPreview();
+        editor.setValue(content);
+
+        if (activeFile.endsWith(".html") || activeFile.endsWith(".htm")) {
+          showPreview(content, "html");
+        } else if (activeFile.endsWith(".md")) {
+          showPreview(content, "markdown");
+        } else if (activeFile.endsWith(".csv")) {
+          showTablePreviewFromText(content, ",");
+        } else if (activeFile.endsWith(".tsv")) {
+          showTablePreviewFromText(content, "\t");
+        } else {
+          clearPreviewIfNeeded();
+        }
       }
       updateRunButtonState();
     }
@@ -1834,13 +2129,35 @@ async function initApp() {
 
         // Check if this is an image file
         if (isImageFile(activeFileName)) {
+          hideBinaryPreview();
           showImagePreview(activeFileName, content);
+          showMediaPreview(content, activeFileName);
+        } else if (getMediaKind(activeFileName)) {
+          hideImagePreview();
+          hideLargeFilePreview();
+          hideBinaryPreview();
+          showBinaryPreview(activeFileName, "Media");
+          showMediaPreview(content, activeFileName);
+        } else if (
+          activeFileName.endsWith(".xlsx") ||
+          activeFileName.endsWith(".xlsm") ||
+          activeFileName.endsWith(".xltx") ||
+          activeFileName.endsWith(".xltm")
+        ) {
+          hideImagePreview();
+          hideLargeFilePreview();
+          hideBinaryPreview();
+          showBinaryPreview(activeFileName, "Spreadsheet");
+          await showExcelPreview(activeFileName);
         } else {
           // Set the language based on file extension
           const language = getLanguageFromFilename(activeFileName);
           const model = editor.getModel();
           monaco.editor.setModelLanguage(model, language);
 
+          hideImagePreview();
+          hideLargeFilePreview();
+          hideBinaryPreview();
           editor.setValue(content);
           document.getElementById("active-file-label").textContent =
             activeFileName;
@@ -1853,6 +2170,10 @@ async function initApp() {
             showPreview(content, "html");
           } else if (activeFileName.endsWith(".md")) {
             showPreview(content, "markdown");
+          } else if (activeFileName.endsWith(".csv")) {
+            showTablePreviewFromText(content, ",");
+          } else if (activeFileName.endsWith(".tsv")) {
+            showTablePreviewFromText(content, "\t");
           } else {
             clearPreviewIfNeeded();
           }
@@ -1870,7 +2191,7 @@ async function initApp() {
   // Mark file as modified on content change
   editor.onDidChangeModelContent(() => {
     if (activeFileName) {
-      if (!isImagePreview && !isLargeFilePreview) {
+      if (!isImagePreview && !isLargeFilePreview && !isBinaryPreview) {
         if (
           activeFileName.endsWith(".html") ||
           activeFileName.endsWith(".htm")
@@ -1878,6 +2199,10 @@ async function initApp() {
           schedulePreviewUpdate(editor.getValue(), "html");
         } else if (activeFileName.endsWith(".md")) {
           schedulePreviewUpdate(editor.getValue(), "markdown");
+        } else if (activeFileName.endsWith(".csv")) {
+          schedulePreviewUpdate(editor.getValue(), "csv");
+        } else if (activeFileName.endsWith(".tsv")) {
+          schedulePreviewUpdate(editor.getValue(), "tsv");
         }
       }
 
