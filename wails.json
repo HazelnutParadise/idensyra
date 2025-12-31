@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "Idensyra",
+  "outputfilename": "idensyra",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "HazelnutParadise",
+    "email": "tim930102@icloud.com"
+  },
+  "info": {
+    "companyName": "HazelnutParadise",
+    "productName": "Idensyra",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright © 2025 HazelnutParadise",
+    "comments": "Go Code Editor with Insyra Integration"
+  }
+}

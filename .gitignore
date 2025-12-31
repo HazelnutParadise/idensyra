@@ -1,8 +1,61 @@
-
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 main
 Idensyra_v0_0_0_mac
 Idensyra_v_0_0_0_windows.exe
-/dist
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+
+# Build directories
+/build/
+/dist/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/package-lock.json
+frontend/yarn.lock
+frontend/pnpm-lock.yaml
+
+# Wails
+.wails-build/
+wails_temp/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Misc
+*.log
 lingo.txt
 /.insyra_py25a
+
+# Backup files
+*.bak
+*~
+
+# Temporary files
+tmp/
+temp/
