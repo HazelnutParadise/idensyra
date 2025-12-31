@@ -235,9 +235,9 @@ func (a *App) OpenGitHub() {
 	runtime.BrowserOpenURL(a.ctx, "https://github.com/HazelnutParadise/idensyra")
 }
 
-// OpenHazelnutParadise opens the HazelnutParadise website in the default browser
-func (a *App) OpenHazelnutParadise() {
-	runtime.BrowserOpenURL(a.ctx, "https://hazelnut-paradise.com")
+// OpenOfficialSite opens the Insyra website in the default browser
+func (a *App) OpenOfficialSite() {
+	runtime.BrowserOpenURL(a.ctx, "https://insyra.hazelnut-paradise.com")
 }
 
 // executeGoCode uses yaegi to execute dynamic Go code and capture all output

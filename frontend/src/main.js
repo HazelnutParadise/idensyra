@@ -12,7 +12,7 @@ import {
   LoadCode,
   SaveResult,
   OpenGitHub,
-  OpenHazelnutParadise,
+  OpenOfficialSite,
   GetWorkspaceFiles,
   GetActiveFile,
   SetActiveFile,
@@ -29,6 +29,7 @@ import {
   IsWorkspaceModified,
   GetWorkspaceInfo,
 } from "../wailsjs/go/main/App";
+import { EventsOn } from "../wailsjs/runtime/runtime";
 
 const RenameFile = (...args) => window.go.main.App.RenameFile(...args);
 const SaveResultToWorkspace = (...args) =>
@@ -50,6 +51,8 @@ let workspaceFiles = [];
 let activeFileName = "";
 let isWorkspaceInitialized = false;
 let isImagePreview = false; // Track if current file is an image
+let importProgressHideTimer = null;
+let isLargeFilePreview = false;
 
 // Detect system theme preference
 function getSystemTheme() {
@@ -164,6 +167,57 @@ function hideImagePreview() {
   const editorContainer = document.getElementById("code-editor");
   editorContainer.style.display = "block";
   isImagePreview = false;
+}
+
+function showLargeFilePreview(filename, size) {
+  hideImagePreview();
+  const editorContainer = document.getElementById("code-editor");
+  editorContainer.style.display = "none";
+
+  let largeContainer = document.getElementById("large-file-container");
+  if (!largeContainer) {
+    largeContainer = document.createElement("div");
+    largeContainer.id = "large-file-container";
+    largeContainer.style.cssText = `
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--panel-background-color);
+      padding: 24px;
+      box-sizing: border-box;
+      text-align: center;
+      color: var(--text-color);
+    `;
+    editorContainer.parentElement.appendChild(largeContainer);
+  }
+
+  largeContainer.innerHTML = `
+    <div style="font-size: 18px; margin-bottom: 8px;">
+      <i class="fas fa-file-archive"></i> ${filename}
+    </div>
+    <div style="opacity: 0.7; margin-bottom: 6px;">
+      File size: ${formatBytes(size)}
+    </div>
+    <div style="opacity: 0.7; font-size: 13px;">
+      File is too large to preview or edit in the editor.
+    </div>
+  `;
+
+  largeContainer.style.display = "flex";
+  isLargeFilePreview = true;
+}
+
+function hideLargeFilePreview() {
+  const largeContainer = document.getElementById("large-file-container");
+  if (largeContainer) {
+    largeContainer.style.display = "none";
+  }
+  const editorContainer = document.getElementById("code-editor");
+  editorContainer.style.display = "block";
+  isLargeFilePreview = false;
 }
 
 // Initialize Monaco Editor
@@ -507,6 +561,73 @@ function showMessage(message, type = "success") {
   }, 3000);
 }
 
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${
+    units[unitIndex]
+  }`;
+}
+
+function showImportProgress(filename) {
+  const overlay = document.getElementById("import-progress-overlay");
+  if (!overlay) return;
+
+  if (importProgressHideTimer) {
+    clearTimeout(importProgressHideTimer);
+    importProgressHideTimer = null;
+  }
+
+  overlay.classList.add("active");
+  document.getElementById("import-progress-filename").textContent =
+    filename || "Importing file...";
+  document.getElementById("import-progress-percent").textContent = "0%";
+  document.getElementById("import-progress-bytes").textContent = "";
+  document.getElementById("import-progress-fill").style.width = "0%";
+}
+
+function updateImportProgress(filename, percent, bytesRead, totalBytes) {
+  const overlay = document.getElementById("import-progress-overlay");
+  if (!overlay) return;
+
+  if (!overlay.classList.contains("active")) {
+    showImportProgress(filename);
+  }
+
+  document.getElementById("import-progress-filename").textContent =
+    filename || "Importing file...";
+  document.getElementById("import-progress-percent").textContent =
+    `${percent}%`;
+
+  if (totalBytes > 0) {
+    document.getElementById("import-progress-bytes").textContent =
+      `${formatBytes(bytesRead)} / ${formatBytes(totalBytes)}`;
+  } else {
+    document.getElementById("import-progress-bytes").textContent = "";
+  }
+
+  document.getElementById("import-progress-fill").style.width = `${percent}%`;
+}
+
+function hideImportProgress(delayMs = 0) {
+  const overlay = document.getElementById("import-progress-overlay");
+  if (!overlay) return;
+
+  if (importProgressHideTimer) {
+    clearTimeout(importProgressHideTimer);
+  }
+
+  importProgressHideTimer = setTimeout(() => {
+    overlay.classList.remove("active");
+  }, delayMs);
+}
+
 // Workspace functions
 async function loadWorkspaceFiles() {
   try {
@@ -558,6 +679,9 @@ function renderFileTree() {
   workspaceFiles.forEach((file) => {
     const fileItem = document.createElement("div");
     fileItem.className = "file-item";
+    if (file.tooLarge) {
+      fileItem.classList.add("file-large");
+    }
     if (file.name === activeFileName) {
       fileItem.classList.add("active");
     }
@@ -580,6 +704,7 @@ function renderFileTree() {
     fileItem.innerHTML = `
       <i class="fas ${iconClass}"></i>
       <span class="file-name">${file.name}</span>
+      ${file.tooLarge ? '<span class="large-indicator" title="Large file">L</span>' : ""}
       ${file.modified ? '<span class="modified-indicator">*</span>' : ""}
       <button class="file-rename-btn" title="Rename file">
         <i class="fas fa-pen"></i>
@@ -619,7 +744,7 @@ async function switchToFile(filename, force = false) {
 
   try {
     // Save current file content (only if not in image preview mode)
-    if (activeFileName && !isImagePreview) {
+    if (activeFileName && !isImagePreview && !isLargeFilePreview) {
       const isKnownFile = workspaceFiles.some(
         (file) => file.name === activeFileName,
       );
@@ -629,13 +754,23 @@ async function switchToFile(filename, force = false) {
       } else {
         activeFileName = "";
         hideImagePreview();
+        hideLargeFilePreview();
       }
     }
 
     // Switch to new file
     await SetActiveFile(filename);
-    const content = await GetFileContent(filename);
+    const selectedFile = workspaceFiles.find((file) => file.name === filename);
     activeFileName = filename;
+    document.getElementById("active-file-label").textContent = filename;
+
+    if (selectedFile && selectedFile.tooLarge) {
+      showLargeFilePreview(filename, selectedFile.size || 0);
+      await loadWorkspaceFiles();
+      return;
+    }
+
+    const content = await GetFileContent(filename);
 
     // Check if this is an image file
     if (isImageFile(filename)) {
@@ -643,6 +778,7 @@ async function switchToFile(filename, force = false) {
     } else {
       // Hide image preview if it was showing
       hideImagePreview();
+      hideLargeFilePreview();
 
       // Set the language based on file extension
       const language = getLanguageFromFilename(filename);
@@ -760,6 +896,10 @@ async function saveCurrentFile() {
     showMessage("Image files cannot be edited", "warning");
     return;
   }
+  if (isLargeFilePreview) {
+    showMessage("Large files cannot be edited in the editor", "warning");
+    return;
+  }
 
   try {
     const currentContent = editor.getValue();
@@ -789,7 +929,7 @@ async function saveCurrentFile() {
 async function saveAllFiles() {
   try {
     // Update current file content first (only if not in image preview mode)
-    if (activeFileName && !isImagePreview) {
+    if (activeFileName && !isImagePreview && !isLargeFilePreview) {
       const currentContent = editor.getValue();
       await UpdateFileContent(activeFileName, currentContent);
     }
@@ -895,13 +1035,19 @@ async function importFileToWorkspace() {
     // Get the newly added file (last modified file in the list)
     if (workspaceFiles.length > 0) {
       const lastFile = workspaceFiles[workspaceFiles.length - 1];
-      showMessage(`File "${lastFile.name}" imported successfully`, "success");
+      const largeNote = lastFile.tooLarge ? " (large file)" : "";
+      showMessage(
+        `File "${lastFile.name}" imported successfully${largeNote}`,
+        "success",
+      );
       // Switch to the newly imported file
       await switchToFile(lastFile.name);
     }
   } catch (error) {
     console.error("Failed to import file:", error);
     showMessage("Failed to import file: " + error, "error");
+  } finally {
+    hideImportProgress(200);
   }
 }
 
@@ -1105,6 +1251,19 @@ async function initApp() {
                 </div>
             </div>
         </div>
+        <div id="import-progress-overlay" class="import-progress-overlay">
+            <div class="import-progress-card">
+                <div class="import-progress-title">Importing file</div>
+                <div id="import-progress-filename" class="import-progress-filename"></div>
+                <div class="import-progress-bar">
+                    <div id="import-progress-fill" class="import-progress-fill"></div>
+                </div>
+                <div class="import-progress-details">
+                    <span id="import-progress-percent" class="import-progress-percent">0%</span>
+                    <span id="import-progress-bytes" class="import-progress-bytes"></span>
+                </div>
+            </div>
+        </div>
     `;
 
   // Load version info after UI is created
@@ -1167,7 +1326,7 @@ async function initApp() {
     .addEventListener("click", () => OpenGitHub());
   document
     .getElementById("hazelnut-btn")
-    .addEventListener("click", () => OpenHazelnutParadise());
+    .addEventListener("click", () => OpenOfficialSite());
 
   // Font size controls
   document
@@ -1257,6 +1416,17 @@ async function initApp() {
     // Load initial file content
     if (activeFileName) {
       try {
+        const activeMeta = workspaceFiles.find(
+          (file) => file.name === activeFileName,
+        );
+
+        if (activeMeta && activeMeta.tooLarge) {
+          showLargeFilePreview(activeFileName, activeMeta.size || 0);
+          document.getElementById("active-file-label").textContent =
+            activeFileName;
+          return;
+        }
+
         const content = await GetFileContent(activeFileName);
 
         // Check if this is an image file
@@ -1291,6 +1461,43 @@ async function initApp() {
         await UpdateFileContent(activeFileName, currentContent);
         await loadWorkspaceFiles(); // Refresh to show modified indicator
       }, 1000);
+    }
+  });
+
+  EventsOn("import:file-progress", (payload) => {
+    const data = Array.isArray(payload) ? payload[0] : payload;
+    if (!data) return;
+
+    const fileName = data.fileName || "Importing file...";
+    const bytesRead = Number(data.bytesRead || 0);
+    const totalBytes = Number(data.totalBytes || 0);
+    const percent =
+      totalBytes > 0
+        ? Math.min(100, Math.round((bytesRead / totalBytes) * 100))
+        : 100;
+
+    if (data.phase === "start") {
+      showImportProgress(fileName);
+      updateImportProgress(fileName, 0, bytesRead, totalBytes);
+      return;
+    }
+
+    if (data.phase === "progress") {
+      updateImportProgress(fileName, percent, bytesRead, totalBytes);
+      return;
+    }
+
+    if (data.phase === "done") {
+      updateImportProgress(fileName, 100, totalBytes, totalBytes);
+      hideImportProgress(400);
+      return;
+    }
+
+    if (data.phase === "error") {
+      if (data.message) {
+        showMessage(data.message, "error");
+      }
+      hideImportProgress(0);
     }
   });
 }

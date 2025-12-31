@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -18,6 +20,8 @@ type WorkspaceFile struct {
 	Name         string `json:"name"`
 	Content      string `json:"content"`
 	Modified     bool   `json:"modified"`
+	Size         int64  `json:"size"`
+	TooLarge     bool   `json:"tooLarge"`
 	SavedContent string `json:"-"`
 	IsNew        bool   `json:"-"`
 }
@@ -34,6 +38,13 @@ type Workspace struct {
 }
 
 var globalWorkspace *Workspace
+
+const (
+	concurrentReadThreshold = 4 * 1024 * 1024
+	concurrentReadChunkSize = 2 * 1024 * 1024
+	concurrentReadWorkers   = 4
+	maxPreviewBytes         = 50 * 1024 * 1024
+)
 
 // InitWorkspace initializes the workspace with a temporary directory
 func (a *App) InitWorkspace() error {
@@ -125,19 +136,27 @@ func refreshWorkspaceFromDiskLocked() {
 		diskFiles[name] = struct{}{}
 
 		filePath := filepath.Join(dirPath, name)
-		content, err := os.ReadFile(filePath)
+		info, err := entry.Info()
 		if err != nil {
 			continue
 		}
 
 		var contentStr string
-		if isImageFile(name) {
-			contentStr = base64.StdEncoding.EncodeToString(content)
-		} else {
-			contentStr = string(content)
-			if strings.HasSuffix(name, ".go") {
-				contentStr = strings.TrimPrefix(contentStr, preCode+"\n")
-				contentStr = strings.TrimSuffix(contentStr, "\n"+endCode)
+		tooLarge := isFileTooLarge(info.Size())
+		if !tooLarge {
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				continue
+			}
+
+			if isImageFile(name) {
+				contentStr = base64.StdEncoding.EncodeToString(content)
+			} else {
+				contentStr = string(content)
+				if strings.HasSuffix(name, ".go") {
+					contentStr = strings.TrimPrefix(contentStr, preCode+"\n")
+					contentStr = strings.TrimSuffix(contentStr, "\n"+endCode)
+				}
 			}
 		}
 
@@ -145,6 +164,8 @@ func refreshWorkspaceFromDiskLocked() {
 			if existing.Modified || existing.IsNew {
 				continue
 			}
+			existing.Size = info.Size()
+			existing.TooLarge = tooLarge
 			if existing.Content != contentStr {
 				existing.Content = contentStr
 				existing.SavedContent = contentStr
@@ -157,6 +178,8 @@ func refreshWorkspaceFromDiskLocked() {
 		globalWorkspace.files[name] = &WorkspaceFile{
 			Name:         name,
 			Content:      contentStr,
+			Size:         info.Size(),
+			TooLarge:     tooLarge,
 			SavedContent: contentStr,
 			IsNew:        false,
 			Modified:     false,
@@ -233,6 +256,10 @@ func (a *App) GetFileContent(filename string) (string, error) {
 		return "", fmt.Errorf("file not found: %s", filename)
 	}
 
+	if file.TooLarge {
+		return "", fmt.Errorf("file too large to preview")
+	}
+
 	return file.Content, nil
 }
 
@@ -260,6 +287,9 @@ func (a *App) UpdateFileContent(filename string, content string) error {
 	file, exists := globalWorkspace.files[filename]
 	if !exists {
 		return fmt.Errorf("file not found: %s", filename)
+	}
+	if file.TooLarge {
+		return fmt.Errorf("file too large to edit")
 	}
 
 	if file.Content == content {
@@ -290,6 +320,9 @@ func (a *App) SaveFile(filename string) error {
 	file, exists := globalWorkspace.files[filename]
 	if !exists {
 		return fmt.Errorf("file not found: %s", filename)
+	}
+	if file.TooLarge {
+		return fmt.Errorf("file too large to save")
 	}
 
 	// Only wrap with preCode/endCode for .go files
@@ -337,6 +370,9 @@ func (a *App) SaveAllFiles() error {
 	}
 
 	for filename, file := range globalWorkspace.files {
+		if file.TooLarge {
+			continue
+		}
 		// Only wrap with preCode/endCode for .go files
 		var fullContent []byte
 		if isImageFile(filename) {
@@ -524,7 +560,7 @@ func (a *App) OpenWorkspace() (string, error) {
 		return "", fmt.Errorf("failed to read directory: %w", err)
 	}
 
-	workspaceFiles := make(map[string]string)
+	workspaceFiles := make(map[string]*WorkspaceFile)
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -535,26 +571,41 @@ func (a *App) OpenWorkspace() (string, error) {
 		}
 
 		filePath := filepath.Join(dirPath, entry.Name())
-		content, err := os.ReadFile(filePath)
+		info, err := entry.Info()
 		if err != nil {
-			continue // Skip files we can't read
+			continue
 		}
 
 		var contentStr string
+		tooLarge := isFileTooLarge(info.Size())
+		if !tooLarge {
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				continue // Skip files we can't read
+			}
 
-		// For image files, encode as base64
-		if isImageFile(entry.Name()) {
-			contentStr = base64.StdEncoding.EncodeToString(content)
-		} else {
-			contentStr = string(content)
-			// Only remove preCode/endCode for .go files
-			if strings.HasSuffix(entry.Name(), ".go") {
-				contentStr = strings.TrimPrefix(contentStr, preCode+"\n")
-				contentStr = strings.TrimSuffix(contentStr, "\n"+endCode)
+			// For image files, encode as base64
+			if isImageFile(entry.Name()) {
+				contentStr = base64.StdEncoding.EncodeToString(content)
+			} else {
+				contentStr = string(content)
+				// Only remove preCode/endCode for .go files
+				if strings.HasSuffix(entry.Name(), ".go") {
+					contentStr = strings.TrimPrefix(contentStr, preCode+"\n")
+					contentStr = strings.TrimSuffix(contentStr, "\n"+endCode)
+				}
 			}
 		}
 
-		workspaceFiles[entry.Name()] = contentStr
+		workspaceFiles[entry.Name()] = &WorkspaceFile{
+			Name:         entry.Name(),
+			Content:      contentStr,
+			Size:         info.Size(),
+			TooLarge:     tooLarge,
+			SavedContent: contentStr,
+			IsNew:        false,
+			Modified:     false,
+		}
 	}
 
 	if len(workspaceFiles) == 0 {
@@ -574,14 +625,8 @@ func (a *App) OpenWorkspace() (string, error) {
 	globalWorkspace.isTemp = false
 	globalWorkspace.files = make(map[string]*WorkspaceFile)
 
-	for filename, content := range workspaceFiles {
-		globalWorkspace.files[filename] = &WorkspaceFile{
-			Name:         filename,
-			Content:      content,
-			SavedContent: content,
-			IsNew:        false,
-			Modified:     false,
-		}
+	for filename, file := range workspaceFiles {
+		globalWorkspace.files[filename] = file
 	}
 
 	// Set first file as active
@@ -634,11 +679,18 @@ func (a *App) CreateWorkspace() (string, error) {
 
 	// Save all current files to new workspace
 	for filename, file := range globalWorkspace.files {
-		fullContent := preCode + "\n" + file.Content + "\n" + endCode
 		filePath := filepath.Join(selectedPath, filename)
-		err = os.WriteFile(filePath, []byte(fullContent), 0644)
-		if err != nil {
-			return "", fmt.Errorf("failed to write file %s: %w", filename, err)
+		if file.TooLarge {
+			sourcePath := filepath.Join(globalWorkspace.workDir, filename)
+			if err := copyFile(sourcePath, filePath); err != nil {
+				return "", fmt.Errorf("failed to copy file %s: %w", filename, err)
+			}
+		} else {
+			fullContent := preCode + "\n" + file.Content + "\n" + endCode
+			err = os.WriteFile(filePath, []byte(fullContent), 0644)
+			if err != nil {
+				return "", fmt.Errorf("failed to write file %s: %w", filename, err)
+			}
 		}
 		file.Modified = false
 		file.IsNew = false
@@ -686,15 +738,53 @@ func (a *App) ImportFileToWorkspace() error {
 		return nil // User cancelled
 	}
 
-	// Read file content
-	content, err := os.ReadFile(filePath)
+	filename := filepath.Base(filePath)
+	info, err := os.Stat(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to read file: %w", err)
+		return fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	// Read file content
+	var progressFn func(readBytes, totalBytes int64)
+	if a.ctx != nil {
+		var progressMu sync.Mutex
+		progressFn = func(readBytes, totalBytes int64) {
+			phase := "progress"
+			if totalBytes == 0 {
+				phase = "done"
+			} else if readBytes == 0 {
+				phase = "start"
+			} else if readBytes >= totalBytes {
+				phase = "done"
+			}
+			progressMu.Lock()
+			runtime.EventsEmit(a.ctx, "import:file-progress", map[string]any{
+				"phase":      phase,
+				"fileName":   filename,
+				"bytesRead":  readBytes,
+				"totalBytes": totalBytes,
+			})
+			progressMu.Unlock()
+		}
+	}
+
+	var content []byte
+	tooLarge := isFileTooLarge(info.Size())
+	if !tooLarge {
+		content, err = readFileConcurrently(filePath, progressFn)
+		if err != nil {
+			if a.ctx != nil {
+				runtime.EventsEmit(a.ctx, "import:file-progress", map[string]any{
+					"phase":    "error",
+					"fileName": filename,
+					"message":  err.Error(),
+				})
+			}
+			return fmt.Errorf("failed to read file: %w", err)
+		}
 	}
 
 	// Get base filename
-	filename := filepath.Base(filePath)
-
 	// Keep original filename as-is
 
 	// Check if file already exists
@@ -718,22 +808,144 @@ func (a *App) ImportFileToWorkspace() error {
 
 	// Convert content to string (base64 for images)
 	var contentStr string
-	if isImageFile(filename) {
-		contentStr = base64.StdEncoding.EncodeToString(content)
-	} else {
-		contentStr = string(content)
+	if !tooLarge {
+		if isImageFile(filename) {
+			contentStr = base64.StdEncoding.EncodeToString(content)
+		} else {
+			contentStr = string(content)
+		}
+	}
+
+	if tooLarge && globalWorkspace.workDir != "" {
+		targetPath := filepath.Join(globalWorkspace.workDir, filename)
+		if err := copyFile(filePath, targetPath); err != nil {
+			if a.ctx != nil {
+				runtime.EventsEmit(a.ctx, "import:file-progress", map[string]any{
+					"phase":    "error",
+					"fileName": filename,
+					"message":  err.Error(),
+				})
+			}
+			return fmt.Errorf("failed to import large file: %w", err)
+		}
 	}
 
 	globalWorkspace.files[filename] = &WorkspaceFile{
 		Name:         filename,
 		Content:      contentStr,
+		Size:         info.Size(),
+		TooLarge:     tooLarge,
 		SavedContent: "",
-		IsNew:        true,
-		Modified:     true,
+		IsNew:        !tooLarge,
+		Modified:     !tooLarge,
 	}
 	updateWorkspaceModifiedLocked()
 
 	return nil
+}
+
+func readFileConcurrently(filePath string, onProgress func(readBytes, totalBytes int64)) ([]byte, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	size := info.Size()
+	if size == 0 {
+		if onProgress != nil {
+			onProgress(0, 0)
+		}
+		return []byte{}, nil
+	}
+
+	maxInt := int64(int(^uint(0) >> 1))
+	if size > maxInt {
+		return nil, fmt.Errorf("file too large: %d bytes", size)
+	}
+
+	if size < concurrentReadThreshold {
+		data, err := io.ReadAll(file)
+		if err != nil {
+			return nil, err
+		}
+		if onProgress != nil {
+			onProgress(size, size)
+		}
+		return data, nil
+	}
+
+	if onProgress != nil {
+		onProgress(0, size)
+	}
+
+	buf := make([]byte, size)
+	chunkSize := int64(concurrentReadChunkSize)
+	totalChunks := int((size + chunkSize - 1) / chunkSize)
+	workers := concurrentReadWorkers
+	if totalChunks < workers {
+		workers = totalChunks
+	}
+
+	var wg sync.WaitGroup
+	var readErr error
+	var errOnce sync.Once
+	var bytesRead int64
+	setErr := func(err error) {
+		errOnce.Do(func() {
+			readErr = err
+		})
+	}
+
+	chunkCh := make(chan int, totalChunks)
+	for i := 0; i < totalChunks; i++ {
+		chunkCh <- i
+	}
+	close(chunkCh)
+
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			for idx := range chunkCh {
+				start := int64(idx) * chunkSize
+				end := start + chunkSize
+				if end > size {
+					end = size
+				}
+
+				n, err := file.ReadAt(buf[start:end], start)
+				if err != nil && err != io.EOF {
+					setErr(err)
+					return
+				}
+				if int64(n) != end-start {
+					setErr(io.ErrUnexpectedEOF)
+					return
+				}
+				if onProgress != nil {
+					totalRead := atomic.AddInt64(&bytesRead, int64(n))
+					onProgress(totalRead, size)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	if readErr != nil {
+		return nil, readErr
+	}
+
+	if onProgress != nil {
+		onProgress(size, size)
+	}
+
+	return buf, nil
 }
 
 // ExportCurrentFile exports the current active file to a user-selected location
@@ -782,6 +994,12 @@ func (a *App) ExportCurrentFile() error {
 			return fmt.Errorf("failed to decode image: %w", err)
 		}
 		fullContent = decoded
+	} else if file.TooLarge {
+		sourcePath := filepath.Join(globalWorkspace.workDir, globalWorkspace.activeFile)
+		if err := copyFile(sourcePath, filename); err != nil {
+			return fmt.Errorf("failed to export file: %w", err)
+		}
+		return nil
 	} else if strings.HasSuffix(globalWorkspace.activeFile, ".go") {
 		fullContent = []byte(preCode + "\n" + file.Content + "\n" + endCode)
 	} else {
@@ -821,6 +1039,30 @@ func updateWorkspaceModifiedLocked() {
 			break
 		}
 	}
+}
+
+func isFileTooLarge(size int64) bool {
+	return size > maxPreviewBytes
+}
+
+func copyFile(sourcePath string, targetPath string) error {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	target, err := os.Create(targetPath)
+	if err != nil {
+		return err
+	}
+	defer target.Close()
+
+	if _, err := io.Copy(target, source); err != nil {
+		return err
+	}
+
+	return target.Sync()
 }
 
 // GetWorkspaceInfo returns information about the workspace

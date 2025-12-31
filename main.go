@@ -17,7 +17,7 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:  "Idensyra - Go Code Editor",
+		Title:  "Idensyra - Go IDE for Insyra",
 		Width:  1200,
 		Height: 650,
 		AssetServer: &assetserver.Options{

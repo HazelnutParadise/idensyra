@@ -4,6 +4,8 @@ export namespace main {
 	    name: string;
 	    content: string;
 	    modified: boolean;
+	    size: number;
+	    tooLarge: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new WorkspaceFile(source);
@@ -14,6 +16,8 @@ export namespace main {
 	        this.name = source["name"];
 	        this.content = source["content"];
 	        this.modified = source["modified"];
+	        this.size = source["size"];
+	        this.tooLarge = source["tooLarge"];
 	    }
 	}
 
