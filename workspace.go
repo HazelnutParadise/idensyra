@@ -79,8 +79,10 @@ func (a *App) GetWorkspaceFiles() []WorkspaceFile {
 		return []WorkspaceFile{}
 	}
 
-	globalWorkspace.mu.RLock()
-	defer globalWorkspace.mu.RUnlock()
+	globalWorkspace.mu.Lock()
+	defer globalWorkspace.mu.Unlock()
+
+	refreshWorkspaceFromDiskLocked()
 
 	files := make([]WorkspaceFile, 0, len(globalWorkspace.files))
 	for _, file := range globalWorkspace.files {
@@ -93,6 +95,98 @@ func (a *App) GetWorkspaceFiles() []WorkspaceFile {
 	})
 
 	return files
+}
+
+func refreshWorkspaceFromDiskLocked() {
+	if globalWorkspace == nil || !globalWorkspace.initialized {
+		return
+	}
+
+	dirPath := globalWorkspace.workDir
+	if dirPath == "" {
+		return
+	}
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return
+	}
+
+	diskFiles := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		diskFiles[name] = struct{}{}
+
+		filePath := filepath.Join(dirPath, name)
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			continue
+		}
+
+		var contentStr string
+		if isImageFile(name) {
+			contentStr = base64.StdEncoding.EncodeToString(content)
+		} else {
+			contentStr = string(content)
+			if strings.HasSuffix(name, ".go") {
+				contentStr = strings.TrimPrefix(contentStr, preCode+"\n")
+				contentStr = strings.TrimSuffix(contentStr, "\n"+endCode)
+			}
+		}
+
+		if existing, exists := globalWorkspace.files[name]; exists {
+			if existing.Modified || existing.IsNew {
+				continue
+			}
+			if existing.Content != contentStr {
+				existing.Content = contentStr
+				existing.SavedContent = contentStr
+				existing.Modified = false
+				existing.IsNew = false
+			}
+			continue
+		}
+
+		globalWorkspace.files[name] = &WorkspaceFile{
+			Name:         name,
+			Content:      contentStr,
+			SavedContent: contentStr,
+			IsNew:        false,
+			Modified:     false,
+		}
+	}
+
+	for name, file := range globalWorkspace.files {
+		if _, exists := diskFiles[name]; exists {
+			continue
+		}
+		if file.Modified || file.IsNew {
+			continue
+		}
+		delete(globalWorkspace.files, name)
+	}
+
+	if globalWorkspace.activeFile != "" {
+		if _, exists := globalWorkspace.files[globalWorkspace.activeFile]; !exists {
+			globalWorkspace.activeFile = ""
+		}
+	}
+
+	if globalWorkspace.activeFile == "" {
+		for name := range globalWorkspace.files {
+			globalWorkspace.activeFile = name
+			break
+		}
+	}
+
+	updateWorkspaceModifiedLocked()
 }
 
 // GetActiveFile returns the name of the currently active file

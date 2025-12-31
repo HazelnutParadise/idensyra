@@ -211,6 +211,26 @@ func executeGoCode(code string, colorBG string) string {
 	// Prepare a bytes.Buffer to capture all output
 	var buf bytes.Buffer
 
+	// Run code with workspace as the working directory if available
+	var oldWD string
+	var restoreWD bool
+	if globalWorkspace != nil {
+		globalWorkspace.mu.RLock()
+		workspaceDir := globalWorkspace.workDir
+		globalWorkspace.mu.RUnlock()
+		if workspaceDir != "" {
+			if wd, err := os.Getwd(); err == nil {
+				if err := os.Chdir(workspaceDir); err == nil {
+					oldWD = wd
+					restoreWD = true
+				}
+			}
+		}
+	}
+	if restoreWD {
+		defer os.Chdir(oldWD)
+	}
+
 	// Initialize yaegi interpreter and set Stdout and Stderr
 	i := interp.New(interp.Options{
 		Stdout: &buf,

@@ -347,6 +347,7 @@ async function executeCode() {
     isExecuting = false;
     runButton.disabled = false;
     runButton.innerHTML = '<i class="fas fa-play"></i> Run';
+    await loadWorkspaceFiles();
   }
 }
 
