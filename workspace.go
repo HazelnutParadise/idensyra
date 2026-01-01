@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
+	"github.com/HazelnutParadise/idensyra/igonb"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/xuri/excelize/v2"
 )
@@ -581,6 +582,12 @@ func (a *App) CreateNewFile(filename string) error {
 	var content string
 	if strings.HasSuffix(cleanName, ".go") {
 		content = defaultCode
+	} else if strings.HasSuffix(cleanName, ".igonb") {
+		defaultContent, err := igonb.DefaultNotebookJSON()
+		if err != nil {
+			return fmt.Errorf("failed to create igonb template: %w", err)
+		}
+		content = defaultContent
 	} else {
 		content = "" // Empty content for non-Go files
 	}

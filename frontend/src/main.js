@@ -40,6 +40,10 @@ const DeleteFolder = (...args) => window.go.main.App.DeleteFolder(...args);
 const RenameFolder = (...args) => window.go.main.App.RenameFolder(...args);
 const ImportFileToWorkspaceAt = (...args) =>
   window.go.main.App.ImportFileToWorkspaceAt(...args);
+const ExecutePythonFile = (...args) =>
+  window.go.main.App.ExecutePythonFile(...args);
+const ExecuteIgonbCells = (...args) =>
+  window.go.main.App.ExecuteIgonbCells(...args);
 
 let editor;
 let liveRun = false;
@@ -61,6 +65,10 @@ let isImagePreview = false; // Track if current file is an image
 let importProgressHideTimer = null;
 let isLargeFilePreview = false;
 let isBinaryPreview = false;
+let isIgonbView = false;
+let igonbState = null;
+let igonbSaveTimer = null;
+let igonbRenderToken = 0;
 const expandedDirs = new Set();
 let selectedFolderPath = "";
 let isRootFolderSelected = false;
@@ -113,6 +121,7 @@ function getLanguageFromFilename(filename) {
     yaml: "yaml",
     yml: "yaml",
     py: "python",
+    igonb: "json",
     rb: "ruby",
     java: "java",
     c: "c",
@@ -524,6 +533,13 @@ function renameFileModelsInFolder(oldPath, newPath) {
 }
 
 function applyTextFileContent(filename, content, fromCache = false) {
+  if (filename.endsWith(".igonb")) {
+    showIgonbNotebook(content, filename);
+    return;
+  }
+
+  hideIgonbNotebook();
+
   const model = fromCache
     ? getCachedFileModel(filename)
     : getOrCreateFileModel(filename, content);
@@ -721,6 +737,332 @@ function hideLargeFilePreview() {
   const editorContainer = document.getElementById("code-editor");
   editorContainer.style.display = "block";
   isLargeFilePreview = false;
+}
+
+function ensureIgonbContainer() {
+  let container = document.getElementById("igonb-container");
+  if (container) {
+    return container;
+  }
+
+  const editorContainer = document.getElementById("code-editor");
+  container = document.createElement("div");
+  container.id = "igonb-container";
+  container.className = "igonb-container";
+  editorContainer.parentElement.appendChild(container);
+
+  container.innerHTML = `
+    <div class="igonb-toolbar">
+      <div class="igonb-toolbar-left">
+        <button class="secondary" id="igonb-add-go"><i class="fas fa-plus"></i> Go</button>
+        <button class="secondary" id="igonb-add-py"><i class="fas fa-plus"></i> Python</button>
+        <button class="secondary" id="igonb-add-md"><i class="fas fa-plus"></i> Markdown</button>
+      </div>
+      <div class="igonb-toolbar-right">
+        <button class="success" id="igonb-run-all"><i class="fas fa-play"></i> Run All</button>
+      </div>
+    </div>
+    <div id="igonb-cells" class="igonb-cells"></div>
+  `;
+
+  container
+    .querySelector("#igonb-add-go")
+    .addEventListener("click", () => addIgonbCell("go"));
+  container
+    .querySelector("#igonb-add-py")
+    .addEventListener("click", () => addIgonbCell("python"));
+  container
+    .querySelector("#igonb-add-md")
+    .addEventListener("click", () => addIgonbCell("markdown"));
+  container
+    .querySelector("#igonb-run-all")
+    .addEventListener("click", () => runIgonbAll());
+
+  return container;
+}
+
+function showIgonbNotebook(content, filename) {
+  const parsed = parseIgonbContent(content);
+  if (!parsed) {
+    showMessage("Invalid igonb content, showing raw JSON", "error");
+    hideIgonbNotebook();
+    const model = getOrCreateFileModel(filename, content);
+    editor.setModel(model);
+    monaco.editor.setModelLanguage(model, getLanguageFromFilename(filename));
+    return;
+  }
+
+  igonbState = parsed;
+  ensureIgonbContainer();
+
+  clearPreviewIfNeeded();
+  hideImagePreview();
+  hideLargeFilePreview();
+  hideBinaryPreview();
+
+  const editorContainer = document.getElementById("code-editor");
+  editorContainer.style.display = "none";
+
+  const container = document.getElementById("igonb-container");
+  container.style.display = "flex";
+  isIgonbView = true;
+
+  renderIgonbCells();
+  setResultOutput(
+    '<div style="color: #888;">Notebook output is shown inline.</div>',
+  );
+}
+
+function hideIgonbNotebook() {
+  const container = document.getElementById("igonb-container");
+  if (container) {
+    container.style.display = "none";
+  }
+  const editorContainer = document.getElementById("code-editor");
+  editorContainer.style.display = "block";
+  isIgonbView = false;
+  igonbState = null;
+  if (igonbSaveTimer) {
+    clearTimeout(igonbSaveTimer);
+    igonbSaveTimer = null;
+  }
+}
+
+function parseIgonbContent(content) {
+  try {
+    const data = JSON.parse(content || "{}");
+    const rawCells = Array.isArray(data.cells) ? data.cells : [];
+    const cells =
+      rawCells.length > 0 ? rawCells : [{ language: "go", source: "" }];
+    return {
+      version: data.version || 1,
+      cells: cells.map((cell) => ({
+        language: normalizeIgonbLanguage(cell.language),
+        source: cell.source || "",
+        output: "",
+        error: "",
+      })),
+    };
+  } catch (err) {
+    console.error("Failed to parse igonb:", err);
+    return null;
+  }
+}
+
+function normalizeIgonbLanguage(language) {
+  const normalized = String(language || "")
+    .toLowerCase()
+    .trim();
+  if (normalized === "py") return "python";
+  if (normalized === "md") return "markdown";
+  if (
+    normalized === "go" ||
+    normalized === "python" ||
+    normalized === "markdown"
+  ) {
+    return normalized;
+  }
+  return "go";
+}
+
+function renderIgonbCells() {
+  const renderToken = ++igonbRenderToken;
+  const cellList = document.getElementById("igonb-cells");
+  if (!cellList || !igonbState) return;
+
+  cellList.innerHTML = "";
+  igonbState.cells.forEach((cell, index) => {
+    if (renderToken !== igonbRenderToken) return;
+    cellList.appendChild(createIgonbCellElement(cell, index));
+  });
+}
+
+function createIgonbCellElement(cell, index) {
+  const container = document.createElement("div");
+  container.className = "igonb-cell";
+  container.dataset.index = index;
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "igonb-cell-toolbar";
+
+  const title = document.createElement("div");
+  title.className = "igonb-cell-title";
+  title.textContent = `${cell.language.toUpperCase()} CELL`;
+
+  const actionGroup = document.createElement("div");
+  actionGroup.className = "igonb-cell-actions";
+
+  const languageSelect = document.createElement("select");
+  languageSelect.className = "igonb-cell-language";
+  ["go", "python", "markdown"].forEach((lang) => {
+    const option = document.createElement("option");
+    option.value = lang;
+    option.textContent = lang.toUpperCase();
+    if (lang === cell.language) {
+      option.selected = true;
+    }
+    languageSelect.appendChild(option);
+  });
+
+  languageSelect.addEventListener("change", () => {
+    cell.language = languageSelect.value;
+    cell.output = "";
+    cell.error = "";
+    scheduleIgonbSave();
+    renderIgonbCells();
+  });
+
+  actionGroup.appendChild(languageSelect);
+
+  if (cell.language !== "markdown") {
+    const runBtn = document.createElement("button");
+    runBtn.className = "secondary";
+    runBtn.innerHTML = '<i class="fas fa-play"></i> Run';
+    runBtn.addEventListener("click", () => runIgonbCell(index));
+    actionGroup.appendChild(runBtn);
+  }
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.className = "secondary";
+  deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
+  deleteBtn.addEventListener("click", () => deleteIgonbCell(index));
+  actionGroup.appendChild(deleteBtn);
+
+  toolbar.appendChild(title);
+  toolbar.appendChild(actionGroup);
+
+  const editorWrap = document.createElement("div");
+  editorWrap.className = "igonb-cell-editor";
+
+  const editorInput = document.createElement("textarea");
+  editorInput.className = "igonb-cell-input";
+  editorInput.value = cell.source;
+  editorInput.rows = Math.max(3, cell.source.split("\n").length);
+  editorInput.addEventListener("input", () => {
+    cell.source = editorInput.value;
+    editorInput.rows = Math.max(3, editorInput.value.split("\n").length);
+    scheduleIgonbSave();
+    if (cell.language === "markdown") {
+      updateMarkdownPreview(container, cell.source);
+    }
+  });
+  editorWrap.appendChild(editorInput);
+
+  container.appendChild(toolbar);
+  container.appendChild(editorWrap);
+
+  if (cell.language === "markdown") {
+    const preview = document.createElement("div");
+    preview.className = "igonb-markdown-preview";
+    preview.innerHTML = renderMarkdown(cell.source);
+    container.appendChild(preview);
+  } else {
+    const output = document.createElement("div");
+    output.className = "igonb-cell-output";
+    output.innerHTML = cell.output
+      ? cell.output
+      : '<div class="igonb-empty-output">No output</div>';
+    if (cell.error) {
+      output.innerHTML += `<div class="igonb-error-output">${escapeHtml(cell.error)}</div>`;
+    }
+    container.appendChild(output);
+  }
+
+  return container;
+}
+
+function updateMarkdownPreview(container, source) {
+  const preview = container.querySelector(".igonb-markdown-preview");
+  if (preview) {
+    preview.innerHTML = renderMarkdown(source);
+  }
+}
+
+function addIgonbCell(language) {
+  if (!igonbState) return;
+  igonbState.cells.push({
+    language: language,
+    source: "",
+    output: "",
+    error: "",
+  });
+  scheduleIgonbSave();
+  renderIgonbCells();
+}
+
+function deleteIgonbCell(index) {
+  if (!igonbState) return;
+  if (igonbState.cells.length <= 1) {
+    showMessage("Cannot delete the last cell", "warning");
+    return;
+  }
+  igonbState.cells.splice(index, 1);
+  scheduleIgonbSave();
+  renderIgonbCells();
+}
+
+function scheduleIgonbSave() {
+  if (!activeFileName || !activeFileName.endsWith(".igonb")) return;
+  if (!igonbState) return;
+  clearTimeout(igonbSaveTimer);
+  igonbSaveTimer = setTimeout(async () => {
+    const payload = getIgonbContent();
+    await UpdateFileContent(activeFileName, payload);
+    scheduleWorkspaceRefresh();
+  }, 600);
+}
+
+function getIgonbContent() {
+  const payload = {
+    version: igonbState ? igonbState.version || 1 : 1,
+    cells: (igonbState ? igonbState.cells : []).map((cell) => ({
+      language: cell.language,
+      source: cell.source,
+    })),
+  };
+  return JSON.stringify(payload, null, 2);
+}
+
+async function runIgonbCell(index) {
+  if (!igonbState) return;
+  try {
+    scheduleIgonbSave();
+    const content = getIgonbContent();
+    const results = await ExecuteIgonbCells(content, index);
+    applyIgonbResults(results);
+  } catch (error) {
+    showMessage("Failed to execute cell: " + error, "error");
+  }
+}
+
+async function runIgonbAll() {
+  if (!igonbState) return;
+  try {
+    scheduleIgonbSave();
+    const content = getIgonbContent();
+    const results = await ExecuteIgonbCells(content, -1);
+    applyIgonbResults(results);
+  } catch (error) {
+    showMessage("Failed to execute notebook: " + error, "error");
+  }
+}
+
+function applyIgonbResults(results) {
+  if (!Array.isArray(results) || !igonbState) return;
+  let hadError = false;
+  results.forEach((result) => {
+    const idx = result.index;
+    if (idx < 0 || idx >= igonbState.cells.length) return;
+    igonbState.cells[idx].output = result.output || "";
+    igonbState.cells[idx].error = result.error || "";
+    if (result.error) {
+      hadError = true;
+    }
+  });
+  renderIgonbCells();
+  if (hadError) {
+    showMessage("Notebook execution stopped due to an error", "error");
+  }
 }
 
 // Initialize Monaco Editor
@@ -959,7 +1301,10 @@ function debounceExecute() {
 async function executeCode() {
   if (isExecuting) return;
   if (!isRunnableActiveFile()) {
-    showMessage("Run is only available for .go files", "warning");
+    showMessage(
+      "Run is only available for .go, .py, and .igonb files",
+      "warning",
+    );
     return;
   }
 
@@ -982,9 +1327,28 @@ async function executeCode() {
     '<div style="color: #4ec9b0;">Executing code...</div>';
 
   try {
+    if (activeFileName.endsWith(".igonb")) {
+      await runIgonbAll();
+      setResultOutput(
+        '<div style="color: #888;">Notebook output is shown inline.</div>',
+      );
+      return;
+    }
+
     const code = editor.getValue();
-    const theme = document.body.getAttribute("data-theme") || "dark";
-    const result = await ExecuteCode(code);
+    let result = "";
+
+    if (activeFileName.endsWith(".go")) {
+      result = await ExecuteCode(code);
+    } else if (activeFileName.endsWith(".py")) {
+      result = await ExecutePythonFile(activeFileName, code);
+    } else {
+      showMessage(
+        "Run is only available for .go, .py, and .igonb files",
+        "warning",
+      );
+      return;
+    }
 
     setResultOutput(result);
   } catch (error) {
@@ -1241,23 +1605,30 @@ function updateRunButtonState() {
 
   const runnable =
     activeFileName &&
-    activeFileName.endsWith(".go") &&
+    isRunnableActiveFile() &&
     !isImagePreview &&
     !isLargeFilePreview &&
     !isBinaryPreview;
 
   runButton.disabled = !runnable;
-  runButton.title = runnable ? "Run" : "Run is only available for .go files";
+  runButton.title = runnable
+    ? "Run"
+    : "Run is only available for .go, .py, and .igonb files";
+}
+
+function isRunnableFileName(filename) {
+  return (
+    filename.endsWith(".go") ||
+    filename.endsWith(".py") ||
+    filename.endsWith(".igonb")
+  );
 }
 
 function isRunnableActiveFile() {
-  return (
-    activeFileName &&
-    activeFileName.endsWith(".go") &&
-    !isImagePreview &&
-    !isLargeFilePreview &&
-    !isBinaryPreview
-  );
+  if (!activeFileName) return false;
+  if (!isRunnableFileName(activeFileName)) return false;
+  if (activeFileName.endsWith(".igonb") && !isIgonbView) return false;
+  return !isImagePreview && !isLargeFilePreview && !isBinaryPreview;
 }
 
 function setResultOutput(html) {
@@ -1824,6 +2195,8 @@ function createFileItem(entry, depth) {
     iconClass = expandedDirs.has(entry.path) ? "fa-folder-open" : "fa-folder";
   } else if (isImageFile(entry.path)) {
     iconClass = "fa-file-image";
+  } else if (entry.path.endsWith(".igonb")) {
+    iconClass = "fa-book";
   } else if (entry.path.endsWith(".md")) {
     iconClass = "fa-file-lines";
   } else if (entry.path.endsWith(".json")) {
@@ -1938,13 +2311,17 @@ async function switchToFile(filename, force = false) {
         (file) => file.name === activeFileName,
       );
       if (isKnownFile) {
-        const currentContent = editor.getValue();
+        const currentContent =
+          isIgonbView && activeFileName.endsWith(".igonb")
+            ? getIgonbContent()
+            : editor.getValue();
         await UpdateFileContent(activeFileName, currentContent);
       } else {
         activeFileName = "";
         hideImagePreview();
         hideLargeFilePreview();
         hideBinaryPreview();
+        hideIgonbNotebook();
       }
     }
 
@@ -1981,6 +2358,7 @@ async function switchToFile(filename, force = false) {
     }
 
     const content = await GetFileContent(filename);
+    hideIgonbNotebook();
 
     // Check if this is an image file
     if (isImageFile(filename)) {
@@ -2261,7 +2639,10 @@ async function saveCurrentFile() {
   }
 
   try {
-    const currentContent = editor.getValue();
+    const currentContent =
+      isIgonbView && activeFileName.endsWith(".igonb")
+        ? getIgonbContent()
+        : editor.getValue();
     await UpdateFileContent(activeFileName, currentContent);
 
     // Try to save to disk
@@ -2294,7 +2675,10 @@ async function saveAllFiles() {
       !isLargeFilePreview &&
       !isBinaryPreview
     ) {
-      const currentContent = editor.getValue();
+      const currentContent =
+        isIgonbView && activeFileName.endsWith(".igonb")
+          ? getIgonbContent()
+          : editor.getValue();
       await UpdateFileContent(activeFileName, currentContent);
     }
 
@@ -2942,6 +3326,9 @@ async function initApp() {
   // Mark file as modified on content change
   editor.onDidChangeModelContent(() => {
     if (activeFileName) {
+      if (activeFileName.endsWith(".igonb") && isIgonbView) {
+        return;
+      }
       updateActiveFileModelSize();
       if (!isImagePreview && !isLargeFilePreview && !isBinaryPreview) {
         if (

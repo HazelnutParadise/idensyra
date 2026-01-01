@@ -1,3 +1,26 @@
+export namespace igonb {
+	
+	export class CellResult {
+	    index: number;
+	    language: string;
+	    output: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CellResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.index = source["index"];
+	        this.language = source["language"];
+	        this.output = source["output"];
+	        this.error = source["error"];
+	    }
+	}
+
+}
+
 export namespace main {
 	
 	export class WorkspaceFile {
