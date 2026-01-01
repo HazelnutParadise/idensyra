@@ -1878,7 +1878,8 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 			return true
 		}
 
-		if selection != "Close Without Saving" {
+		normalized := strings.ToLower(strings.TrimSpace(selection))
+		if normalized == "" || strings.HasPrefix(normalized, "n") {
 			return true
 		}
 	}
@@ -1905,9 +1906,10 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 		}
 
 		fmt.Printf("Dialog selection: '%s'\n", selection)
+		selection = strings.ToLower(selection)
 
 		// Handle different possible return values
-		if selection == "是(Y)" || selection == "Y" || selection == "Yes" {
+		if strings.HasPrefix(selection, "y") {
 			// Try to create workspace
 			path, err := a.CreateWorkspace()
 			if err != nil {

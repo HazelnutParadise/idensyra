@@ -64,6 +64,15 @@ let isBinaryPreview = false;
 const expandedDirs = new Set();
 let selectedFolderPath = "";
 let isRootFolderSelected = false;
+let workspaceLoadToken = 0;
+let fileTreeRenderToken = 0;
+const fileTreeChunkSize = 120;
+const fileModelCache = new Map();
+const fileModelSizes = new Map();
+let fileModelBytes = 0;
+const maxOpenModels = 12;
+const maxOpenBytes = 12 * 1024 * 1024;
+let workspaceRefreshTimer = null;
 let lastExecutionOutput =
   '<div style="color: #888;">Run your code to see output here...</div>';
 let previewMode = null;
@@ -126,29 +135,56 @@ let cachedGoParse = {
   versionId: null,
   structs: new Map(),
   varTypes: new Map(),
+  aliases: new Map(),
+  modelUri: null,
 };
 
 function parseGoStructs(source) {
   const structs = new Map();
+  const aliases = new Map();
   const structRegex = /type\s+([A-Za-z_]\w*)\s+struct\s*\{([\s\S]*?)\n\}/g;
   let match;
 
   while ((match = structRegex.exec(source))) {
     const name = match[1];
     const body = match[2];
-    const fields = new Set();
+    const fields = [];
+    const fieldTypes = new Map();
 
     body.split(/\r?\n/).forEach((line) => {
       const cleaned = line.split("//")[0].trim();
       if (!cleaned) return;
       if (cleaned.startsWith("}")) return;
-      const fieldMatch = cleaned.match(/^([A-Za-z_]\w*)\b/);
+      const noTag = cleaned.split("`")[0].trim();
+      if (!noTag) return;
+
+      let fieldMatch = noTag.match(
+        /^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s+(.+)$/,
+      );
       if (fieldMatch) {
-        fields.add(fieldMatch[1]);
+        const names = fieldMatch[1]
+          .split(",")
+          .map((namePart) => namePart.trim())
+          .filter(Boolean);
+        const fieldType = fieldMatch[2].trim();
+
+        names.forEach((fieldName) => {
+          fields.push(fieldName);
+          fieldTypes.set(fieldName, fieldType);
+        });
+        return;
+      }
+
+      fieldMatch = noTag.match(/^(\*?\s*[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)$/);
+      if (fieldMatch) {
+        const fieldType = fieldMatch[1].replace(/\s+/g, "");
+        const fieldName = fieldType.replace(/^\*/, "").split(".").pop();
+        fields.push(fieldName);
+        fieldTypes.set(fieldName, fieldType);
       }
     });
 
-    structs.set(name, { fields: Array.from(fields), methods: [] });
+    structs.set(name, { fields, fieldTypes, methods: [] });
   }
 
   const methodRegex =
@@ -156,18 +192,95 @@ function parseGoStructs(source) {
   while ((match = methodRegex.exec(source))) {
     const typeName = match[1];
     const methodName = match[2];
-    const info = structs.get(typeName) || { fields: [], methods: [] };
+    const info = structs.get(typeName) || {
+      fields: [],
+      fieldTypes: new Map(),
+      methods: [],
+    };
     if (!info.methods.includes(methodName)) {
       info.methods.push(methodName);
     }
     structs.set(typeName, info);
   }
 
-  return structs;
+  source.split(/\r?\n/).forEach((line) => {
+    const cleaned = line.split("//")[0].trim();
+    if (!cleaned) return;
+    if (cleaned.includes(" struct")) return;
+    if (cleaned.includes(" interface")) return;
+
+    let aliasMatch = cleaned.match(
+      /^type\s+([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\b/,
+    );
+    if (!aliasMatch) {
+      aliasMatch = cleaned.match(/^type\s+([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\b/);
+    }
+
+    if (aliasMatch) {
+      const aliasName = aliasMatch[1];
+      const targetName = aliasMatch[2];
+      if (structs.has(targetName)) {
+        const targetInfo = structs.get(targetName);
+        structs.set(aliasName, {
+          fields: [...targetInfo.fields],
+          fieldTypes: new Map(targetInfo.fieldTypes),
+          methods: [...targetInfo.methods],
+        });
+        aliases.set(aliasName, targetName);
+      }
+    }
+  });
+
+  return { structs, aliases };
 }
 
-function parseGoVarTypes(source, structNames) {
+function normalizeTypeName(typeName) {
+  let name = (typeName || "").trim();
+  if (!name) return "";
+  name = name.replace(/\(.*\)$/, "").trim();
+  name = name.replace(/^\*+/, "");
+
+  const mapMatch = name.match(/^map\s*\[[^\]]*\]\s*(.+)$/);
+  if (mapMatch) {
+    name = mapMatch[1].trim();
+  }
+
+  const chanMatch = name.match(/^(?:<-)?\s*chan\s+(.+)$/);
+  if (chanMatch) {
+    name = chanMatch[1].trim();
+  }
+
+  while (name.startsWith("[")) {
+    const bracketMatch = name.match(/^\[\s*\d*\s*\]\s*(.+)$/);
+    if (!bracketMatch) break;
+    name = bracketMatch[1].trim();
+  }
+
+  name = name.replace(/^\*+/, "");
+
+  if (name.includes(".")) {
+    name = name.split(".").pop();
+  }
+
+  return name.trim();
+}
+
+function resolveStructType(typeName, structs, aliases) {
+  let resolved = normalizeTypeName(typeName);
+  let guard = 0;
+  while (aliases.has(resolved) && guard < 10) {
+    resolved = aliases.get(resolved);
+    guard += 1;
+  }
+  if (structs.has(resolved)) {
+    return resolved;
+  }
+  return resolved;
+}
+
+function parseGoVarTypes(source, structs, aliases) {
   const varTypes = new Map();
+  const structNames = new Set(structs.keys());
   const lines = source.split(/\r?\n/);
 
   lines.forEach((line) => {
@@ -176,19 +289,38 @@ function parseGoVarTypes(source, structNames) {
       /\bvar\s+([A-Za-z_]\w*)\s+(?:\*\s*)?([A-Za-z_]\w*)\b/,
     );
     if (match && structNames.has(match[2])) {
-      varTypes.set(match[1], match[2]);
+      varTypes.set(match[1], resolveStructType(match[2], structs, aliases));
+    }
+
+    match = cleaned.match(
+      /\bvar\s+([A-Za-z_]\w*)\s*=\s*&?\s*([A-Za-z_]\w*)\s*\{/,
+    );
+    if (match && structNames.has(match[2])) {
+      varTypes.set(match[1], resolveStructType(match[2], structs, aliases));
     }
 
     match = cleaned.match(/\b([A-Za-z_]\w*)\s*:=\s*&?\s*([A-Za-z_]\w*)\s*\{/);
     if (match && structNames.has(match[2])) {
-      varTypes.set(match[1], match[2]);
+      varTypes.set(match[1], resolveStructType(match[2], structs, aliases));
     }
 
     match = cleaned.match(
       /\b([A-Za-z_]\w*)\s*:=\s*new\(\s*([A-Za-z_]\w*)\s*\)/,
     );
     if (match && structNames.has(match[2])) {
-      varTypes.set(match[1], match[2]);
+      varTypes.set(match[1], resolveStructType(match[2], structs, aliases));
+    }
+
+    match = cleaned.match(/\b([A-Za-z_]\w*)\s*:=\s*&?\s*([A-Za-z_]\w*)\s*\(/);
+    if (match && structNames.has(match[2])) {
+      varTypes.set(match[1], resolveStructType(match[2], structs, aliases));
+    }
+
+    match = cleaned.match(
+      /\bvar\s+([A-Za-z_]\w*)\s*=\s*new\(\s*([A-Za-z_]\w*)\s*\)/,
+    );
+    if (match && structNames.has(match[2])) {
+      varTypes.set(match[1], resolveStructType(match[2], structs, aliases));
     }
   });
 
@@ -197,17 +329,234 @@ function parseGoVarTypes(source, structNames) {
 
 function getGoParse(model) {
   const versionId = model.getVersionId();
-  if (cachedGoParse.versionId === versionId) {
+  const modelUri = model.uri ? model.uri.toString() : "";
+  if (
+    cachedGoParse.versionId === versionId &&
+    cachedGoParse.modelUri === modelUri
+  ) {
     return cachedGoParse;
   }
 
   const source = model.getValue();
-  const structs = parseGoStructs(source);
-  const structNames = new Set(structs.keys());
-  const varTypes = parseGoVarTypes(source, structNames);
+  const { structs, aliases } = parseGoStructs(source);
+  const varTypes = parseGoVarTypes(source, structs, aliases);
 
-  cachedGoParse = { versionId, structs, varTypes };
+  cachedGoParse = { versionId, structs, varTypes, aliases, modelUri };
   return cachedGoParse;
+}
+
+function resolveExpressionType(expression, structs, varTypes, aliases) {
+  const parts = expression.split(".").filter(Boolean);
+  if (parts.length === 0) return "";
+
+  const base = parts[0];
+  let currentType = null;
+
+  if (varTypes.has(base)) {
+    currentType = varTypes.get(base);
+  } else if (structs.has(base)) {
+    currentType = base;
+  } else {
+    return "";
+  }
+
+  let resolved = resolveStructType(currentType, structs, aliases);
+
+  for (let i = 1; i < parts.length; i += 1) {
+    const fieldName = parts[i];
+    const typeInfo = structs.get(resolved);
+    if (!typeInfo || !typeInfo.fieldTypes.has(fieldName)) {
+      return "";
+    }
+    const fieldType = typeInfo.fieldTypes.get(fieldName);
+    resolved = resolveStructType(fieldType, structs, aliases);
+  }
+
+  return resolved;
+}
+
+function touchFileModel(filename) {
+  const model = fileModelCache.get(filename);
+  if (!model) return;
+  fileModelCache.delete(filename);
+  fileModelCache.set(filename, model);
+}
+
+function updateFileModelSize(filename, model) {
+  if (!model) return;
+  const newSize = model.getValueLength();
+  const oldSize = fileModelSizes.get(filename) || 0;
+  fileModelSizes.set(filename, newSize);
+  fileModelBytes += newSize - oldSize;
+}
+
+function evictFileModels() {
+  let guard = 0;
+  while (
+    (fileModelCache.size > maxOpenModels || fileModelBytes > maxOpenBytes) &&
+    guard < 1000
+  ) {
+    const oldestKey = fileModelCache.keys().next().value;
+    if (!oldestKey) break;
+    if (oldestKey === activeFileName && fileModelCache.size > 1) {
+      touchFileModel(oldestKey);
+      guard += 1;
+      continue;
+    }
+
+    const model = fileModelCache.get(oldestKey);
+    fileModelCache.delete(oldestKey);
+    const size = fileModelSizes.get(oldestKey) || 0;
+    fileModelSizes.delete(oldestKey);
+    fileModelBytes -= size;
+    if (model && !model.isDisposed()) {
+      model.dispose();
+    }
+    guard += 1;
+  }
+}
+
+function getCachedFileModel(filename) {
+  const model = fileModelCache.get(filename);
+  if (model && !model.isDisposed()) {
+    touchFileModel(filename);
+    return model;
+  }
+  if (model && model.isDisposed()) {
+    fileModelCache.delete(filename);
+    fileModelSizes.delete(filename);
+  }
+  return null;
+}
+
+function getOrCreateFileModel(filename, content) {
+  const cached = getCachedFileModel(filename);
+  if (cached) {
+    return cached;
+  }
+
+  const uri = monaco.Uri.parse(
+    `inmemory://model/${encodeURIComponent(filename)}`,
+  );
+  let model = monaco.editor.getModel(uri);
+  if (model && !model.isDisposed()) {
+    if (!model.getValue()) {
+      model.setValue(content);
+    }
+  } else {
+    const language = getLanguageFromFilename(filename);
+    model = monaco.editor.createModel(content, language, uri);
+  }
+
+  fileModelCache.set(filename, model);
+  updateFileModelSize(filename, model);
+  touchFileModel(filename);
+  evictFileModels();
+  return model;
+}
+
+function updateActiveFileModelSize() {
+  if (!activeFileName) return;
+  const model = fileModelCache.get(activeFileName);
+  if (!model || model.isDisposed()) return;
+  updateFileModelSize(activeFileName, model);
+  touchFileModel(activeFileName);
+  evictFileModels();
+}
+
+function removeFileModel(filename) {
+  const model = fileModelCache.get(filename);
+  if (model) {
+    fileModelCache.delete(filename);
+    const size = fileModelSizes.get(filename) || 0;
+    fileModelSizes.delete(filename);
+    fileModelBytes -= size;
+    if (editor && editor.getModel() === model) {
+      return;
+    }
+    if (!model.isDisposed()) {
+      model.dispose();
+    }
+  }
+}
+
+function removeFileModelsInFolder(folderPath) {
+  Array.from(fileModelCache.keys()).forEach((key) => {
+    if (key === folderPath || key.startsWith(`${folderPath}/`)) {
+      removeFileModel(key);
+    }
+  });
+}
+
+function disposeOrphanModel(filename, model) {
+  if (!model || model.isDisposed()) return;
+  if (!filename) return;
+  if (fileModelCache.has(filename)) return;
+  if (editor && editor.getModel() === model) return;
+  model.dispose();
+}
+
+function renameFileModel(oldName, newName) {
+  const model = fileModelCache.get(oldName);
+  if (!model) return;
+  const size = fileModelSizes.get(oldName) || 0;
+  fileModelCache.delete(oldName);
+  fileModelSizes.delete(oldName);
+
+  fileModelCache.set(newName, model);
+  fileModelSizes.set(newName, size);
+
+  const newLanguage = getLanguageFromFilename(newName);
+  if (model.getLanguageId() !== newLanguage) {
+    monaco.editor.setModelLanguage(model, newLanguage);
+  }
+  touchFileModel(newName);
+}
+
+function renameFileModelsInFolder(oldPath, newPath) {
+  Array.from(fileModelCache.keys()).forEach((key) => {
+    if (key === oldPath || key.startsWith(`${oldPath}/`)) {
+      const newKey = key.replace(`${oldPath}/`, `${newPath}/`);
+      if (newKey === key) return;
+      renameFileModel(key, newKey);
+    }
+  });
+}
+
+function applyTextFileContent(filename, content, fromCache = false) {
+  const model = fromCache
+    ? getCachedFileModel(filename)
+    : getOrCreateFileModel(filename, content);
+  if (!model) return;
+
+  editor.setModel(model);
+
+  const language = getLanguageFromFilename(filename);
+  if (model.getLanguageId() !== language) {
+    monaco.editor.setModelLanguage(model, language);
+  }
+
+  if (!fromCache && content !== model.getValue()) {
+    model.setValue(content);
+  }
+
+  if (language === "go") {
+    editor.updateOptions({ insertSpaces: false, tabSize: 4 });
+  } else {
+    editor.updateOptions({ insertSpaces: true, tabSize: 2 });
+  }
+
+  if (filename.endsWith(".html") || filename.endsWith(".htm")) {
+    showPreview(content, "html");
+  } else if (filename.endsWith(".md")) {
+    showPreview(content, "markdown");
+  } else if (filename.endsWith(".csv")) {
+    showTablePreviewFromText(content, ",");
+  } else if (filename.endsWith(".tsv")) {
+    showTablePreviewFromText(content, "\t");
+  } else {
+    clearPreviewIfNeeded();
+  }
 }
 
 // Check if file is an image
@@ -425,13 +774,21 @@ async function initMonacoEditor(theme = "dark") {
       const linePrefix = model
         .getLineContent(position.lineNumber)
         .slice(0, position.column - 1);
-      const memberMatch = linePrefix.match(/([A-Za-z_]\w*)\.$/);
+      const memberMatch = linePrefix.match(
+        /([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\.$/,
+      );
 
       if (memberMatch) {
         const target = memberMatch[1];
         const suggestions = [];
-        const { structs, varTypes } = getGoParse(model);
-        const typeName = varTypes.get(target) || target;
+        const { structs, varTypes, aliases } = getGoParse(model);
+        const resolvedType = resolveExpressionType(
+          target,
+          structs,
+          varTypes,
+          aliases,
+        );
+        const typeName = resolvedType || varTypes.get(target) || target;
         const typeInfo = structs.get(typeName);
 
         if (typeInfo) {
@@ -456,21 +813,23 @@ async function initMonacoEditor(theme = "dark") {
           });
         }
 
-        const packageSuggestions = goSymbols
-          .filter((symbol) => symbol.startsWith(`${target}.`))
-          .map((symbol) => {
-            const memberName = symbol.slice(target.length + 1);
-            return {
-              label: memberName,
-              kind: monaco.languages.CompletionItemKind.Function,
-              detail: `${target} package`,
-              documentation: `Member from ${target}`,
-              insertText: memberName,
-              range: range,
-            };
-          });
+        if (!typeInfo) {
+          const packageSuggestions = goSymbols
+            .filter((symbol) => symbol.startsWith(`${target}.`))
+            .map((symbol) => {
+              const memberName = symbol.slice(target.length + 1);
+              return {
+                label: memberName,
+                kind: monaco.languages.CompletionItemKind.Function,
+                detail: `${target} package`,
+                documentation: `Member from ${target}`,
+                insertText: memberName,
+                range: range,
+              };
+            });
 
-        suggestions.push(...packageSuggestions);
+          suggestions.push(...packageSuggestions);
+        }
         return { suggestions: suggestions };
       }
 
@@ -580,6 +939,7 @@ async function initMonacoEditor(theme = "dark") {
   // Listen for changes
   editor.onDidChangeModelContent(() => {
     currentCode = editor.getValue();
+    updateActiveFileModelSize();
     if (liveRun && !isExecuting) {
       debounceExecute();
     }
@@ -633,7 +993,7 @@ async function executeCode() {
     isExecuting = false;
     runButton.disabled = false;
     runButton.innerHTML = '<i class="fas fa-play"></i> Run';
-    await loadWorkspaceFiles();
+    scheduleWorkspaceRefresh();
   }
 }
 
@@ -682,7 +1042,7 @@ async function saveResult() {
     }
 
     const savedPath = await SaveResultToWorkspace(text);
-    await loadWorkspaceFiles();
+    scheduleWorkspaceRefresh();
     showMessage(`Result saved to workspace: ${savedPath}`, "success");
   } catch (error) {
     if (error) {
@@ -1279,21 +1639,41 @@ function hideImportProgress(delayMs = 0) {
 
 // Workspace functions
 async function loadWorkspaceFiles() {
+  const loadToken = ++workspaceLoadToken;
   try {
-    workspaceFiles = await GetWorkspaceFiles();
-    activeFileName = await GetActiveFile();
+    const [files, activeFile] = await Promise.all([
+      GetWorkspaceFiles(),
+      GetActiveFile(),
+    ]);
+    if (loadToken !== workspaceLoadToken) {
+      return;
+    }
+    workspaceFiles = files;
+    activeFileName = activeFile;
     renderFileTree();
   } catch (error) {
     console.error("Failed to load workspace files:", error);
   }
 }
 
+function scheduleWorkspaceRefresh(delayMs = 120) {
+  if (workspaceRefreshTimer) return;
+  workspaceRefreshTimer = setTimeout(() => {
+    workspaceRefreshTimer = null;
+    loadWorkspaceFiles();
+  }, delayMs);
+}
+
 // Load workspace with retry logic to ensure backend is ready
 async function loadWorkspaceWithRetry(maxRetries = 5, delayMs = 100) {
   for (let i = 0; i < maxRetries; i++) {
     try {
-      workspaceFiles = await GetWorkspaceFiles();
-      activeFileName = await GetActiveFile();
+      const [files, activeFile] = await Promise.all([
+        GetWorkspaceFiles(),
+        GetActiveFile(),
+      ]);
+      workspaceFiles = files;
+      activeFileName = activeFile;
 
       // Check if we got any files
       if (workspaceFiles && workspaceFiles.length > 0) {
@@ -1323,13 +1703,35 @@ function renderFileTree() {
   const fileTree = document.getElementById("file-tree");
   if (!fileTree) return;
 
+  const renderToken = ++fileTreeRenderToken;
   closeActionMenu();
   fileTree.innerHTML = "";
 
   const treeRoot = buildFileTree(workspaceFiles);
   const initialized = expandedDirs.size > 0;
+  const renderList = [];
 
-  renderTreeNodes(treeRoot, fileTree, 0, initialized);
+  collectRenderEntries(treeRoot, 0, initialized, renderList);
+
+  let index = 0;
+  const renderChunk = () => {
+    if (renderToken !== fileTreeRenderToken) return;
+    const fragment = document.createDocumentFragment();
+    const end = Math.min(index + fileTreeChunkSize, renderList.length);
+
+    for (; index < end; index += 1) {
+      const { entry, depth } = renderList[index];
+      fragment.appendChild(createFileItem(entry, depth));
+    }
+
+    fileTree.appendChild(fragment);
+
+    if (index < renderList.length) {
+      requestAnimationFrame(renderChunk);
+    }
+  };
+
+  requestAnimationFrame(renderChunk);
 }
 
 function buildFileTree(files) {
@@ -1373,51 +1775,64 @@ function buildFileTree(files) {
   return root;
 }
 
-function renderTreeNodes(node, container, depth, initialized) {
-  const entries = Array.from(node.children.values()).sort((a, b) => {
+function sortTreeEntries(node) {
+  return Array.from(node.children.values()).sort((a, b) => {
     if (a.isDir !== b.isDir) {
       return a.isDir ? -1 : 1;
     }
     return a.name.localeCompare(b.name);
   });
+}
+
+function collectRenderEntries(node, depth, initialized, list) {
+  const entries = sortTreeEntries(node);
 
   entries.forEach((entry) => {
     if (entry.isDir && !initialized) {
       expandedDirs.add(entry.path);
     }
 
-    const fileItem = document.createElement("div");
-    fileItem.className = "file-item";
-    fileItem.style.paddingLeft = `${8 + depth * 14}px`;
-    fileItem.title = entry.name;
+    list.push({ entry, depth });
 
-    if (entry.meta && entry.meta.tooLarge) {
-      fileItem.classList.add("file-large");
+    if (entry.isDir && expandedDirs.has(entry.path)) {
+      collectRenderEntries(entry, depth + 1, true, list);
     }
-    if (!entry.isDir && entry.path === activeFileName) {
-      fileItem.classList.add("active");
-    }
-    if (entry.isDir && entry.path === selectedFolderPath) {
-      fileItem.classList.add("selected");
-    }
-    if (entry.meta && entry.meta.modified) {
-      fileItem.classList.add("modified");
-    }
+  });
+}
 
-    let iconClass = "fa-file-code";
-    if (entry.isDir) {
-      iconClass = expandedDirs.has(entry.path) ? "fa-folder-open" : "fa-folder";
-    } else if (isImageFile(entry.path)) {
-      iconClass = "fa-file-image";
-    } else if (entry.path.endsWith(".md")) {
-      iconClass = "fa-file-lines";
-    } else if (entry.path.endsWith(".json")) {
-      iconClass = "fa-file-code";
-    } else if (entry.path.endsWith(".txt")) {
-      iconClass = "fa-file-lines";
-    }
+function createFileItem(entry, depth) {
+  const fileItem = document.createElement("div");
+  fileItem.className = "file-item";
+  fileItem.style.paddingLeft = `${8 + depth * 14}px`;
+  fileItem.title = entry.name;
 
-    fileItem.innerHTML = `
+  if (entry.meta && entry.meta.tooLarge) {
+    fileItem.classList.add("file-large");
+  }
+  if (!entry.isDir && entry.path === activeFileName) {
+    fileItem.classList.add("active");
+  }
+  if (entry.isDir && entry.path === selectedFolderPath) {
+    fileItem.classList.add("selected");
+  }
+  if (entry.meta && entry.meta.modified) {
+    fileItem.classList.add("modified");
+  }
+
+  let iconClass = "fa-file-code";
+  if (entry.isDir) {
+    iconClass = expandedDirs.has(entry.path) ? "fa-folder-open" : "fa-folder";
+  } else if (isImageFile(entry.path)) {
+    iconClass = "fa-file-image";
+  } else if (entry.path.endsWith(".md")) {
+    iconClass = "fa-file-lines";
+  } else if (entry.path.endsWith(".json")) {
+    iconClass = "fa-file-code";
+  } else if (entry.path.endsWith(".txt")) {
+    iconClass = "fa-file-lines";
+  }
+
+  fileItem.innerHTML = `
       <i class="fas ${iconClass}"></i>
       <span class="file-name">${entry.name}</span>
       ${
@@ -1445,75 +1860,73 @@ function renderTreeNodes(node, container, depth, initialized) {
       </div>
     `;
 
-    fileItem.addEventListener("click", (e) => {
-      if (e.target.closest(".file-actions")) {
-        return;
-      }
+  fileItem.addEventListener("click", (e) => {
+    if (e.target.closest(".file-actions")) {
+      return;
+    }
 
-      if (entry.isDir) {
-        selectedFolderPath = entry.path;
-        isRootFolderSelected = false;
-        if (expandedDirs.has(entry.path)) {
-          expandedDirs.delete(entry.path);
-        } else {
-          expandedDirs.add(entry.path);
-        }
-        renderFileTree();
-        return;
-      }
-
-      switchToFile(entry.path);
-    });
-
-    const fileActions = fileItem.querySelector(".file-actions");
-    const actionBtn = fileItem.querySelector(".file-action-btn");
-    const actionMenu = fileItem.querySelector(".file-action-menu");
-    const renameBtn = fileItem.querySelector(".file-action-rename");
-    const deleteBtn = fileItem.querySelector(".file-action-delete");
-
-    actionBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const wasOpen = actionMenu.classList.contains("active");
-      closeActionMenu();
-      if (!wasOpen) {
-        actionMenu.classList.add("active");
-        fileActions.classList.add("open");
-        currentActionMenu = actionMenu;
-      }
-    });
-
-    renameBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      closeActionMenu();
-      if (entry.isDir) {
-        renameFolderPrompt(entry.path);
+    if (entry.isDir) {
+      selectedFolderPath = entry.path;
+      isRootFolderSelected = false;
+      if (expandedDirs.has(entry.path)) {
+        expandedDirs.delete(entry.path);
       } else {
-        renameFilePrompt(entry.path);
+        expandedDirs.add(entry.path);
       }
-    });
+      renderFileTree();
+      return;
+    }
 
-    deleteBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      closeActionMenu();
-      if (entry.isDir) {
-        deleteFolderConfirm(entry.path);
-      } else {
-        deleteFileConfirm(entry.path);
-      }
-    });
+    switchToFile(entry.path);
+  });
 
-    container.appendChild(fileItem);
+  const fileActions = fileItem.querySelector(".file-actions");
+  const actionBtn = fileItem.querySelector(".file-action-btn");
+  const actionMenu = fileItem.querySelector(".file-action-menu");
+  const renameBtn = fileItem.querySelector(".file-action-rename");
+  const deleteBtn = fileItem.querySelector(".file-action-delete");
 
-    if (entry.isDir && expandedDirs.has(entry.path)) {
-      renderTreeNodes(entry, container, depth + 1, true);
+  actionBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const wasOpen = actionMenu.classList.contains("active");
+    closeActionMenu();
+    if (!wasOpen) {
+      actionMenu.classList.add("active");
+      fileActions.classList.add("open");
+      currentActionMenu = actionMenu;
     }
   });
+
+  renameBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeActionMenu();
+    if (entry.isDir) {
+      renameFolderPrompt(entry.path);
+    } else {
+      renameFilePrompt(entry.path);
+    }
+  });
+
+  deleteBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeActionMenu();
+    if (entry.isDir) {
+      deleteFolderConfirm(entry.path);
+    } else {
+      deleteFileConfirm(entry.path);
+    }
+  });
+
+  return fileItem;
 }
 
 async function switchToFile(filename, force = false) {
   if (!force && filename === activeFileName) return;
 
   try {
+    const previousFileName = activeFileName;
+    const previousModel = editor.getModel();
+
     // Save current file content (only if not in image preview mode)
     if (
       activeFileName &&
@@ -1536,18 +1949,34 @@ async function switchToFile(filename, force = false) {
     }
 
     // Switch to new file
-    await SetActiveFile(filename);
     const selectedFile = workspaceFiles.find((file) => file.name === filename);
     activeFileName = filename;
     selectedFolderPath = getParentPath(filename);
     isRootFolderSelected = false;
     document.getElementById("active-file-label").textContent = filename;
+    renderFileTree();
+    const setActivePromise = SetActiveFile(filename);
 
     if (selectedFile && selectedFile.tooLarge) {
       showLargeFilePreview(filename, selectedFile.size || 0);
       clearPreviewIfNeeded();
       updateRunButtonState();
-      await loadWorkspaceFiles();
+      await setActivePromise;
+      scheduleWorkspaceRefresh();
+      return;
+    }
+
+    const cachedModel = getCachedFileModel(filename);
+    if (cachedModel) {
+      const cachedContent = cachedModel.getValue();
+      hideImagePreview();
+      hideLargeFilePreview();
+      hideBinaryPreview();
+      applyTextFileContent(filename, cachedContent, true);
+      disposeOrphanModel(previousFileName, previousModel);
+      updateRunButtonState();
+      await setActivePromise;
+      scheduleWorkspaceRefresh();
       return;
     }
 
@@ -1589,37 +2018,14 @@ async function switchToFile(filename, force = false) {
       hideLargeFilePreview();
       hideBinaryPreview();
 
-      // Set the language based on file extension
-      const language = getLanguageFromFilename(filename);
-      const model = editor.getModel();
-      monaco.editor.setModelLanguage(model, language);
-
-      // Set editor content
-      editor.setValue(content);
-
-      // Adjust editor options based on file type
-      if (language === "go") {
-        editor.updateOptions({ insertSpaces: false, tabSize: 4 });
-      } else {
-        editor.updateOptions({ insertSpaces: true, tabSize: 2 });
-      }
-
-      if (filename.endsWith(".html") || filename.endsWith(".htm")) {
-        showPreview(content, "html");
-      } else if (filename.endsWith(".md")) {
-        showPreview(content, "markdown");
-      } else if (filename.endsWith(".csv")) {
-        showTablePreviewFromText(content, ",");
-      } else if (filename.endsWith(".tsv")) {
-        showTablePreviewFromText(content, "\t");
-      } else {
-        clearPreviewIfNeeded();
-      }
+      applyTextFileContent(filename, content, false);
+      disposeOrphanModel(previousFileName, previousModel);
     }
 
     updateRunButtonState();
-    // Refresh file tree
-    await loadWorkspaceFiles();
+    await setActivePromise;
+    // Refresh file tree without blocking UI
+    scheduleWorkspaceRefresh();
   } catch (error) {
     console.error("Failed to switch file:", error);
     showMessage("Failed to switch file: " + error, "error");
@@ -1666,7 +2072,7 @@ async function createNewFolder() {
       expandedDirs.add(parentPath);
     }
     expandedDirs.add(finalName);
-    await loadWorkspaceFiles();
+    scheduleWorkspaceRefresh();
     showMessage(`Folder "${finalName}" created successfully`, "success");
   } catch (error) {
     console.error("Failed to create folder:", error);
@@ -1684,7 +2090,11 @@ async function deleteFileConfirm(filename) {
   if (!confirm(`Delete file "${filename}"?`)) return;
 
   try {
+    const wasActive = filename === activeFileName;
+    const previousModel = wasActive ? editor.getModel() : null;
+
     await DeleteFile(filename);
+    removeFileModel(filename);
     activeFileName = "";
     await loadWorkspaceFiles();
 
@@ -1693,6 +2103,9 @@ async function deleteFileConfirm(filename) {
       hideImagePreview();
       hideBinaryPreview();
       await switchToFile(workspaceFiles[0].name, true);
+    }
+    if (wasActive) {
+      disposeOrphanModel(filename, previousModel);
     }
 
     showMessage(`File "${filename}" deleted`, "success");
@@ -1706,7 +2119,13 @@ async function deleteFolderConfirm(folderPath) {
   if (!confirm(`Delete folder "${folderPath}" and all its contents?`)) return;
 
   try {
+    const activeFileBefore = activeFileName;
+    const wasActive =
+      activeFileBefore && activeFileBefore.startsWith(`${folderPath}/`);
+    const previousModel = wasActive ? editor.getModel() : null;
+
     await DeleteFolder(folderPath);
+    removeFileModelsInFolder(folderPath);
     Array.from(expandedDirs).forEach((path) => {
       if (path === folderPath || path.startsWith(`${folderPath}/`)) {
         expandedDirs.delete(path);
@@ -1725,7 +2144,10 @@ async function deleteFolderConfirm(folderPath) {
       hideLargeFilePreview();
       hideBinaryPreview();
     }
-    await loadWorkspaceFiles();
+    scheduleWorkspaceRefresh();
+    if (wasActive) {
+      disposeOrphanModel(activeFileBefore, previousModel);
+    }
     showMessage(`Folder "${folderPath}" deleted`, "success");
   } catch (error) {
     console.error("Failed to delete folder:", error);
@@ -1758,6 +2180,7 @@ async function renameFilePrompt(filename) {
 
     await RenameFile(filename, trimmedName);
     const wasActive = filename === activeFileName;
+    renameFileModel(filename, trimmedName);
 
     activeFileName = "";
     await loadWorkspaceFiles();
@@ -1791,6 +2214,7 @@ async function renameFolderPrompt(folderPath) {
 
   try {
     await RenameFolder(folderPath, trimmedName);
+    renameFileModelsInFolder(folderPath, trimmedName);
     if (activeFileName && activeFileName.startsWith(`${folderPath}/`)) {
       activeFileName = activeFileName.replace(
         `${folderPath}/`,
@@ -1811,7 +2235,7 @@ async function renameFolderPrompt(folderPath) {
       expandedDirs.delete(folderPath);
       expandedDirs.add(trimmedName);
     }
-    await loadWorkspaceFiles();
+    scheduleWorkspaceRefresh();
     showMessage(`Folder renamed to "${trimmedName}"`, "success");
   } catch (error) {
     console.error("Failed to rename folder:", error);
@@ -1842,7 +2266,7 @@ async function saveCurrentFile() {
 
     // Try to save to disk
     await SaveFile(activeFileName);
-    await loadWorkspaceFiles();
+    scheduleWorkspaceRefresh();
     showMessage(`Saved ${activeFileName}`, "success");
   } catch (error) {
     console.error("Failed to save file:", error);
@@ -1875,7 +2299,7 @@ async function saveAllFiles() {
     }
 
     await SaveAllFiles();
-    await loadWorkspaceFiles();
+    scheduleWorkspaceRefresh();
     showMessage("All files saved", "success");
   } catch (error) {
     console.error("Failed to save files:", error);
@@ -1900,7 +2324,7 @@ async function createWorkspace() {
       return; // User cancelled
     }
 
-    await loadWorkspaceFiles();
+    scheduleWorkspaceRefresh();
     showMessage(`Workspace created at: ${workspacePath}`, "success");
   } catch (error) {
     console.error("Failed to create workspace:", error);
@@ -2003,19 +2427,7 @@ async function openWorkspace() {
         hideImagePreview();
         hideLargeFilePreview();
         hideBinaryPreview();
-        editor.setValue(content);
-
-        if (activeFile.endsWith(".html") || activeFile.endsWith(".htm")) {
-          showPreview(content, "html");
-        } else if (activeFile.endsWith(".md")) {
-          showPreview(content, "markdown");
-        } else if (activeFile.endsWith(".csv")) {
-          showTablePreviewFromText(content, ",");
-        } else if (activeFile.endsWith(".tsv")) {
-          showTablePreviewFromText(content, "\t");
-        } else {
-          clearPreviewIfNeeded();
-        }
+        applyTextFileContent(activeFile, content, false);
       }
       updateRunButtonState();
     }
@@ -2508,34 +2920,14 @@ async function initApp() {
           showBinaryPreview(activeFileName, "Binary");
           clearPreviewIfNeeded();
         } else {
-          // Set the language based on file extension
-          const language = getLanguageFromFilename(activeFileName);
-          const model = editor.getModel();
-          monaco.editor.setModelLanguage(model, language);
-
           hideImagePreview();
           hideLargeFilePreview();
           hideBinaryPreview();
-          editor.setValue(content);
           document.getElementById("active-file-label").textContent =
             activeFileName;
           selectedFolderPath = getParentPath(activeFileName);
           isRootFolderSelected = false;
-
-          if (
-            activeFileName.endsWith(".html") ||
-            activeFileName.endsWith(".htm")
-          ) {
-            showPreview(content, "html");
-          } else if (activeFileName.endsWith(".md")) {
-            showPreview(content, "markdown");
-          } else if (activeFileName.endsWith(".csv")) {
-            showTablePreviewFromText(content, ",");
-          } else if (activeFileName.endsWith(".tsv")) {
-            showTablePreviewFromText(content, "\t");
-          } else {
-            clearPreviewIfNeeded();
-          }
+          applyTextFileContent(activeFileName, content, false);
         }
         updateRunButtonState();
       } catch (error) {
@@ -2550,6 +2942,7 @@ async function initApp() {
   // Mark file as modified on content change
   editor.onDidChangeModelContent(() => {
     if (activeFileName) {
+      updateActiveFileModelSize();
       if (!isImagePreview && !isLargeFilePreview && !isBinaryPreview) {
         if (
           activeFileName.endsWith(".html") ||
@@ -2568,7 +2961,7 @@ async function initApp() {
         window.autoUpdateTimer = setTimeout(async () => {
           const currentContent = editor.getValue();
           await UpdateFileContent(activeFileName, currentContent);
-          await loadWorkspaceFiles(); // Refresh to show modified indicator
+          scheduleWorkspaceRefresh();
         }, 1000);
       }
     }
