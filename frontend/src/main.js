@@ -63,6 +63,7 @@ let isLargeFilePreview = false;
 let isBinaryPreview = false;
 const expandedDirs = new Set();
 let selectedFolderPath = "";
+let isRootFolderSelected = false;
 let lastExecutionOutput =
   '<div style="color: #888;">Run your code to see output here...</div>';
 let previewMode = null;
@@ -818,6 +819,7 @@ function getParentPath(path) {
 }
 
 function getTargetFolder() {
+  if (isRootFolderSelected) return "";
   if (selectedFolderPath) return selectedFolderPath;
   if (activeFileName) return getParentPath(activeFileName);
   return "";
@@ -1450,6 +1452,7 @@ function renderTreeNodes(node, container, depth, initialized) {
 
       if (entry.isDir) {
         selectedFolderPath = entry.path;
+        isRootFolderSelected = false;
         if (expandedDirs.has(entry.path)) {
           expandedDirs.delete(entry.path);
         } else {
@@ -1537,6 +1540,7 @@ async function switchToFile(filename, force = false) {
     const selectedFile = workspaceFiles.find((file) => file.name === filename);
     activeFileName = filename;
     selectedFolderPath = getParentPath(filename);
+    isRootFolderSelected = false;
     document.getElementById("active-file-label").textContent = filename;
 
     if (selectedFile && selectedFile.tooLarge) {
@@ -1713,6 +1717,7 @@ async function deleteFolderConfirm(folderPath) {
       selectedFolderPath.startsWith(`${folderPath}/`)
     ) {
       selectedFolderPath = "";
+      isRootFolderSelected = false;
     }
     if (activeFileName && activeFileName.startsWith(`${folderPath}/`)) {
       activeFileName = "";
@@ -1794,11 +1799,13 @@ async function renameFolderPrompt(folderPath) {
     }
     if (selectedFolderPath === folderPath) {
       selectedFolderPath = trimmedName;
+      isRootFolderSelected = false;
     } else if (selectedFolderPath.startsWith(`${folderPath}/`)) {
       selectedFolderPath = selectedFolderPath.replace(
         `${folderPath}/`,
         `${trimmedName}/`,
       );
+      isRootFolderSelected = false;
     }
     if (expandedDirs.has(folderPath)) {
       expandedDirs.delete(folderPath);
@@ -1952,6 +1959,7 @@ async function openWorkspace() {
       activeFileName = activeFile;
       document.getElementById("active-file-label").textContent = activeFile;
       selectedFolderPath = getParentPath(activeFile);
+      isRootFolderSelected = false;
 
       const activeMeta = workspaceFiles.find(
         (file) => file.name === activeFile,
@@ -2281,6 +2289,17 @@ async function initApp() {
   });
 
   const resultOutput = document.getElementById("result-output");
+  const fileTree = document.getElementById("file-tree");
+  if (fileTree) {
+    fileTree.addEventListener("click", (event) => {
+      if (event.target.closest(".file-item")) {
+        return;
+      }
+      selectedFolderPath = "";
+      isRootFolderSelected = true;
+      renderFileTree();
+    });
+  }
   if (resultOutput) {
     lastExecutionOutput = resultOutput.innerHTML;
   }
@@ -2449,6 +2468,7 @@ async function initApp() {
           document.getElementById("active-file-label").textContent =
             activeFileName;
           selectedFolderPath = getParentPath(activeFileName);
+          isRootFolderSelected = false;
           updateRunButtonState();
           return;
         }
@@ -2500,6 +2520,7 @@ async function initApp() {
           document.getElementById("active-file-label").textContent =
             activeFileName;
           selectedFolderPath = getParentPath(activeFileName);
+          isRootFolderSelected = false;
 
           if (
             activeFileName.endsWith(".html") ||

@@ -1865,6 +1865,24 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 		return false
 	}
 
+	if !isTemp && hasModified {
+		selection, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+			Type:    runtime.QuestionDialog,
+			Title:   "Unsaved Changes",
+			Message: "You have unsaved changes in the workspace.\n\nClose without saving?",
+			Buttons: []string{"Close Without Saving", "Cancel"},
+		})
+
+		if err != nil {
+			fmt.Printf("Dialog error: %v\n", err)
+			return true
+		}
+
+		if selection != "Close Without Saving" {
+			return true
+		}
+	}
+
 	// Warn user if they're in temporary workspace and haven't saved to disk
 	if false && isTemp && hasFiles {
 		var message string
