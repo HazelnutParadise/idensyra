@@ -72,6 +72,8 @@ let igonbRenderToken = 0;
 let igonbIdCounter = 0;
 const igonbEditors = new Map();
 let igonbOutputMode = "full";
+let igonbSelectedId = null;
+let igonbDragId = null;
 const expandedDirs = new Set();
 let selectedFolderPath = "";
 let isRootFolderSelected = false;
@@ -802,6 +804,7 @@ function showIgonbNotebook(content, filename) {
   }
 
   igonbState = parsed;
+  ensureIgonbSelection();
   disposeIgonbEditors();
   ensureIgonbContainer();
 
@@ -835,7 +838,9 @@ function hideIgonbNotebook() {
   editorContainer.style.display = "block";
   isIgonbView = false;
   igonbState = null;
-  document.body.classList.remove("igonb-mode");
+  igonbSelectedId = null;
+  igonbDragId = null;
+  document.body.classList.remove("igonb-mode", "igonb-dragging");
   if (igonbSaveTimer) {
     clearTimeout(igonbSaveTimer);
     igonbSaveTimer = null;
@@ -883,6 +888,7 @@ function parseIgonbContent(content) {
         output: "",
         error: "",
         running: false,
+        waiting: false,
         editing: false,
       })),
     };
@@ -895,6 +901,54 @@ function parseIgonbContent(content) {
 function nextIgonbId() {
   igonbIdCounter += 1;
   return `igonb-${igonbIdCounter}`;
+}
+
+function getIgonbIndexById(id) {
+  if (!igonbState || !id) return -1;
+  return igonbState.cells.findIndex((cell) => cell.id === id);
+}
+
+function updateIgonbCellSelection(id, selected) {
+  const container = document.querySelector(`.igonb-cell[data-cell-id="${id}"]`);
+  if (!container) return;
+  container.classList.toggle("selected", selected);
+}
+
+function setIgonbSelectedId(id) {
+  if (igonbSelectedId === id) {
+    return;
+  }
+  const prevId = igonbSelectedId;
+  igonbSelectedId = id;
+  if (prevId) {
+    updateIgonbCellSelection(prevId, false);
+  }
+  if (igonbSelectedId) {
+    updateIgonbCellSelection(igonbSelectedId, true);
+  }
+}
+
+function ensureIgonbSelection() {
+  if (!igonbState || igonbState.cells.length === 0) {
+    igonbSelectedId = null;
+    return;
+  }
+  const selectedIndex = getIgonbIndexById(igonbSelectedId);
+  if (selectedIndex === -1) {
+    igonbSelectedId = null;
+  }
+}
+
+function getIgonbSelectedIndex() {
+  const index = getIgonbIndexById(igonbSelectedId);
+  return index === -1 ? null : index;
+}
+
+function getIgonbSelectedLanguage() {
+  if (!igonbState) return "go";
+  const index = getIgonbSelectedIndex();
+  if (index === null) return "go";
+  return igonbState.cells[index].language || "go";
 }
 
 function normalizeIgonbLanguage(language) {
@@ -918,6 +972,7 @@ function renderIgonbCells() {
   const cellList = document.getElementById("igonb-cells");
   if (!cellList || !igonbState) return;
 
+  ensureIgonbSelection();
   disposeIgonbEditors();
   cellList.innerHTML = "";
   igonbState.cells.forEach((cell, index) => {
@@ -946,17 +1001,40 @@ function createIgonbCellElement(cell, index) {
   if (cell.running) {
     container.classList.add("running");
   }
+  if (cell.waiting) {
+    container.classList.add("waiting");
+  }
+  if (cell.id === igonbSelectedId) {
+    container.classList.add("selected");
+  }
 
   const toolbar = document.createElement("div");
   toolbar.className = "igonb-cell-toolbar";
 
+  const dragHandle = document.createElement("button");
+  dragHandle.type = "button";
+  dragHandle.className = "secondary igonb-drag-handle";
+  dragHandle.title = "Drag to reorder";
+  dragHandle.innerHTML = '<i class="fas fa-grip-vertical"></i>';
+  dragHandle.draggable = true;
+  dragHandle.addEventListener("dragstart", (event) => {
+    startIgonbDrag(event, cell.id);
+  });
+  dragHandle.addEventListener("dragend", () => {
+    clearIgonbDrag();
+  });
+
   const title = document.createElement("div");
   title.className = "igonb-cell-title";
-  title.textContent = `Cell ${index + 1} • ${cell.language.toUpperCase()}`;
+  title.textContent = `Cell ${index + 1} - ${cell.language.toUpperCase()}`;
 
   const status = document.createElement("div");
   status.className = "igonb-cell-status";
-  status.textContent = cell.running ? "Running..." : "";
+  status.textContent = cell.running
+    ? "Running..."
+    : cell.waiting
+      ? "Waiting..."
+      : "";
 
   const actionGroup = document.createElement("div");
   actionGroup.className = "igonb-cell-actions";
@@ -978,6 +1056,7 @@ function createIgonbCellElement(cell, index) {
     cell.output = "";
     cell.error = "";
     cell.running = false;
+    cell.waiting = false;
     cell.editing = false;
     scheduleIgonbSave();
     renderIgonbCells();
@@ -1011,9 +1090,23 @@ function createIgonbCellElement(cell, index) {
   deleteBtn.addEventListener("click", () => deleteIgonbCell(index));
   actionGroup.appendChild(deleteBtn);
 
+  toolbar.appendChild(dragHandle);
   toolbar.appendChild(title);
   toolbar.appendChild(status);
   toolbar.appendChild(actionGroup);
+
+  container.addEventListener("click", () => {
+    setIgonbSelectedId(cell.id);
+  });
+  container.addEventListener("dragover", (event) => {
+    handleIgonbDragOver(event, cell.id);
+  });
+  container.addEventListener("dragleave", () => {
+    clearIgonbDragOver(cell.id);
+  });
+  container.addEventListener("drop", (event) => {
+    handleIgonbDrop(event, cell.id);
+  });
 
   const editorWrap = document.createElement("div");
   editorWrap.className = "igonb-cell-editor";
@@ -1054,17 +1147,113 @@ function updateMarkdownPreview(container, source) {
   }
 }
 
+function startIgonbDrag(event, cellId) {
+  igonbDragId = cellId;
+  setIgonbSelectedId(cellId);
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", cellId);
+  }
+  document.body.classList.add("igonb-dragging");
+}
+
+function clearIgonbDrag() {
+  igonbDragId = null;
+  document.body.classList.remove("igonb-dragging");
+  document
+    .querySelectorAll(".igonb-cell.drag-over, .igonb-cell.drag-over-bottom")
+    .forEach((el) => {
+      el.classList.remove("drag-over", "drag-over-bottom");
+    });
+}
+
+function handleIgonbDragOver(event, targetId) {
+  if (!igonbDragId || !igonbState) return;
+  if (targetId === igonbDragId) return;
+  event.preventDefault();
+
+  const container = event.currentTarget;
+  if (!container) return;
+  const rect = container.getBoundingClientRect();
+  const isBottom = event.clientY > rect.top + rect.height / 2;
+
+  container.classList.add("drag-over");
+  container.classList.toggle("drag-over-bottom", isBottom);
+}
+
+function clearIgonbDragOver(targetId) {
+  const container = document.querySelector(
+    `.igonb-cell[data-cell-id="${targetId}"]`,
+  );
+  if (!container) return;
+  container.classList.remove("drag-over", "drag-over-bottom");
+}
+
+function handleIgonbDrop(event, targetId) {
+  if (!igonbDragId || !igonbState) return;
+  event.preventDefault();
+
+  const fromIndex = getIgonbIndexById(igonbDragId);
+  const targetIndex = getIgonbIndexById(targetId);
+  if (fromIndex === -1 || targetIndex === -1) {
+    clearIgonbDrag();
+    return;
+  }
+
+  const container = event.currentTarget;
+  if (!container) {
+    clearIgonbDrag();
+    return;
+  }
+
+  const rect = container.getBoundingClientRect();
+  const insertAfter = event.clientY > rect.top + rect.height / 2;
+  let insertIndex = insertAfter ? targetIndex + 1 : targetIndex;
+  moveIgonbCell(fromIndex, insertIndex);
+  clearIgonbDrag();
+}
+
+function moveIgonbCell(fromIndex, insertIndex) {
+  if (!igonbState) return;
+  if (fromIndex === insertIndex || fromIndex + 1 === insertIndex) {
+    renderIgonbCells();
+    return;
+  }
+  const cells = igonbState.cells;
+  const [moved] = cells.splice(fromIndex, 1);
+  let targetIndex = insertIndex;
+  if (fromIndex < insertIndex) {
+    targetIndex -= 1;
+  }
+  if (targetIndex < 0) targetIndex = 0;
+  if (targetIndex > cells.length) targetIndex = cells.length;
+  cells.splice(targetIndex, 0, moved);
+  scheduleIgonbSave();
+  renderIgonbCells();
+}
+
 function addIgonbCell(language) {
   if (!igonbState) return;
-  igonbState.cells.push({
+  const newCell = {
     id: nextIgonbId(),
     language: language,
     source: "",
     output: "",
     error: "",
     running: false,
+    waiting: false,
     editing: language === "markdown",
-  });
+    focus: true,
+  };
+
+  const selectedIndex = getIgonbSelectedIndex();
+  if (selectedIndex === null) {
+    igonbState.cells.push(newCell);
+  } else {
+    igonbState.cells.splice(selectedIndex + 1, 0, newCell);
+  }
+
+  igonbSelectedId = newCell.id;
   scheduleIgonbSave();
   renderIgonbCells();
 }
@@ -1078,7 +1267,12 @@ function deleteIgonbCell(index) {
   if (!confirm("Delete this cell?")) {
     return;
   }
+  const removedId = igonbState.cells[index]?.id;
   igonbState.cells.splice(index, 1);
+  if (removedId && removedId === igonbSelectedId) {
+    const nextCell = igonbState.cells[index] || igonbState.cells[index - 1];
+    igonbSelectedId = nextCell ? nextCell.id : null;
+  }
   scheduleIgonbSave();
   renderIgonbCells();
 }
@@ -1109,6 +1303,10 @@ async function runIgonbCell(index) {
   if (!igonbState) return;
   try {
     scheduleIgonbSave();
+    const target = igonbState.cells[index];
+    if (target) {
+      setIgonbSelectedId(target.id);
+    }
     setIgonbRunning(index);
     const content = getIgonbContent();
     const results = await ExecuteIgonbCells(content, index);
@@ -1220,10 +1418,7 @@ function initIgonbEditors() {
 
     let lastHeight = 0;
     const updateHeight = () => {
-      const height = Math.min(
-        600,
-        Math.max(120, editorInstance.getContentHeight()),
-      );
+      const height = Math.max(120, editorInstance.getContentHeight());
       if (height !== lastHeight) {
         lastHeight = height;
         editorHost.style.height = `${height}px`;
@@ -1256,6 +1451,11 @@ function initIgonbEditors() {
       resizeObserver,
     });
 
+    if (cell.focus) {
+      editorInstance.focus();
+      cell.focus = false;
+    }
+
     if (cell.language === "markdown") {
       updateMarkdownPreview(container, cell.source);
     }
@@ -1281,9 +1481,21 @@ function updateIgonbCellOutput(cell) {
 
 function setIgonbRunning(upToIndex) {
   if (!igonbState) return;
+  const runnableIndices = [];
   igonbState.cells.forEach((cell, idx) => {
     const shouldRun = upToIndex < 0 ? true : idx <= upToIndex;
-    cell.running = shouldRun && cell.language !== "markdown";
+    if (shouldRun && cell.language !== "markdown") {
+      runnableIndices.push(idx);
+    }
+  });
+
+  const runningIndex = runnableIndices.length > 0 ? runnableIndices[0] : -1;
+  const runnableSet = new Set(runnableIndices);
+
+  igonbState.cells.forEach((cell, idx) => {
+    const shouldRun = runnableSet.has(idx);
+    cell.running = idx === runningIndex;
+    cell.waiting = shouldRun && idx !== runningIndex;
     updateIgonbCellRunningUI(cell);
   });
 }
@@ -1292,6 +1504,7 @@ function clearIgonbRunning() {
   if (!igonbState) return;
   igonbState.cells.forEach((cell) => {
     cell.running = false;
+    cell.waiting = false;
     updateIgonbCellRunningUI(cell);
   });
 }
@@ -1306,13 +1519,22 @@ function updateIgonbCellRunningUI(cell) {
   } else {
     container.classList.remove("running");
   }
+  if (cell.waiting) {
+    container.classList.add("waiting");
+  } else {
+    container.classList.remove("waiting");
+  }
   const status = container.querySelector(".igonb-cell-status");
   if (status) {
-    status.textContent = cell.running ? "Running..." : "";
+    status.textContent = cell.running
+      ? "Running..."
+      : cell.waiting
+        ? "Waiting..."
+        : "";
   }
   const runBtn = container.querySelector(".igonb-cell-run");
   if (runBtn) {
-    runBtn.disabled = cell.running;
+    runBtn.disabled = cell.running || cell.waiting;
   }
 }
 
@@ -3496,6 +3718,17 @@ async function initApp() {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
       e.preventDefault();
       executeCode();
+    }
+    // Ctrl/Cmd + Shift + Enter to add a new cell in igonb
+    if (
+      isIgonbView &&
+      (e.ctrlKey || e.metaKey) &&
+      e.shiftKey &&
+      e.key === "Enter"
+    ) {
+      e.preventDefault();
+      addIgonbCell(getIgonbSelectedLanguage());
+      return;
     }
     // Ctrl/Cmd + S to save current file
     if ((e.ctrlKey || e.metaKey) && e.key === "s" && !e.shiftKey) {

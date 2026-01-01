@@ -15,6 +15,9 @@
     --resizer-hover-color: #007acc;
     --igonb-editor-font-size: 14px;
     --igonb-output-font-size: 13px;
+    --igonb-cell-border: rgba(255, 255, 255, 0.08);
+    --igonb-cell-border-strong: rgba(78, 201, 176, 0.6);
+    --igonb-toolbar-bg: rgba(255, 255, 255, 0.02);
 }
 
 [data-theme="light"] {
@@ -29,6 +32,9 @@
     --title-color: #007acc;
     --resizer-color: #cccccc;
     --resizer-hover-color: #007acc;
+    --igonb-cell-border: rgba(0, 0, 0, 0.12);
+    --igonb-cell-border-strong: rgba(0, 122, 204, 0.6);
+    --igonb-toolbar-bg: rgba(0, 0, 0, 0.03);
 }
 
 * {
@@ -483,7 +489,7 @@ button.secondary.icon-only.active {
 }
 
 .igonb-cell-output {
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--igonb-cell-border);
     border-radius: 6px;
     overflow: hidden;
     background-color: var(--panel-background-color);
@@ -553,7 +559,7 @@ button.secondary.icon-only.active {
 }
 
 .igonb-cell {
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--igonb-cell-border);
     border-radius: 8px;
     background: var(--panel-background-color);
     overflow: hidden;
@@ -565,8 +571,8 @@ button.secondary.icon-only.active {
     justify-content: flex-start;
     align-items: center;
     padding: 8px 12px;
-    border-bottom: 1px solid var(--border-color);
-    background: rgba(0, 0, 0, 0.04);
+    border-bottom: 1px solid var(--igonb-cell-border);
+    background: var(--igonb-toolbar-bg);
     gap: 12px;
 }
 
@@ -590,10 +596,49 @@ button.secondary.icon-only.active {
     gap: 8px;
 }
 
+.igonb-drag-handle {
+    padding: 2px 6px;
+    min-width: 22px;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--label-text-color);
+    opacity: 0.65;
+    cursor: grab;
+}
+
+.igonb-drag-handle:hover {
+    opacity: 0.9;
+}
+
+.igonb-cell.selected {
+    border-color: var(--igonb-cell-border-strong);
+    box-shadow: 0 0 0 1px var(--igonb-cell-border-strong) inset;
+}
+
+.igonb-cell.waiting .igonb-cell-status {
+    color: var(--warning-color);
+}
+
+.igonb-cell.drag-over {
+    border-color: var(--igonb-cell-border-strong);
+}
+
+.igonb-cell.drag-over.drag-over-bottom {
+    box-shadow: inset 0 -2px 0 var(--igonb-cell-border-strong);
+}
+
+.igonb-cell.drag-over:not(.drag-over-bottom) {
+    box-shadow: inset 0 2px 0 var(--igonb-cell-border-strong);
+}
+
+body.igonb-dragging .igonb-drag-handle {
+    cursor: grabbing;
+}
+
 .igonb-cell-language {
     background: var(--panel-background-color);
     color: var(--text-color);
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--igonb-cell-border);
     border-radius: 4px;
     padding: 2px 6px;
     font-size: 11px;
@@ -601,7 +646,7 @@ button.secondary.icon-only.active {
 
 .igonb-cell-editor {
     margin: 10px 12px 0 12px;
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--igonb-cell-border);
     border-radius: 6px;
     overflow: hidden;
     background: var(--background-color);
@@ -674,7 +719,7 @@ body.igonb-mode .editor-section {
 }
 
 .igonb-cell.running .igonb-cell-status::before {
-    content: "...";
+    content: "‚óè";
     display: inline-block;
     margin-right: 6px;
     color: #4ec9b0;
@@ -1066,7 +1111,7 @@ button.secondary {
     background-color: #ffffff;
 }
 
-/* ANSI Ôø?? */
+/* ANSI ÔøΩ?? */
 .ansi-bold {
     font-weight: bold;
 }
@@ -1367,4 +1412,3 @@ button.secondary {
 .markdown-preview input[type="checkbox"] {
     margin-right: 6px;
 }
-

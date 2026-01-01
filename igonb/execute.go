@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/HazelnutParadise/insyra/py"
@@ -158,7 +159,8 @@ func (e *Executor) runGoCell(code string) (string, error) {
 		return "", nil
 	}
 
-	segments := splitGoSegments(code)
+	code = normalizeGoRangeLoops(code)
+	segments := expandGoSegments(splitGoSegments(code))
 	if len(segments) == 0 {
 		return "", nil
 	}
@@ -415,6 +417,207 @@ func splitGoSegments(code string) []goSegment {
 	flushImport()
 
 	return segments
+}
+
+var goRangeLoopRegex = regexp.MustCompile(`(?m)^(\s*)for\s+([A-Za-z_]\w*)\s*:=\s*range\s+([0-9]+)\s*\{`)
+
+func normalizeGoRangeLoops(code string) string {
+	return goRangeLoopRegex.ReplaceAllString(code, "$1for $2 := 0; $2 < $3; $2++ {")
+}
+
+func expandGoSegments(segments []goSegment) []goSegment {
+	if len(segments) == 0 {
+		return segments
+	}
+
+	expanded := make([]goSegment, 0, len(segments))
+	for _, segment := range segments {
+		if segment.kind != goSegmentCode {
+			expanded = append(expanded, segment)
+			continue
+		}
+		subSegments := splitGoCodeSegments(segment.text)
+		for _, sub := range subSegments {
+			expanded = append(expanded, goSegment{
+				kind: goSegmentCode,
+				text: sub,
+			})
+		}
+	}
+	return expanded
+}
+
+func splitGoCodeSegments(code string) []string {
+	lines := strings.Split(code, "\n")
+	segments := make([]string, 0)
+
+	var buf strings.Builder
+	mode := ""
+	braceDepth := 0
+	declParenDepth := 0
+	inBlockComment := false
+	inRawString := false
+
+	flush := func() {
+		text := strings.TrimRight(buf.String(), "\n")
+		if strings.TrimSpace(text) != "" {
+			segments = append(segments, text)
+		}
+		buf.Reset()
+	}
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		atTop := braceDepth == 0 && declParenDepth == 0 && !inBlockComment && !inRawString
+		if atTop && trimmed != "" && !strings.HasPrefix(trimmed, "//") {
+			if isDeclStart(trimmed) {
+				if mode != "decl" {
+					flush()
+					mode = "decl"
+				}
+			} else {
+				if mode != "stmt" {
+					flush()
+					mode = "stmt"
+				}
+			}
+		}
+
+		buf.WriteString(line)
+		buf.WriteString("\n")
+
+		braceDelta, parenDelta := scanGoLine(line, &inBlockComment, &inRawString)
+		braceDepth += braceDelta
+
+		if mode == "decl" {
+			if declParenDepth > 0 {
+				declParenDepth += parenDelta
+				if declParenDepth < 0 {
+					declParenDepth = 0
+				}
+			} else if isDeclBlockStart(trimmed) {
+				declParenDepth = parenDelta
+				if declParenDepth < 0 {
+					declParenDepth = 0
+				}
+			}
+		}
+	}
+
+	flush()
+	return segments
+}
+
+func scanGoLine(line string, inBlockComment *bool, inRawString *bool) (int, int) {
+	braceDelta := 0
+	parenDelta := 0
+	inString := false
+	inRune := false
+
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		next := byte(0)
+		if i+1 < len(line) {
+			next = line[i+1]
+		}
+
+		if *inBlockComment {
+			if c == '*' && next == '/' {
+				*inBlockComment = false
+				i++
+			}
+			continue
+		}
+		if *inRawString {
+			if c == '`' {
+				*inRawString = false
+			}
+			continue
+		}
+		if inString {
+			if c == '\\' {
+				i++
+				continue
+			}
+			if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		if inRune {
+			if c == '\\' {
+				i++
+				continue
+			}
+			if c == '\'' {
+				inRune = false
+			}
+			continue
+		}
+
+		if c == '/' && next == '*' {
+			*inBlockComment = true
+			i++
+			continue
+		}
+		if c == '/' && next == '/' {
+			break
+		}
+		if c == '`' {
+			*inRawString = true
+			continue
+		}
+		if c == '"' {
+			inString = true
+			continue
+		}
+		if c == '\'' {
+			inRune = true
+			continue
+		}
+
+		switch c {
+		case '{':
+			braceDelta++
+		case '}':
+			braceDelta--
+		case '(':
+			parenDelta++
+		case ')':
+			parenDelta--
+		}
+	}
+
+	return braceDelta, parenDelta
+}
+
+func isDeclStart(trimmed string) bool {
+	return isDeclKeyword(trimmed, "func") ||
+		isDeclKeyword(trimmed, "type") ||
+		isDeclKeyword(trimmed, "var") ||
+		isDeclKeyword(trimmed, "const") ||
+		isDeclKeyword(trimmed, "import")
+}
+
+func isDeclKeyword(trimmed, keyword string) bool {
+	if !strings.HasPrefix(trimmed, keyword) {
+		return false
+	}
+	if len(trimmed) == len(keyword) {
+		return true
+	}
+	next := trimmed[len(keyword)]
+	return next == ' ' || next == '\t' || next == '('
+}
+
+func isDeclBlockStart(trimmed string) bool {
+	for _, keyword := range []string{"var", "const", "type", "import"} {
+		if isDeclKeyword(trimmed, keyword) {
+			after := strings.TrimSpace(trimmed[len(keyword):])
+			return strings.HasPrefix(after, "(")
+		}
+	}
+	return false
 }
 
 func isImportLine(trimmed string) bool {
