@@ -166,7 +166,7 @@ func refreshWorkspaceFromDiskLocked() {
 		if err != nil {
 			return nil
 		}
-		if isHiddenPath(relPath) {
+		if isHiddenPath(relPath, d.IsDir()) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -948,7 +948,7 @@ func (a *App) OpenWorkspace() (string, error) {
 		if err != nil {
 			return nil
 		}
-		if isHiddenPath(relPath) {
+		if isHiddenPath(relPath, d.IsDir()) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -1583,11 +1583,14 @@ func cleanOptionalRelativePath(input string) (string, error) {
 	return cleanRelativePath(clean)
 }
 
-func isHiddenPath(relPath string) bool {
+func isHiddenPath(relPath string, isDir bool) bool {
 	clean := filepath.Clean(relPath)
 	for _, part := range strings.Split(clean, string(os.PathSeparator)) {
 		if strings.HasPrefix(part, ".") {
-			return true
+			// Allow dotfiles but keep hidden directories (and anything under them) out of the list.
+			if isDir || part != filepath.Base(clean) {
+				return true
+			}
 		}
 	}
 	return false
