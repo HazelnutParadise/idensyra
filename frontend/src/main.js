@@ -69,6 +69,9 @@ let isIgonbView = false;
 let igonbState = null;
 let igonbSaveTimer = null;
 let igonbRenderToken = 0;
+let igonbIdCounter = 0;
+const igonbEditors = new Map();
+let igonbOutputMode = "full";
 const expandedDirs = new Set();
 let selectedFolderPath = "";
 let isRootFolderSelected = false;
@@ -759,6 +762,9 @@ function ensureIgonbContainer() {
         <button class="secondary" id="igonb-add-md"><i class="fas fa-plus"></i> Markdown</button>
       </div>
       <div class="igonb-toolbar-right">
+        <button class="secondary" id="igonb-toggle-output" title="Toggle output height">
+          <i class="fas fa-align-left"></i> Scroll Output
+        </button>
         <button class="success" id="igonb-run-all"><i class="fas fa-play"></i> Run All</button>
       </div>
     </div>
@@ -777,6 +783,9 @@ function ensureIgonbContainer() {
   container
     .querySelector("#igonb-run-all")
     .addEventListener("click", () => runIgonbAll());
+  container
+    .querySelector("#igonb-toggle-output")
+    .addEventListener("click", () => toggleIgonbOutputMode());
 
   return container;
 }
@@ -793,6 +802,7 @@ function showIgonbNotebook(content, filename) {
   }
 
   igonbState = parsed;
+  disposeIgonbEditors();
   ensureIgonbContainer();
 
   clearPreviewIfNeeded();
@@ -806,6 +816,9 @@ function showIgonbNotebook(content, filename) {
   const container = document.getElementById("igonb-container");
   container.style.display = "flex";
   isIgonbView = true;
+  document.body.classList.add("igonb-mode");
+  applyIgonbOutputMode();
+  applyIgonbFontSizes();
 
   renderIgonbCells();
   setResultOutput(
@@ -822,9 +835,36 @@ function hideIgonbNotebook() {
   editorContainer.style.display = "block";
   isIgonbView = false;
   igonbState = null;
+  document.body.classList.remove("igonb-mode");
   if (igonbSaveTimer) {
     clearTimeout(igonbSaveTimer);
     igonbSaveTimer = null;
+  }
+  disposeIgonbEditors();
+}
+
+function toggleIgonbOutputMode() {
+  igonbOutputMode = igonbOutputMode === "scroll" ? "full" : "scroll";
+  applyIgonbOutputMode();
+}
+
+function applyIgonbOutputMode() {
+  const container = document.getElementById("igonb-container");
+  if (!container) return;
+  const toggleButton = container.querySelector("#igonb-toggle-output");
+  if (igonbOutputMode === "scroll") {
+    container.classList.add("igonb-output-scroll");
+    if (toggleButton) {
+      toggleButton.innerHTML = '<i class="fas fa-align-left"></i> Full Output';
+      toggleButton.title = "Show full output";
+    }
+  } else {
+    container.classList.remove("igonb-output-scroll");
+    if (toggleButton) {
+      toggleButton.innerHTML =
+        '<i class="fas fa-align-left"></i> Scroll Output';
+      toggleButton.title = "Limit output height with scrolling";
+    }
   }
 }
 
@@ -837,16 +877,24 @@ function parseIgonbContent(content) {
     return {
       version: data.version || 1,
       cells: cells.map((cell) => ({
+        id: cell.id || nextIgonbId(),
         language: normalizeIgonbLanguage(cell.language),
         source: cell.source || "",
         output: "",
         error: "",
+        running: false,
+        editing: false,
       })),
     };
   } catch (err) {
     console.error("Failed to parse igonb:", err);
     return null;
   }
+}
+
+function nextIgonbId() {
+  igonbIdCounter += 1;
+  return `igonb-${igonbIdCounter}`;
 }
 
 function normalizeIgonbLanguage(language) {
@@ -870,10 +918,16 @@ function renderIgonbCells() {
   const cellList = document.getElementById("igonb-cells");
   if (!cellList || !igonbState) return;
 
+  disposeIgonbEditors();
   cellList.innerHTML = "";
   igonbState.cells.forEach((cell, index) => {
     if (renderToken !== igonbRenderToken) return;
     cellList.appendChild(createIgonbCellElement(cell, index));
+  });
+
+  requestAnimationFrame(() => {
+    if (renderToken !== igonbRenderToken) return;
+    initIgonbEditors();
   });
 }
 
@@ -881,13 +935,28 @@ function createIgonbCellElement(cell, index) {
   const container = document.createElement("div");
   container.className = "igonb-cell";
   container.dataset.index = index;
+  container.dataset.cellId = cell.id;
+  container.dataset.language = cell.language;
+  if (cell.language === "markdown") {
+    container.classList.add("markdown");
+  }
+  if (cell.editing) {
+    container.classList.add("editing");
+  }
+  if (cell.running) {
+    container.classList.add("running");
+  }
 
   const toolbar = document.createElement("div");
   toolbar.className = "igonb-cell-toolbar";
 
   const title = document.createElement("div");
   title.className = "igonb-cell-title";
-  title.textContent = `${cell.language.toUpperCase()} CELL`;
+  title.textContent = `Cell ${index + 1} • ${cell.language.toUpperCase()}`;
+
+  const status = document.createElement("div");
+  status.className = "igonb-cell-status";
+  status.textContent = cell.running ? "Running..." : "";
 
   const actionGroup = document.createElement("div");
   actionGroup.className = "igonb-cell-actions";
@@ -908,15 +977,29 @@ function createIgonbCellElement(cell, index) {
     cell.language = languageSelect.value;
     cell.output = "";
     cell.error = "";
+    cell.running = false;
+    cell.editing = false;
     scheduleIgonbSave();
     renderIgonbCells();
   });
 
   actionGroup.appendChild(languageSelect);
 
-  if (cell.language !== "markdown") {
+  if (cell.language === "markdown") {
+    const toggleBtn = document.createElement("button");
+    toggleBtn.className = "secondary igonb-md-toggle";
+    toggleBtn.innerHTML = cell.editing
+      ? '<i class="fas fa-eye"></i> Preview'
+      : '<i class="fas fa-pen"></i> Edit';
+    toggleBtn.addEventListener("click", () => {
+      cell.editing = !cell.editing;
+      renderIgonbCells();
+    });
+    actionGroup.appendChild(toggleBtn);
+  } else {
     const runBtn = document.createElement("button");
-    runBtn.className = "secondary";
+    runBtn.className = "secondary igonb-cell-run";
+    runBtn.disabled = cell.running;
     runBtn.innerHTML = '<i class="fas fa-play"></i> Run';
     runBtn.addEventListener("click", () => runIgonbCell(index));
     actionGroup.appendChild(runBtn);
@@ -929,24 +1012,11 @@ function createIgonbCellElement(cell, index) {
   actionGroup.appendChild(deleteBtn);
 
   toolbar.appendChild(title);
+  toolbar.appendChild(status);
   toolbar.appendChild(actionGroup);
 
   const editorWrap = document.createElement("div");
   editorWrap.className = "igonb-cell-editor";
-
-  const editorInput = document.createElement("textarea");
-  editorInput.className = "igonb-cell-input";
-  editorInput.value = cell.source;
-  editorInput.rows = Math.max(3, cell.source.split("\n").length);
-  editorInput.addEventListener("input", () => {
-    cell.source = editorInput.value;
-    editorInput.rows = Math.max(3, editorInput.value.split("\n").length);
-    scheduleIgonbSave();
-    if (cell.language === "markdown") {
-      updateMarkdownPreview(container, cell.source);
-    }
-  });
-  editorWrap.appendChild(editorInput);
 
   container.appendChild(toolbar);
   container.appendChild(editorWrap);
@@ -955,6 +1025,12 @@ function createIgonbCellElement(cell, index) {
     const preview = document.createElement("div");
     preview.className = "igonb-markdown-preview";
     preview.innerHTML = renderMarkdown(cell.source);
+    preview.addEventListener("click", () => {
+      if (!cell.editing) {
+        cell.editing = true;
+        renderIgonbCells();
+      }
+    });
     container.appendChild(preview);
   } else {
     const output = document.createElement("div");
@@ -981,10 +1057,13 @@ function updateMarkdownPreview(container, source) {
 function addIgonbCell(language) {
   if (!igonbState) return;
   igonbState.cells.push({
+    id: nextIgonbId(),
     language: language,
     source: "",
     output: "",
     error: "",
+    running: false,
+    editing: language === "markdown",
   });
   scheduleIgonbSave();
   renderIgonbCells();
@@ -994,6 +1073,9 @@ function deleteIgonbCell(index) {
   if (!igonbState) return;
   if (igonbState.cells.length <= 1) {
     showMessage("Cannot delete the last cell", "warning");
+    return;
+  }
+  if (!confirm("Delete this cell?")) {
     return;
   }
   igonbState.cells.splice(index, 1);
@@ -1027,10 +1109,12 @@ async function runIgonbCell(index) {
   if (!igonbState) return;
   try {
     scheduleIgonbSave();
+    setIgonbRunning(index);
     const content = getIgonbContent();
     const results = await ExecuteIgonbCells(content, index);
     applyIgonbResults(results);
   } catch (error) {
+    clearIgonbRunning();
     showMessage("Failed to execute cell: " + error, "error");
   }
 }
@@ -1039,10 +1123,12 @@ async function runIgonbAll() {
   if (!igonbState) return;
   try {
     scheduleIgonbSave();
+    setIgonbRunning(-1);
     const content = getIgonbContent();
     const results = await ExecuteIgonbCells(content, -1);
     applyIgonbResults(results);
   } catch (error) {
+    clearIgonbRunning();
     showMessage("Failed to execute notebook: " + error, "error");
   }
 }
@@ -1055,13 +1141,178 @@ function applyIgonbResults(results) {
     if (idx < 0 || idx >= igonbState.cells.length) return;
     igonbState.cells[idx].output = result.output || "";
     igonbState.cells[idx].error = result.error || "";
+    igonbState.cells[idx].running = false;
     if (result.error) {
       hadError = true;
     }
+    updateIgonbCellOutput(igonbState.cells[idx]);
   });
-  renderIgonbCells();
+  clearIgonbRunning();
   if (hadError) {
     showMessage("Notebook execution stopped due to an error", "error");
+  }
+}
+
+function disposeIgonbEditors() {
+  igonbEditors.forEach((entry) => {
+    if (entry.resizeObserver) {
+      entry.resizeObserver.disconnect();
+    }
+    if (entry.editor) {
+      entry.editor.dispose();
+    }
+    if (entry.model && !entry.model.isDisposed()) {
+      entry.model.dispose();
+    }
+  });
+  igonbEditors.clear();
+}
+
+function getIgonbMonacoLanguage(language) {
+  switch (language) {
+    case "python":
+      return "python";
+    case "markdown":
+      return "markdown";
+    default:
+      return "go";
+  }
+}
+
+function initIgonbEditors() {
+  if (!igonbState) return;
+  const theme = document.body.getAttribute("data-theme") || "dark";
+
+  igonbState.cells.forEach((cell) => {
+    const container = document.querySelector(
+      `.igonb-cell[data-cell-id="${cell.id}"]`,
+    );
+    if (!container) return;
+    const editorHost = container.querySelector(".igonb-cell-editor");
+    if (!editorHost) return;
+
+    const uri = monaco.Uri.parse(
+      `inmemory://igonb/${encodeURIComponent(cell.id)}`,
+    );
+    let model = monaco.editor.getModel(uri);
+    if (model) {
+      model.dispose();
+    }
+    model = monaco.editor.createModel(
+      cell.source,
+      getIgonbMonacoLanguage(cell.language),
+      uri,
+    );
+
+    const editorInstance = monaco.editor.create(editorHost, {
+      model,
+      theme: theme === "light" ? "vs-light" : "vs-dark",
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      lineNumbers: "on",
+      glyphMargin: false,
+      folding: true,
+      wordWrap: "on",
+      fontSize: editorFontSize,
+      automaticLayout: true,
+      overviewRulerLanes: 0,
+    });
+
+    let lastHeight = 0;
+    const updateHeight = () => {
+      const height = Math.min(
+        600,
+        Math.max(120, editorInstance.getContentHeight()),
+      );
+      if (height !== lastHeight) {
+        lastHeight = height;
+        editorHost.style.height = `${height}px`;
+      }
+      editorInstance.layout();
+    };
+    const scheduleHeight = () => requestAnimationFrame(updateHeight);
+    updateHeight();
+
+    editorInstance.onDidContentSizeChange(scheduleHeight);
+    let resizeObserver = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        scheduleHeight();
+      });
+      resizeObserver.observe(editorHost);
+    }
+    editorInstance.onDidChangeModelContent(() => {
+      cell.source = model.getValue();
+      scheduleIgonbSave();
+      if (cell.language === "markdown") {
+        updateMarkdownPreview(container, cell.source);
+      }
+    });
+
+    igonbEditors.set(cell.id, {
+      editor: editorInstance,
+      model,
+      updateHeight,
+      resizeObserver,
+    });
+
+    if (cell.language === "markdown") {
+      updateMarkdownPreview(container, cell.source);
+    }
+  });
+}
+
+function updateIgonbCellOutput(cell) {
+  const container = document.querySelector(
+    `.igonb-cell[data-cell-id="${cell.id}"]`,
+  );
+  if (!container) return;
+  if (cell.language === "markdown") return;
+
+  const output = container.querySelector(".igonb-cell-output");
+  if (!output) return;
+  output.innerHTML = cell.output
+    ? cell.output
+    : '<div class="igonb-empty-output">No output</div>';
+  if (cell.error) {
+    output.innerHTML += `<div class="igonb-error-output">${escapeHtml(cell.error)}</div>`;
+  }
+}
+
+function setIgonbRunning(upToIndex) {
+  if (!igonbState) return;
+  igonbState.cells.forEach((cell, idx) => {
+    const shouldRun = upToIndex < 0 ? true : idx <= upToIndex;
+    cell.running = shouldRun && cell.language !== "markdown";
+    updateIgonbCellRunningUI(cell);
+  });
+}
+
+function clearIgonbRunning() {
+  if (!igonbState) return;
+  igonbState.cells.forEach((cell) => {
+    cell.running = false;
+    updateIgonbCellRunningUI(cell);
+  });
+}
+
+function updateIgonbCellRunningUI(cell) {
+  const container = document.querySelector(
+    `.igonb-cell[data-cell-id="${cell.id}"]`,
+  );
+  if (!container) return;
+  if (cell.running) {
+    container.classList.add("running");
+  } else {
+    container.classList.remove("running");
+  }
+  const status = container.querySelector(".igonb-cell-status");
+  if (status) {
+    status.textContent = cell.running ? "Running..." : "";
+  }
+  const runBtn = container.querySelector(".igonb-cell-run");
+  if (runBtn) {
+    runBtn.disabled = cell.running;
   }
 }
 
@@ -1080,7 +1331,7 @@ async function initMonacoEditor(theme = "dark") {
     language: "go",
     theme: theme === "light" ? "vs-light" : "vs-dark",
     automaticLayout: true,
-    fontSize: 14,
+    fontSize: editorFontSize,
     minimap: { enabled: minimapEnabled },
     scrollBeyondLastLine: false,
     wordWrap: wordWrapEnabled ? "on" : "off",
@@ -2862,11 +3113,37 @@ async function importFileToWorkspace() {
 
 // Note: beforeunload removed to allow proper window closing in Wails
 
+function applyIgonbFontSizes() {
+  document.documentElement.style.setProperty(
+    "--igonb-editor-font-size",
+    `${editorFontSize}px`,
+  );
+  document.documentElement.style.setProperty(
+    "--igonb-output-font-size",
+    `${outputFontSize}px`,
+  );
+
+  if (!igonbEditors.size) {
+    return;
+  }
+
+  igonbEditors.forEach((entry) => {
+    if (!entry.editor) return;
+    entry.editor.updateOptions({ fontSize: editorFontSize });
+    if (entry.updateHeight) {
+      entry.updateHeight();
+    } else {
+      entry.editor.layout();
+    }
+  });
+}
+
 // Change editor font size
 function changeEditorFontSize(delta) {
   editorFontSize = Math.max(8, Math.min(32, editorFontSize + delta));
   editor.updateOptions({ fontSize: editorFontSize });
   document.getElementById("editor-font-size").textContent = editorFontSize;
+  applyIgonbFontSizes();
 }
 
 // Change output font size
@@ -2875,6 +3152,7 @@ function changeOutputFontSize(delta) {
   const resultContainer = document.querySelector(".result-container");
   resultContainer.style.fontSize = outputFontSize + "px";
   document.getElementById("output-font-size").textContent = outputFontSize;
+  applyIgonbFontSizes();
 }
 
 // Initialize resizer
@@ -3125,6 +3403,7 @@ async function initApp() {
   // Apply initial output font size
   const resultContainer = document.querySelector(".result-container");
   resultContainer.style.fontSize = outputFontSize + "px";
+  applyIgonbFontSizes();
 
   // Setup event listeners
   document.getElementById("run-btn").addEventListener("click", executeCode);

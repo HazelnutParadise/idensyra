@@ -59,3 +59,5 @@ lingo.txt
 # Temporary files
 tmp/
 temp/
+
+.insyra_env/

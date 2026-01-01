@@ -2,6 +2,8 @@ package igonb
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -21,11 +23,9 @@ type CellResult struct {
 }
 
 type Executor struct {
-	goInterp        *interp.Interpreter
-	goOutput        bytes.Buffer
-	goOutputOffset  int
-	pythonImports   []string
-	pythonImportSet map[string]struct{}
+	goInterp       *interp.Interpreter
+	goOutput       bytes.Buffer
+	goOutputOffset int
 }
 
 type GoSetupFunc func(*interp.Interpreter) error
@@ -41,10 +41,7 @@ const (
 )
 
 func NewExecutor(goSetup GoSetupFunc) (*Executor, error) {
-	exec := &Executor{
-		pythonImports:   make([]string, 0),
-		pythonImportSet: make(map[string]struct{}),
-	}
+	exec := &Executor{}
 
 	exec.goInterp = interp.New(interp.Options{
 		Stdout: &exec.goOutput,
@@ -74,42 +71,70 @@ func NewExecutorWithSymbols(symbols map[string]map[string]reflect.Value) (*Execu
 
 func (e *Executor) RunNotebook(nb *Notebook) ([]CellResult, error) {
 	results := make([]CellResult, 0, len(nb.Cells))
+	pythonHandled := make([]bool, len(nb.Cells))
 
-	for idx, cell := range nb.Cells {
-		lang := NormalizeLanguage(cell.Language)
-		result := CellResult{
-			Index:    idx,
-			Language: lang,
+	for idx := 0; idx < len(nb.Cells); idx++ {
+		if pythonHandled[idx] {
+			continue
 		}
+		cell := nb.Cells[idx]
+		lang := NormalizeLanguage(cell.Language)
 
 		switch lang {
 		case "markdown":
-			result.Output = ""
-			results = append(results, result)
-			continue
+			results = append(results, CellResult{
+				Index:    idx,
+				Language: lang,
+				Output:   "",
+			})
 		case "go":
 			output, err := e.runGoCell(cell.Source)
-			result.Output = output
+			result := CellResult{
+				Index:    idx,
+				Language: lang,
+				Output:   output,
+			}
 			if err != nil {
 				result.Error = err.Error()
 				results = append(results, result)
 				return results, err
 			}
+			results = append(results, result)
 		case "python":
-			output, err := e.runPythonCell(cell.Source)
-			result.Output = output
+			group := make([]Cell, 0)
+			groupIndices := make([]int, 0)
+			for scan := idx; scan < len(nb.Cells); scan++ {
+				scanLang := NormalizeLanguage(nb.Cells[scan].Language)
+				if scanLang == "python" {
+					group = append(group, nb.Cells[scan])
+					groupIndices = append(groupIndices, scan)
+					pythonHandled[scan] = true
+					continue
+				}
+				if scanLang == "markdown" {
+					continue
+				}
+				break
+			}
+
+			if len(group) == 0 {
+				break
+			}
+
+			groupResults, err := e.runPythonGroup(group, groupIndices)
+			results = append(results, groupResults...)
 			if err != nil {
-				result.Error = err.Error()
-				results = append(results, result)
 				return results, err
 			}
 		default:
-			result.Error = fmt.Sprintf("unsupported language: %s", cell.Language)
+			result := CellResult{
+				Index:    idx,
+				Language: lang,
+				Error:    fmt.Sprintf("unsupported language: %s", cell.Language),
+			}
 			results = append(results, result)
 			return results, fmt.Errorf(result.Error)
 		}
-
-		results = append(results, result)
 	}
 
 	return results, nil
@@ -160,11 +185,9 @@ func (e *Executor) runPythonCell(code string) (string, error) {
 		return "", nil
 	}
 
-	script := buildPythonScript(e.pythonImports, code)
 	pipeOutput, err := captureStdIO(func() error {
-		return py.RunCode(nil, script)
+		return py.RunCode(nil, code)
 	})
-	e.mergePythonImports(code)
 	return pipeOutput, err
 }
 
@@ -189,22 +212,6 @@ func buildPythonScript(imports []string, body string) string {
 		return body
 	}
 	return strings.Join(imports, "\n") + "\n" + body
-}
-
-func (e *Executor) mergePythonImports(code string) {
-	for _, line := range strings.Split(code, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "import ") || strings.HasPrefix(trimmed, "from ") {
-			if _, exists := e.pythonImportSet[trimmed]; exists {
-				continue
-			}
-			e.pythonImportSet[trimmed] = struct{}{}
-			e.pythonImports = append(e.pythonImports, trimmed)
-		}
-	}
 }
 
 func captureStdIO(run func() error) (string, error) {
@@ -233,6 +240,114 @@ func captureStdIO(run func() error) (string, error) {
 
 	pipeOutput := <-outputChan
 	return pipeOutput, runErr
+}
+
+type pythonCellOutput struct {
+	Index  int    `json:"index"`
+	Output string `json:"output"`
+	Error  string `json:"error"`
+}
+
+const pythonOutputMarker = "__IGONB__"
+
+func (e *Executor) runPythonGroup(cells []Cell, indices []int) ([]CellResult, error) {
+	if len(cells) == 0 {
+		return nil, nil
+	}
+	if len(indices) != len(cells) {
+		return nil, fmt.Errorf("python group index mismatch")
+	}
+	codes := make([]string, 0, len(cells))
+	for _, cell := range cells {
+		codes = append(codes, cell.Source)
+	}
+
+	script, err := buildPythonGroupScript(codes)
+	if err != nil {
+		return nil, err
+	}
+
+	rawOutput, runErr := captureStdIO(func() error {
+		return py.RunCode(nil, script)
+	})
+	if runErr != nil {
+		return []CellResult{
+			{
+				Index:    indices[0],
+				Language: "python",
+				Error:    runErr.Error(),
+			},
+		}, runErr
+	}
+
+	parsed, err := parsePythonGroupOutput(rawOutput)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]CellResult, 0, len(parsed))
+	for _, entry := range parsed {
+		if entry.Index < 0 || entry.Index >= len(indices) {
+			return results, fmt.Errorf("python output index out of range")
+		}
+		actualIndex := indices[entry.Index]
+		result := CellResult{
+			Index:    actualIndex,
+			Language: "python",
+			Output:   entry.Output,
+			Error:    entry.Error,
+		}
+		results = append(results, result)
+		if entry.Error != "" {
+			return results, fmt.Errorf(entry.Error)
+		}
+	}
+
+	return results, nil
+}
+
+func buildPythonGroupScript(codes []string) (string, error) {
+	payload, err := json.Marshal(codes)
+	if err != nil {
+		return "", err
+	}
+	encoded := base64.StdEncoding.EncodeToString(payload)
+	script := fmt.Sprintf(`
+import base64, json, sys, io, contextlib, traceback
+_cells = json.loads(base64.b64decode("%s").decode("utf-8"))
+_results = []
+_globals = globals()
+for _idx, _code in enumerate(_cells):
+    _buf_out = io.StringIO()
+    _buf_err = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(_buf_out), contextlib.redirect_stderr(_buf_err):
+            exec(_code, _globals)
+        _results.append({"index": _idx, "output": _buf_out.getvalue() + _buf_err.getvalue(), "error": ""})
+    except Exception:
+        _results.append({"index": _idx, "output": _buf_out.getvalue() + _buf_err.getvalue(), "error": traceback.format_exc()})
+        break
+print("%s" + json.dumps(_results))
+`, encoded, pythonOutputMarker)
+	return script, nil
+}
+
+func parsePythonGroupOutput(output string) ([]pythonCellOutput, error) {
+	index := strings.LastIndex(output, pythonOutputMarker)
+	if index == -1 {
+		return nil, fmt.Errorf("python output missing marker")
+	}
+
+	payload := strings.TrimSpace(output[index+len(pythonOutputMarker):])
+	if payload == "" {
+		return nil, fmt.Errorf("python output missing payload")
+	}
+
+	var parsed []pythonCellOutput
+	if err := json.Unmarshal([]byte(payload), &parsed); err != nil {
+		return nil, err
+	}
+	return parsed, nil
 }
 
 func splitGoSegments(code string) []goSegment {
