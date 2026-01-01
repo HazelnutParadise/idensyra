@@ -2,7 +2,9 @@
 
 **Idensyra** 是一個基於 Wails v2 的跨平台 Go 代碼編輯器與執行環境，專為 [Insyra](https://insyra.hazelnut-paradise.com) 數據科學庫設計。
 
-![Idensyra Screenshot](gui_example.png)
+![Idensyra Screenshot](ui_example.png)
+
+![Idensyra Screenshot2](ui_example2.png)
 
 ## 特性
 
