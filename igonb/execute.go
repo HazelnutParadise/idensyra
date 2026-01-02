@@ -34,6 +34,8 @@ type Executor struct {
 	sharedMu       sync.Mutex
 	sharedVars     map[string]any
 	pythonRunID    int
+	pythonState    string
+	pythonDefs     []pythonDef
 }
 
 type GoSetupFunc func(*interp.Interpreter) error
@@ -329,6 +331,8 @@ func (e *Executor) Close() error {
 	e.sharedMu.Lock()
 	e.sharedVars = make(map[string]any)
 	e.pythonRunID = 0
+	e.pythonState = ""
+	e.pythonDefs = nil
 	e.sharedMu.Unlock()
 	return nil
 }
