@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io"
@@ -1029,6 +1030,10 @@ func splitGoCodeSegments(code string) []string {
 }
 
 func splitGoTrailingExpression(code string) (string, string) {
+	if prefix, expr, ok := splitGoTrailingExpressionAST(code); ok {
+		return prefix, expr
+	}
+
 	lines := strings.Split(code, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		trimmed := strings.TrimSpace(lines[i])
@@ -1057,6 +1062,54 @@ func splitGoTrailingExpression(code string) (string, string) {
 		return prefix, exprPart
 	}
 	return code, ""
+}
+
+func splitGoTrailingExpressionAST(code string) (string, string, bool) {
+	if strings.TrimSpace(code) == "" {
+		return "", "", false
+	}
+
+	const prefix = "package main\nfunc _(){\n"
+	const suffix = "\n}"
+	src := prefix + code + suffix
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "snippet.go", src, parser.AllErrors)
+	if err != nil {
+		return "", "", false
+	}
+
+	var target *ast.FuncDecl
+	for _, decl := range file.Decls {
+		funcDecl, ok := decl.(*ast.FuncDecl)
+		if !ok || funcDecl.Name == nil || funcDecl.Name.Name != "_" {
+			continue
+		}
+		target = funcDecl
+		break
+	}
+	if target == nil || target.Body == nil || len(target.Body.List) == 0 {
+		return "", "", false
+	}
+
+	lastStmt := target.Body.List[len(target.Body.List)-1]
+	exprStmt, ok := lastStmt.(*ast.ExprStmt)
+	if !ok {
+		return "", "", false
+	}
+
+	start := fset.Position(exprStmt.X.Pos()).Offset - len(prefix)
+	end := fset.Position(exprStmt.X.End()).Offset - len(prefix)
+	if start < 0 || end < start || end > len(code) {
+		return "", "", false
+	}
+
+	exprText := strings.TrimSpace(code[start:end])
+	if exprText == "" {
+		return "", "", false
+	}
+	prefixText := strings.TrimRight(code[:start], " \t\r\n")
+	return prefixText, exprText, true
 }
 
 func stripGoLineComment(line string) string {
