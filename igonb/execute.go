@@ -5,11 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/HazelnutParadise/insyra/py"
 	"github.com/traefik/yaegi/interp"
@@ -27,6 +30,10 @@ type Executor struct {
 	goInterp       *interp.Interpreter
 	goOutput       bytes.Buffer
 	goOutputOffset int
+	goImports      map[string]bool
+	pythonSession  *PythonSession
+	pythonMu       sync.Mutex
+	pythonErr      error
 }
 
 type GoSetupFunc func(*interp.Interpreter) error
@@ -42,7 +49,9 @@ const (
 )
 
 func NewExecutor(goSetup GoSetupFunc) (*Executor, error) {
-	exec := &Executor{}
+	exec := &Executor{
+		goImports: make(map[string]bool),
+	}
 
 	exec.goInterp = interp.New(interp.Options{
 		Stdout: &exec.goOutput,
@@ -76,6 +85,71 @@ func (e *Executor) RunNotebook(nb *Notebook) ([]CellResult, error) {
 
 func (e *Executor) RunNotebookUpTo(nb *Notebook, index int) ([]CellResult, error) {
 	return e.RunNotebookWithCallback(nb, index, nil)
+}
+
+func (e *Executor) RunNotebookCell(nb *Notebook, index int) ([]CellResult, error) {
+	return e.RunNotebookCellWithCallback(nb, index, nil)
+}
+
+func (e *Executor) RunNotebookCellWithCallback(nb *Notebook, index int, onResult func(CellResult)) ([]CellResult, error) {
+	if nb == nil {
+		return nil, fmt.Errorf("notebook is nil")
+	}
+	if index < 0 || index >= len(nb.Cells) {
+		return nil, fmt.Errorf("cell index out of range: %d", index)
+	}
+
+	emit := func(result CellResult, results []CellResult) []CellResult {
+		results = append(results, result)
+		if onResult != nil {
+			onResult(result)
+		}
+		return results
+	}
+
+	cell := nb.Cells[index]
+	lang := NormalizeLanguage(cell.Language)
+	results := make([]CellResult, 0, 1)
+
+	switch lang {
+	case "markdown":
+		results = emit(CellResult{
+			Index:    index,
+			Language: lang,
+			Output:   "",
+		}, results)
+	case "go":
+		output, err := e.runGoCell(cell.Source)
+		result := CellResult{
+			Index:    index,
+			Language: lang,
+			Output:   output,
+		}
+		if err != nil {
+			result.Error = err.Error()
+			results = emit(result, results)
+			return results, err
+		}
+		results = emit(result, results)
+	case "python":
+		groupResults, err := e.runPythonGroup([]Cell{cell}, []int{index})
+		for _, result := range groupResults {
+			results = emit(result, results)
+		}
+		if err != nil {
+			return results, err
+		}
+	default:
+		result := CellResult{
+			Index:    index,
+			Language: lang,
+			Error:    fmt.Sprintf("unsupported language: %s", cell.Language),
+		}
+		results = emit(result, results)
+		return results, fmt.Errorf(result.Error)
+	}
+
+	return results, nil
 }
 
 func (e *Executor) RunNotebookWithCallback(nb *Notebook, index int, onResult func(CellResult)) ([]CellResult, error) {
@@ -189,12 +263,27 @@ func (e *Executor) runGoCell(code string) (string, error) {
 		if strings.TrimSpace(segment.text) == "" {
 			continue
 		}
-		chunk, err := e.runGoSegment(segment.text)
+		code := segment.text
+		var newImports []string
+		var err error
+		if segment.kind == goSegmentImport {
+			code, newImports, err = e.filterGoImportSegment(segment.text)
+			if err != nil {
+				return output.String(), err
+			}
+			if strings.TrimSpace(code) == "" {
+				continue
+			}
+		}
+		chunk, err := e.runGoSegment(code)
 		if chunk != "" {
 			output.WriteString(chunk)
 		}
 		if err != nil {
 			return output.String(), err
+		}
+		if segment.kind == goSegmentImport && len(newImports) > 0 {
+			e.trackGoImports(newImports)
 		}
 	}
 
@@ -210,6 +299,26 @@ func (e *Executor) runPythonCell(code string) (string, error) {
 		return py.RunCode(nil, code)
 	})
 	return pipeOutput, err
+}
+
+func (e *Executor) ensurePythonSession() (*PythonSession, error) {
+	if e.pythonSession != nil || e.pythonErr != nil {
+		return e.pythonSession, e.pythonErr
+	}
+
+	e.pythonMu.Lock()
+	defer e.pythonMu.Unlock()
+	if e.pythonSession != nil || e.pythonErr != nil {
+		return e.pythonSession, e.pythonErr
+	}
+
+	session, err := NewPythonSession()
+	if err != nil {
+		e.pythonErr = err
+		return nil, err
+	}
+	e.pythonSession = session
+	return session, nil
 }
 
 func (e *Executor) runGoSegment(code string) (string, error) {
@@ -228,7 +337,7 @@ func (e *Executor) runGoSegment(code string) (string, error) {
 	e.goOutputOffset = len(all)
 
 	valueOutput := ""
-	if err == nil && interpOutput == "" && pipeOutput == "" && !isGoDeclarationChunk(code) {
+	if err == nil && interpOutput == "" && pipeOutput == "" && !isGoDeclarationChunk(code) && !isGoAssignmentChunk(code) {
 		valueOutput = formatGoEvalValue(evalValue)
 		if valueOutput != "" && !strings.HasSuffix(valueOutput, "\n") {
 			valueOutput += "\n"
@@ -282,6 +391,117 @@ func isGoDeclarationChunk(code string) bool {
 	}
 
 	return false
+}
+
+func isGoAssignmentChunk(code string) bool {
+	inBlockComment := false
+	inRawString := false
+	inString := false
+	inRune := false
+
+	for i := 0; i < len(code); i++ {
+		c := code[i]
+		next := byte(0)
+		if i+1 < len(code) {
+			next = code[i+1]
+		}
+
+		if inBlockComment {
+			if c == '*' && next == '/' {
+				inBlockComment = false
+				i++
+			}
+			continue
+		}
+		if inRawString {
+			if c == '`' {
+				inRawString = false
+			}
+			continue
+		}
+		if inString {
+			if c == '\\' {
+				i++
+				continue
+			}
+			if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		if inRune {
+			if c == '\\' {
+				i++
+				continue
+			}
+			if c == '\'' {
+				inRune = false
+			}
+			continue
+		}
+
+		if c == '/' && next == '*' {
+			inBlockComment = true
+			i++
+			continue
+		}
+		if c == '/' && next == '/' {
+			for i < len(code) && code[i] != '\n' {
+				i++
+			}
+			continue
+		}
+		if c == '`' {
+			inRawString = true
+			continue
+		}
+		if c == '"' {
+			inString = true
+			continue
+		}
+		if c == '\'' {
+			inRune = true
+			continue
+		}
+
+		if c == ':' && next == '=' {
+			return true
+		}
+		if next == '=' {
+			switch c {
+			case '+', '-', '*', '/', '%', '&', '|', '^':
+				return true
+			case '<', '>':
+				if previousNonSpaceByte(code, i-1) == c {
+					return true
+				}
+			}
+		}
+		if c == '=' {
+			if next == '=' {
+				continue
+			}
+			prev := previousNonSpaceByte(code, i-1)
+			if prev == 0 {
+				return true
+			}
+			if prev == '!' || prev == '<' || prev == '>' || prev == '=' || prev == ':' {
+				continue
+			}
+			return true
+		}
+	}
+
+	return false
+}
+
+func previousNonSpaceByte(code string, index int) byte {
+	for idx := index; idx >= 0; idx-- {
+		if code[idx] != ' ' && code[idx] != '\t' && code[idx] != '\n' && code[idx] != '\r' {
+			return code[idx]
+		}
+	}
+	return 0
 }
 
 func firstGoToken(line string) string {
@@ -343,53 +563,121 @@ func (e *Executor) runPythonGroup(cells []Cell, indices []int) ([]CellResult, er
 	if len(indices) != len(cells) {
 		return nil, fmt.Errorf("python group index mismatch")
 	}
-	codes := make([]string, 0, len(cells))
-	for _, cell := range cells {
-		codes = append(codes, cell.Source)
-	}
 
-	script, err := buildPythonGroupScript(codes)
+	session, err := e.ensurePythonSession()
 	if err != nil {
 		return nil, err
 	}
 
-	rawOutput, runErr := captureStdIO(func() error {
-		return py.RunCode(nil, script)
-	})
-	if runErr != nil {
-		return []CellResult{
-			{
-				Index:    indices[0],
-				Language: "python",
-				Error:    runErr.Error(),
-			},
-		}, runErr
-	}
-
-	parsed, err := parsePythonGroupOutput(rawOutput)
-	if err != nil {
-		return nil, err
-	}
-
-	results := make([]CellResult, 0, len(parsed))
-	for _, entry := range parsed {
-		if entry.Index < 0 || entry.Index >= len(indices) {
-			return results, fmt.Errorf("python output index out of range")
-		}
-		actualIndex := indices[entry.Index]
+	results := make([]CellResult, 0, len(cells))
+	for i, cell := range cells {
+		output, runErr := session.Run(cell.Source)
 		result := CellResult{
-			Index:    actualIndex,
+			Index:    indices[i],
 			Language: "python",
-			Output:   entry.Output,
-			Error:    entry.Error,
+			Output:   output,
+		}
+		if runErr != nil {
+			result.Error = runErr.Error()
+			results = append(results, result)
+			return results, runErr
 		}
 		results = append(results, result)
-		if entry.Error != "" {
-			return results, fmt.Errorf(entry.Error)
-		}
 	}
 
 	return results, nil
+}
+
+type goImportSpec struct {
+	Name string
+	Path string
+}
+
+func (e *Executor) filterGoImportSegment(code string) (string, []string, error) {
+	specs, err := parseGoImportSpecs(code)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(specs) == 0 {
+		return "", nil, nil
+	}
+
+	newSpecs := make([]goImportSpec, 0, len(specs))
+	newPaths := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		if spec.Path == "" {
+			continue
+		}
+		if e.goImports != nil && e.goImports[spec.Path] {
+			continue
+		}
+		newSpecs = append(newSpecs, spec)
+		newPaths = append(newPaths, spec.Path)
+	}
+
+	if len(newSpecs) == 0 {
+		return "", nil, nil
+	}
+	return buildGoImportSegment(newSpecs), newPaths, nil
+}
+
+func (e *Executor) trackGoImports(paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+	if e.goImports == nil {
+		e.goImports = make(map[string]bool)
+	}
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		e.goImports[path] = true
+	}
+}
+
+func parseGoImportSpecs(code string) ([]goImportSpec, error) {
+	src := "package main\n" + code + "\n"
+	file, err := parser.ParseFile(token.NewFileSet(), "imports.go", src, parser.ImportsOnly)
+	if err != nil {
+		return nil, err
+	}
+
+	specs := make([]goImportSpec, 0, len(file.Imports))
+	for _, spec := range file.Imports {
+		pathValue := strings.Trim(spec.Path.Value, "`\"")
+		name := ""
+		if spec.Name != nil {
+			name = spec.Name.Name
+		}
+		specs = append(specs, goImportSpec{Name: name, Path: pathValue})
+	}
+	return specs, nil
+}
+
+func buildGoImportSegment(specs []goImportSpec) string {
+	if len(specs) == 0 {
+		return ""
+	}
+	if len(specs) == 1 {
+		spec := specs[0]
+		if spec.Name == "" {
+			return fmt.Sprintf("import %q", spec.Path)
+		}
+		return fmt.Sprintf("import %s %q", spec.Name, spec.Path)
+	}
+
+	var builder strings.Builder
+	builder.WriteString("import (\n")
+	for _, spec := range specs {
+		if spec.Name == "" {
+			builder.WriteString(fmt.Sprintf("\t%q\n", spec.Path))
+		} else {
+			builder.WriteString(fmt.Sprintf("\t%s %q\n", spec.Name, spec.Path))
+		}
+	}
+	builder.WriteString(")")
+	return builder.String()
 }
 
 func buildPythonGroupScript(codes []string) (string, error) {

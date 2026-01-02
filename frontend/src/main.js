@@ -766,6 +766,9 @@ function ensureIgonbContainer() {
         <button class="secondary" id="igonb-add-md"><i class="fas fa-plus"></i> Markdown</button>
       </div>
       <div class="igonb-toolbar-right">
+        <button class="secondary" id="igonb-clear-output" title="Clear output from all cells">
+          <i class="fas fa-eraser"></i> Clear Output
+        </button>
         <button class="secondary" id="igonb-toggle-output" title="Toggle output height">
           <i class="fas fa-align-left"></i> Scroll Output
         </button>
@@ -784,6 +787,9 @@ function ensureIgonbContainer() {
   container
     .querySelector("#igonb-add-md")
     .addEventListener("click", () => addIgonbCell("markdown"));
+  container
+    .querySelector("#igonb-clear-output")
+    .addEventListener("click", () => clearIgonbOutputs());
   container
     .querySelector("#igonb-run-all")
     .addEventListener("click", () => runIgonbAll());
@@ -886,19 +892,33 @@ function parseIgonbContent(content) {
     const rawCells = Array.isArray(data.cells) ? data.cells : [];
     const cells =
       rawCells.length > 0 ? rawCells : [{ language: "go", source: "" }];
-    return {
-      version: data.version || 1,
-      cells: cells.map((cell) => ({
+    let maxId = igonbIdCounter;
+    const parsedCells = cells.map((cell) => {
+      if (typeof cell.id === "string") {
+        const match = cell.id.match(/^igonb-(\d+)$/);
+        if (match) {
+          maxId = Math.max(maxId, Number(match[1]));
+        }
+      }
+      return {
         id: cell.id || nextIgonbId(),
         language: normalizeIgonbLanguage(cell.language),
         source: cell.source || "",
-        output: "",
-        error: "",
+        output: typeof cell.output === "string" ? cell.output : "",
+        error: typeof cell.error === "string" ? cell.error : "",
         running: false,
         waiting: false,
-        done: false,
+        done: Boolean(
+          (typeof cell.output === "string" && cell.output) ||
+          (typeof cell.error === "string" && cell.error),
+        ),
         editing: false,
-      })),
+      };
+    });
+    igonbIdCounter = Math.max(igonbIdCounter, maxId);
+    return {
+      version: data.version || 1,
+      cells: parsedCells,
     };
   } catch (err) {
     console.error("Failed to parse igonb:", err);
@@ -1093,10 +1113,27 @@ function createIgonbCellElement(cell, index) {
   } else {
     const runBtn = document.createElement("button");
     runBtn.className = "secondary igonb-cell-run";
-    runBtn.disabled = cell.running;
+    runBtn.disabled = igonbIsExecuting || cell.running || cell.waiting;
     runBtn.innerHTML = '<i class="fas fa-play"></i> Run';
     runBtn.addEventListener("click", () => runIgonbCell(index));
     actionGroup.appendChild(runBtn);
+
+    const runUpBtn = document.createElement("button");
+    runUpBtn.className = "secondary igonb-cell-run-up";
+    runUpBtn.disabled = igonbIsExecuting || cell.running || cell.waiting;
+    runUpBtn.innerHTML = '<i class="fas fa-arrow-up"></i> Run Above';
+    runUpBtn.addEventListener("click", () => runIgonbCellWithAbove(index));
+    actionGroup.appendChild(runUpBtn);
+
+    const clearBtn = document.createElement("button");
+    clearBtn.className = "secondary icon-only igonb-cell-clear";
+    clearBtn.title = "Clear output";
+    clearBtn.innerHTML = '<i class="fas fa-eraser"></i>';
+    clearBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      clearIgonbCellOutput(index);
+    });
+    actionGroup.appendChild(clearBtn);
   }
 
   const deleteBtn = document.createElement("button");
@@ -1293,6 +1330,29 @@ function deleteIgonbCell(index) {
   renderIgonbCells();
 }
 
+function clearIgonbOutputs() {
+  if (!igonbState) return;
+  igonbState.cells.forEach((cell) => {
+    if (cell.language === "markdown") return;
+    cell.output = "";
+    cell.error = "";
+    cell.done = false;
+    updateIgonbCellOutput(cell);
+  });
+  scheduleIgonbSave();
+}
+
+function clearIgonbCellOutput(index) {
+  if (!igonbState) return;
+  const cell = igonbState.cells[index];
+  if (!cell || cell.language === "markdown") return;
+  cell.output = "";
+  cell.error = "";
+  cell.done = false;
+  updateIgonbCellOutput(cell);
+  scheduleIgonbSave();
+}
+
 function scheduleIgonbSave() {
   if (!activeFileName || !activeFileName.endsWith(".igonb")) return;
   if (!igonbState) return;
@@ -1308,14 +1368,36 @@ function getIgonbContent() {
   const payload = {
     version: igonbState ? igonbState.version || 1 : 1,
     cells: (igonbState ? igonbState.cells : []).map((cell) => ({
+      id: cell.id,
       language: cell.language,
       source: cell.source,
+      output: cell.output || "",
+      error: cell.error || "",
     })),
   };
   return JSON.stringify(payload, null, 2);
 }
 
 async function runIgonbCell(index) {
+  if (!igonbState || igonbIsExecuting) return;
+  try {
+    scheduleIgonbSave();
+    const target = igonbState.cells[index];
+    if (target) {
+      setIgonbSelectedId(target.id);
+    }
+    setIgonbRunningIndices([index]);
+    const content = getIgonbContent();
+    const encodedIndex = -index - 2;
+    const results = await ExecuteIgonbCells(content, encodedIndex);
+    applyIgonbResults(results);
+  } catch (error) {
+    finishIgonbRun();
+    showMessage("Failed to execute cell: " + error, "error");
+  }
+}
+
+async function runIgonbCellWithAbove(index) {
   if (!igonbState || igonbIsExecuting) return;
   try {
     scheduleIgonbSave();
@@ -1358,6 +1440,7 @@ function applyIgonbResult(result) {
   cell.waiting = false;
   cell.done = true;
   updateIgonbCellOutput(cell);
+  scheduleIgonbSave();
   if (cell.language === "markdown") {
     updateIgonbCellRunningUI(cell);
   }
@@ -1385,6 +1468,9 @@ function disposeIgonbEditors() {
   igonbEditors.forEach((entry) => {
     if (entry.resizeObserver) {
       entry.resizeObserver.disconnect();
+    }
+    if (entry.editorHost && entry.wheelHandler) {
+      entry.editorHost.removeEventListener("wheel", entry.wheelHandler);
     }
     if (entry.editor) {
       entry.editor.dispose();
@@ -1437,6 +1523,7 @@ function initIgonbEditors() {
       theme: theme === "light" ? "vs-light" : "vs-dark",
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
+      scrollbar: { alwaysConsumeMouseWheel: false },
       lineNumbers: "on",
       glyphMargin: false,
       folding: true,
@@ -1449,6 +1536,24 @@ function initIgonbEditors() {
     editorInstance.onDidFocusEditorText(() => {
       setIgonbSelectedId(cell.id);
     });
+
+    const wheelHandler = (event) => {
+      const cellList = document.getElementById("igonb-cells");
+      if (!cellList) return;
+      if (!event.deltaY) return;
+
+      const scrollTop = editorInstance.getScrollTop();
+      const scrollHeight = editorInstance.getScrollHeight();
+      const viewportHeight = editorInstance.getLayoutInfo().height;
+      const atTop = scrollTop <= 0;
+      const atBottom = scrollTop + viewportHeight >= scrollHeight - 1;
+
+      if ((event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom)) {
+        event.preventDefault();
+        cellList.scrollBy({ top: event.deltaY, behavior: "auto" });
+      }
+    };
+    editorHost.addEventListener("wheel", wheelHandler, { passive: false });
 
     let lastHeight = 0;
     const updateHeight = () => {
@@ -1484,6 +1589,8 @@ function initIgonbEditors() {
       model,
       updateHeight,
       resizeObserver,
+      editorHost,
+      wheelHandler,
     });
 
     if (cell.focus) {
@@ -1527,9 +1634,9 @@ function getIgonbRunnableIndices(upToIndex) {
   return runnable;
 }
 
-function setIgonbRunning(upToIndex) {
+function setIgonbRunningIndices(indices) {
   if (!igonbState) return;
-  igonbRunQueue = getIgonbRunnableIndices(upToIndex);
+  igonbRunQueue = Array.isArray(indices) ? [...indices] : [];
   igonbIsExecuting = true;
 
   igonbState.cells.forEach((cell) => {
@@ -1551,6 +1658,11 @@ function setIgonbRunning(upToIndex) {
     updateIgonbCellRunningUI(cell);
   });
   updateIgonbRunControls();
+}
+
+function setIgonbRunning(upToIndex) {
+  const indices = getIgonbRunnableIndices(upToIndex);
+  setIgonbRunningIndices(indices);
 }
 
 function clearIgonbRunning() {
@@ -1641,10 +1753,12 @@ function updateIgonbCellRunningUI(cell) {
             : "Done"
           : "";
   }
-  const runBtn = container.querySelector(".igonb-cell-run");
-  if (runBtn) {
-    runBtn.disabled = igonbIsExecuting || cell.running || cell.waiting;
-  }
+  const runButtons = container.querySelectorAll(
+    ".igonb-cell-run, .igonb-cell-run-up",
+  );
+  runButtons.forEach((button) => {
+    button.disabled = igonbIsExecuting || cell.running || cell.waiting;
+  });
 }
 
 // Initialize Monaco Editor

@@ -3,30 +3,89 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"sync"
 
 	"github.com/HazelnutParadise/idensyra/igonb"
 	"github.com/HazelnutParadise/idensyra/internal"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// ExecuteIgonbCells executes an igonb notebook up to cellIndex.
-// Use cellIndex < 0 to run all cells.
-func (a *App) ExecuteIgonbCells(content string, cellIndex int) ([]igonb.CellResult, error) {
-	nb, err := igonb.Parse([]byte(content))
-	if err != nil {
-		return nil, err
+var igonbExecutorMu sync.Mutex
+var igonbExecutors = map[string]*igonb.Executor{}
+
+type igonbRunMode int
+
+const (
+	igonbRunAll igonbRunMode = iota
+	igonbRunUpTo
+	igonbRunSingle
+)
+
+func getIgonbExecutorKey() string {
+	if globalWorkspace == nil {
+		return "default"
 	}
-	if cellIndex >= 0 && cellIndex >= len(nb.Cells) {
-		return nil, fmt.Errorf("cell index out of range: %d", cellIndex)
+	globalWorkspace.mu.RLock()
+	activeFile := globalWorkspace.activeFile
+	workDir := globalWorkspace.workDir
+	globalWorkspace.mu.RUnlock()
+
+	if activeFile == "" {
+		return "default"
+	}
+	if workDir == "" {
+		return activeFile
+	}
+	return filepath.Join(workDir, filepath.FromSlash(activeFile))
+}
+
+func getIgonbExecutor() (*igonb.Executor, error) {
+	key := getIgonbExecutorKey()
+
+	igonbExecutorMu.Lock()
+	defer igonbExecutorMu.Unlock()
+	if exec, ok := igonbExecutors[key]; ok {
+		return exec, nil
 	}
 
 	exec, err := igonb.NewExecutorWithSymbols(internal.Symbols)
 	if err != nil {
 		return nil, err
 	}
+	igonbExecutors[key] = exec
+	return exec, nil
+}
+
+// ExecuteIgonbCells executes an igonb notebook up to cellIndex.
+// Use -1 to run all cells, and use <= -2 to run a single cell (index = -cellIndex - 2).
+func (a *App) ExecuteIgonbCells(content string, cellIndex int) ([]igonb.CellResult, error) {
+	nb, err := igonb.Parse([]byte(content))
+	if err != nil {
+		return nil, err
+	}
+
+	mode := igonbRunUpTo
+	targetIndex := cellIndex
+	if cellIndex == -1 {
+		mode = igonbRunAll
+		targetIndex = -1
+	} else if cellIndex <= -2 {
+		mode = igonbRunSingle
+		targetIndex = -cellIndex - 2
+	}
+
+	if mode != igonbRunAll && (targetIndex < 0 || targetIndex >= len(nb.Cells)) {
+		return nil, fmt.Errorf("cell index out of range: %d", targetIndex)
+	}
+
+	exec, err := getIgonbExecutor()
+	if err != nil {
+		return nil, err
+	}
 
 	formattedResults := make([]igonb.CellResult, 0)
-	results, runErr := runIgonbInWorkspace(exec, nb, cellIndex, func(result igonb.CellResult) {
+	results, runErr := runIgonbInWorkspace(exec, nb, mode, targetIndex, func(result igonb.CellResult) {
 		formatted := formatIgonbResult(result)
 		formattedResults = append(formattedResults, formatted)
 		if a != nil && a.ctx != nil {
@@ -40,7 +99,7 @@ func (a *App) ExecuteIgonbCells(content string, cellIndex int) ([]igonb.CellResu
 	return formattedResults, runErr
 }
 
-func runIgonbInWorkspace(exec *igonb.Executor, nb *igonb.Notebook, cellIndex int, onResult func(igonb.CellResult)) ([]igonb.CellResult, error) {
+func runIgonbInWorkspace(exec *igonb.Executor, nb *igonb.Notebook, mode igonbRunMode, index int, onResult func(igonb.CellResult)) ([]igonb.CellResult, error) {
 	var oldWD string
 	var restoreWD bool
 	if globalWorkspace != nil {
@@ -60,10 +119,14 @@ func runIgonbInWorkspace(exec *igonb.Executor, nb *igonb.Notebook, cellIndex int
 		defer os.Chdir(oldWD)
 	}
 
-	if cellIndex >= 0 {
-		return exec.RunNotebookWithCallback(nb, cellIndex, onResult)
+	switch mode {
+	case igonbRunSingle:
+		return exec.RunNotebookCellWithCallback(nb, index, onResult)
+	case igonbRunAll:
+		return exec.RunNotebookWithCallback(nb, -1, onResult)
+	default:
+		return exec.RunNotebookWithCallback(nb, index, onResult)
 	}
-	return exec.RunNotebookWithCallback(nb, -1, onResult)
 }
 
 // ExecuteIgonb runs all cells and returns formatted results.
