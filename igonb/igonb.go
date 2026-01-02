@@ -19,6 +19,8 @@ type Cell struct {
 	ID       string `json:"id,omitempty"`
 	Language string `json:"language"`
 	Source   string `json:"source"`
+	Output   string `json:"output,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 func Parse(data []byte) (*Notebook, error) {

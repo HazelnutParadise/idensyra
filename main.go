@@ -28,7 +28,7 @@ func main() {
 		OnDomReady:       app.domReady,
 		OnBeforeClose:    app.beforeClose,
 		OnShutdown:       app.shutdown,
-		Bind: []interface{}{
+		Bind: []any{
 			app,
 		},
 	})

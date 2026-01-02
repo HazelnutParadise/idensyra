@@ -13,7 +13,7 @@
   "info": {
     "companyName": "HazelnutParadise",
     "productName": "Idensyra",
-    "productVersion": "0.2.0",
+    "productVersion": "0.2.0-pre",
     "copyright": "Copyright © 2025 HazelnutParadise",
     "comments": "Go IDE with Insyra Integration"
   }
