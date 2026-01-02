@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/HazelnutParadise/insyra"
 	"github.com/HazelnutParadise/insyra/py"
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
@@ -275,6 +276,28 @@ func (e *Executor) runGoCell(code string) (string, error) {
 				continue
 			}
 		}
+		if segment.kind == goSegmentCode {
+			prefix, expr := splitGoTrailingExpression(code)
+			if expr != "" {
+				if strings.TrimSpace(prefix) != "" {
+					chunk, err := e.runGoSegment(prefix)
+					if chunk != "" {
+						output.WriteString(chunk)
+					}
+					if err != nil {
+						return output.String(), err
+					}
+				}
+				chunk, err := e.runGoSegment(expr)
+				if chunk != "" {
+					output.WriteString(chunk)
+				}
+				if err != nil {
+					return output.String(), err
+				}
+				continue
+			}
+		}
 		chunk, err := e.runGoSegment(code)
 		if chunk != "" {
 			output.WriteString(chunk)
@@ -352,13 +375,69 @@ func (e *Executor) runGoSegment(code string) (string, error) {
 
 	valueOutput := ""
 	if err == nil && interpOutput == "" && pipeOutput == "" && !isGoDeclarationChunk(code) && !isGoAssignmentChunk(code) {
-		valueOutput = formatGoEvalValue(evalValue)
-		if valueOutput != "" && !strings.HasSuffix(valueOutput, "\n") {
-			valueOutput += "\n"
+		if showOutput, shown := autoShowGoValue(evalValue); shown {
+			valueOutput = showOutput
+		} else {
+			valueOutput = formatGoEvalValue(evalValue)
+			if valueOutput != "" && !strings.HasSuffix(valueOutput, "\n") {
+				valueOutput += "\n"
+			}
 		}
 	}
 
 	return interpOutput + pipeOutput + valueOutput, err
+}
+
+func autoShowGoValue(value reflect.Value) (string, bool) {
+	if !value.IsValid() || !value.CanInterface() {
+		return "", false
+	}
+
+	if output, ok := showIDataList(value.Interface()); ok {
+		return output, true
+	}
+	if output, ok := showIDataTable(value.Interface()); ok {
+		return output, true
+	}
+	if value.Kind() == reflect.Struct && value.CanAddr() {
+		if output, ok := showIDataList(value.Addr().Interface()); ok {
+			return output, true
+		}
+		if output, ok := showIDataTable(value.Addr().Interface()); ok {
+			return output, true
+		}
+	}
+	return "", false
+}
+
+func showIDataList(value any) (string, bool) {
+	list, ok := value.(insyra.IDataList)
+	if !ok || list == nil {
+		return "", false
+	}
+	output, err := captureStdIO(func() error {
+		list.Show()
+		return nil
+	})
+	if err != nil {
+		return "", false
+	}
+	return output, true
+}
+
+func showIDataTable(value any) (string, bool) {
+	table, ok := value.(insyra.IDataTable)
+	if !ok || table == nil {
+		return "", false
+	}
+	output, err := captureStdIO(func() error {
+		table.Show()
+		return nil
+	})
+	if err != nil {
+		return "", false
+	}
+	return output, true
 }
 
 func formatGoEvalValue(value reflect.Value) string {
@@ -905,6 +984,160 @@ func splitGoCodeSegments(code string) []string {
 
 	flush()
 	return segments
+}
+
+func splitGoTrailingExpression(code string) (string, string) {
+	lines := strings.Split(code, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" {
+			continue
+		}
+		trimmed = stripGoLineComment(trimmed)
+		if trimmed == "" {
+			continue
+		}
+		stmtPart, exprPart := splitGoLineLastSegment(trimmed)
+		if exprPart == "" {
+			return code, ""
+		}
+		if _, err := parser.ParseExpr(exprPart); err != nil {
+			return code, ""
+		}
+		prefix := strings.Join(lines[:i], "\n")
+		if stmtPart != "" {
+			if strings.TrimSpace(prefix) != "" {
+				prefix = prefix + "\n" + strings.TrimSpace(stmtPart)
+			} else {
+				prefix = strings.TrimSpace(stmtPart)
+			}
+		}
+		return prefix, exprPart
+	}
+	return code, ""
+}
+
+func stripGoLineComment(line string) string {
+	inString := false
+	inRune := false
+	inRaw := false
+
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		next := byte(0)
+		if i+1 < len(line) {
+			next = line[i+1]
+		}
+
+		if inRaw {
+			if c == '`' {
+				inRaw = false
+			}
+			continue
+		}
+		if inString {
+			if c == '\\' {
+				i++
+				continue
+			}
+			if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		if inRune {
+			if c == '\\' {
+				i++
+				continue
+			}
+			if c == '\'' {
+				inRune = false
+			}
+			continue
+		}
+
+		if c == '`' {
+			inRaw = true
+			continue
+		}
+		if c == '"' {
+			inString = true
+			continue
+		}
+		if c == '\'' {
+			inRune = true
+			continue
+		}
+		if c == '/' && next == '/' {
+			return strings.TrimSpace(line[:i])
+		}
+	}
+
+	return strings.TrimSpace(line)
+}
+
+func splitGoLineLastSegment(line string) (string, string) {
+	inString := false
+	inRune := false
+	inRaw := false
+	lastSemicolon := -1
+
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+
+		if inRaw {
+			if c == '`' {
+				inRaw = false
+			}
+			continue
+		}
+		if inString {
+			if c == '\\' {
+				i++
+				continue
+			}
+			if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		if inRune {
+			if c == '\\' {
+				i++
+				continue
+			}
+			if c == '\'' {
+				inRune = false
+			}
+			continue
+		}
+
+		if c == '`' {
+			inRaw = true
+			continue
+		}
+		if c == '"' {
+			inString = true
+			continue
+		}
+		if c == '\'' {
+			inRune = true
+			continue
+		}
+		if c == ';' {
+			lastSemicolon = i
+		}
+	}
+
+	if lastSemicolon == -1 {
+		return "", strings.TrimSpace(line)
+	}
+	stmtPart := strings.TrimSpace(line[:lastSemicolon])
+	exprPart := strings.TrimSpace(line[lastSemicolon+1:])
+	if exprPart == "" {
+		return "", ""
+	}
+	return stmtPart, exprPart
 }
 
 func scanGoLine(line string, inBlockComment *bool, inRawString *bool) (int, int) {

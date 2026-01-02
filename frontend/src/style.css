@@ -765,7 +765,14 @@ body[data-theme="light"] .igonb-cell.markdown {
 }
 
 .igonb-cell.markdown .igonb-cell-language {
-    display: none;
+    display: inline-flex;
+    opacity: 0.55;
+    transition: opacity 0.2s ease;
+}
+
+.igonb-cell.markdown:hover .igonb-cell-language,
+.igonb-cell.markdown.editing .igonb-cell-language {
+    opacity: 0.9;
 }
 
 .igonb-cell.markdown .igonb-cell-title {
