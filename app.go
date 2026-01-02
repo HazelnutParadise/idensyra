@@ -16,8 +16,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const version = "0.1.0"
-
 var preCode = `package main
 `
 var endCode = ``
@@ -80,7 +78,7 @@ func (a *App) ExecuteCodeWithColorBG(code string, colorBG string) string {
 // GetVersion returns version information
 func (a *App) GetVersion() map[string]string {
 	return map[string]string{
-		"idensyra": version,
+		"idensyra": appVersion(),
 		"insyra":   insyra.Version,
 	}
 }

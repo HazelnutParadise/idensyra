@@ -3,7 +3,7 @@
   "name": "Idensyra",
   "outputfilename": "idensyra",
   "frontend:install": "bun install",
-  "frontend:build": "bun run build",
+  "frontend:build": "bun ../scripts/sync-version.mjs && bun run build",
   "frontend:dev:watcher": "bun --bun run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
