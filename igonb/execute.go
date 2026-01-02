@@ -147,7 +147,7 @@ func (e *Executor) RunNotebookCellWithCallback(nb *Notebook, index int, onResult
 			Error:    fmt.Sprintf("unsupported language: %s", cell.Language),
 		}
 		results = emit(result, results)
-		return results, fmt.Errorf(result.Error)
+		return results, fmt.Errorf("%s", result.Error)
 	}
 
 	return results, nil
@@ -241,7 +241,7 @@ func (e *Executor) RunNotebookWithCallback(nb *Notebook, index int, onResult fun
 				Error:    fmt.Sprintf("unsupported language: %s", cell.Language),
 			}
 			emit(result)
-			return results, fmt.Errorf(result.Error)
+			return results, fmt.Errorf("%s", result.Error)
 		}
 	}
 
@@ -259,8 +259,16 @@ func (e *Executor) runGoCell(code string) (string, error) {
 		return "", nil
 	}
 
+	lastCodeIndex := -1
+	for i := len(segments) - 1; i >= 0; i-- {
+		if segments[i].kind == goSegmentCode && strings.TrimSpace(segments[i].text) != "" {
+			lastCodeIndex = i
+			break
+		}
+	}
+
 	var output strings.Builder
-	for _, segment := range segments {
+	for idx, segment := range segments {
 		if strings.TrimSpace(segment.text) == "" {
 			continue
 		}
@@ -276,11 +284,11 @@ func (e *Executor) runGoCell(code string) (string, error) {
 				continue
 			}
 		}
-		if segment.kind == goSegmentCode {
+		if segment.kind == goSegmentCode && idx == lastCodeIndex {
 			prefix, expr := splitGoTrailingExpression(code)
 			if expr != "" {
 				if strings.TrimSpace(prefix) != "" {
-					chunk, err := e.runGoSegment(prefix)
+					chunk, err := e.runGoSegment(prefix, false)
 					if chunk != "" {
 						output.WriteString(chunk)
 					}
@@ -288,7 +296,7 @@ func (e *Executor) runGoCell(code string) (string, error) {
 						return output.String(), err
 					}
 				}
-				chunk, err := e.runGoSegment(expr)
+				chunk, err := e.runGoSegment(expr, true)
 				if chunk != "" {
 					output.WriteString(chunk)
 				}
@@ -298,7 +306,7 @@ func (e *Executor) runGoCell(code string) (string, error) {
 				continue
 			}
 		}
-		chunk, err := e.runGoSegment(code)
+		chunk, err := e.runGoSegment(code, false)
 		if chunk != "" {
 			output.WriteString(chunk)
 		}
@@ -358,7 +366,41 @@ func (e *Executor) Close() error {
 	return nil
 }
 
-func (e *Executor) runGoSegment(code string) (string, error) {
+func (e *Executor) PreloadGoImports(paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	newPaths := make([]string, 0, len(paths))
+	for _, path := range paths {
+		trimmed := strings.TrimSpace(path)
+		if trimmed == "" {
+			continue
+		}
+		if e.goImports != nil && e.goImports[trimmed] {
+			continue
+		}
+		newPaths = append(newPaths, trimmed)
+	}
+	if len(newPaths) == 0 {
+		return nil
+	}
+
+	specs := make([]goImportSpec, 0, len(newPaths))
+	for _, path := range newPaths {
+		specs = append(specs, goImportSpec{Path: path})
+	}
+	code := buildGoImportSegment(specs)
+	if strings.TrimSpace(code) == "" {
+		return nil
+	}
+	if _, err := e.runGoSegment(code, false); err != nil {
+		return err
+	}
+	e.trackGoImports(newPaths)
+	return nil
+}
+
+func (e *Executor) runGoSegment(code string, allowAutoOutput bool) (string, error) {
 	var evalValue reflect.Value
 	pipeOutput, err := captureStdIO(func() error {
 		value, evalErr := e.goInterp.Eval(code)
@@ -374,7 +416,7 @@ func (e *Executor) runGoSegment(code string) (string, error) {
 	e.goOutputOffset = len(all)
 
 	valueOutput := ""
-	if err == nil && interpOutput == "" && pipeOutput == "" && !isGoDeclarationChunk(code) && !isGoAssignmentChunk(code) {
+	if allowAutoOutput && err == nil && interpOutput == "" && pipeOutput == "" && !isGoDeclarationChunk(code) && !isGoAssignmentChunk(code) {
 		if showOutput, shown := autoShowGoValue(evalValue); shown {
 			valueOutput = showOutput
 		} else {

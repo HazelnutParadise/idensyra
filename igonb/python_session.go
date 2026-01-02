@@ -120,7 +120,7 @@ func (s *PythonSession) Run(code string) (string, error) {
 		return "", err
 	}
 	if resp.Error != "" {
-		return resp.Output, fmt.Errorf(resp.Error)
+		return resp.Output, fmt.Errorf("%s", resp.Error)
 	}
 	return resp.Output, nil
 }
