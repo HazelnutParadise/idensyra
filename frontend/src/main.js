@@ -1596,7 +1596,12 @@ function initIgonbEditors() {
       theme: theme === "light" ? "vs-light" : "vs-dark",
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
-      scrollbar: { alwaysConsumeMouseWheel: false },
+      scrollbar: {
+        vertical: "hidden",
+        horizontal: "hidden",
+        handleMouseWheel: false,
+        alwaysConsumeMouseWheel: false,
+      },
       lineNumbers: "on",
       glyphMargin: false,
       folding: true,

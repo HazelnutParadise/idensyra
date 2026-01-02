@@ -84,16 +84,20 @@ func (a *App) ExecuteIgonbCells(content string, cellIndex int) ([]igonb.CellResu
 		return nil, err
 	}
 
+	formatOutput := func(output string) string {
+		return internal.AnsiToHTMLWithBG(output, "dark")
+	}
+
 	formattedResults := make([]igonb.CellResult, 0)
 	results, runErr := runIgonbInWorkspace(exec, nb, mode, targetIndex, func(result igonb.CellResult) {
-		formatted := formatIgonbResult(result)
+		formatted := igonb.FormatResult(result, formatOutput)
 		formattedResults = append(formattedResults, formatted)
 		if a != nil && a.ctx != nil {
 			runtime.EventsEmit(a.ctx, "igonb:cell-result", formatted)
 		}
 	})
 	if len(formattedResults) != len(results) {
-		formattedResults = formatIgonbResults(results)
+		formattedResults = igonb.FormatResults(results, formatOutput)
 	}
 
 	return formattedResults, runErr
@@ -132,28 +136,6 @@ func runIgonbInWorkspace(exec *igonb.Executor, nb *igonb.Notebook, mode igonbRun
 // ExecuteIgonb runs all cells and returns formatted results.
 func (a *App) ExecuteIgonb(content string) ([]igonb.CellResult, error) {
 	return a.ExecuteIgonbCells(content, -1)
-}
-
-func formatIgonbResults(results []igonb.CellResult) []igonb.CellResult {
-	if len(results) == 0 {
-		return results
-	}
-	formatted := make([]igonb.CellResult, len(results))
-	for i, result := range results {
-		formatted[i] = formatIgonbResult(result)
-	}
-	return formatted
-}
-
-func formatIgonbResult(result igonb.CellResult) igonb.CellResult {
-	if result.Language == "markdown" {
-		return result
-	}
-	if result.Output == "" {
-		return result
-	}
-	result.Output = internal.AnsiToHTMLWithBG(result.Output, "dark")
-	return result
 }
 
 // ResetIgonbEnvironment clears the Go/Python execution environment for the active notebook.

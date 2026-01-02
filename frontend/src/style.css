@@ -766,19 +766,27 @@ body[data-theme="light"] .igonb-cell.markdown {
 
 .igonb-cell.markdown .igonb-cell-language {
     display: inline-flex;
-    opacity: 0.55;
+    opacity: 0;
+    pointer-events: none;
     transition: opacity 0.2s ease;
 }
 
 .igonb-cell.markdown:hover .igonb-cell-language,
 .igonb-cell.markdown.editing .igonb-cell-language {
     opacity: 0.9;
+    pointer-events: auto;
 }
 
 .igonb-cell.markdown .igonb-cell-title {
     font-weight: 500;
     letter-spacing: 0.02em;
-    opacity: 0.7;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.igonb-cell.markdown:hover .igonb-cell-title,
+.igonb-cell.markdown.editing .igonb-cell-title {
+    opacity: 0.85;
 }
 
 .igonb-cell.markdown .igonb-drag-handle {
@@ -792,6 +800,18 @@ body[data-theme="light"] .igonb-cell.markdown {
 .igonb-cell.markdown .igonb-cell-actions button {
     padding: 2px 6px;
     font-size: 10px;
+}
+
+.igonb-cell.markdown .igonb-cell-actions {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.igonb-cell.markdown:hover .igonb-cell-actions,
+.igonb-cell.markdown.editing .igonb-cell-actions {
+    opacity: 1;
+    pointer-events: auto;
 }
 
 .igonb-cell.markdown .igonb-markdown-preview {
