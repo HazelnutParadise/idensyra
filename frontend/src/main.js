@@ -74,6 +74,8 @@ const igonbEditors = new Map();
 let igonbOutputMode = "full";
 let igonbSelectedId = null;
 let igonbDragId = null;
+let igonbIsExecuting = false;
+let igonbRunQueue = [];
 const expandedDirs = new Set();
 let selectedFolderPath = "";
 let isRootFolderSelected = false;
@@ -804,6 +806,8 @@ function showIgonbNotebook(content, filename) {
   }
 
   igonbState = parsed;
+  igonbIsExecuting = false;
+  igonbRunQueue = [];
   ensureIgonbSelection();
   disposeIgonbEditors();
   ensureIgonbContainer();
@@ -822,6 +826,7 @@ function showIgonbNotebook(content, filename) {
   document.body.classList.add("igonb-mode");
   applyIgonbOutputMode();
   applyIgonbFontSizes();
+  updateIgonbRunControls();
 
   renderIgonbCells();
   setResultOutput(
@@ -840,6 +845,8 @@ function hideIgonbNotebook() {
   igonbState = null;
   igonbSelectedId = null;
   igonbDragId = null;
+  igonbIsExecuting = false;
+  igonbRunQueue = [];
   document.body.classList.remove("igonb-mode", "igonb-dragging");
   if (igonbSaveTimer) {
     clearTimeout(igonbSaveTimer);
@@ -889,6 +896,7 @@ function parseIgonbContent(content) {
         error: "",
         running: false,
         waiting: false,
+        done: false,
         editing: false,
       })),
     };
@@ -1004,6 +1012,12 @@ function createIgonbCellElement(cell, index) {
   if (cell.waiting) {
     container.classList.add("waiting");
   }
+  if (cell.done) {
+    container.classList.add("done");
+  }
+  if (cell.error) {
+    container.classList.add("error");
+  }
   if (cell.id === igonbSelectedId) {
     container.classList.add("selected");
   }
@@ -1057,6 +1071,7 @@ function createIgonbCellElement(cell, index) {
     cell.error = "";
     cell.running = false;
     cell.waiting = false;
+    cell.done = false;
     cell.editing = false;
     scheduleIgonbSave();
     renderIgonbCells();
@@ -1242,6 +1257,7 @@ function addIgonbCell(language) {
     error: "",
     running: false,
     waiting: false,
+    done: false,
     editing: language === "markdown",
     focus: true,
   };
@@ -1300,7 +1316,7 @@ function getIgonbContent() {
 }
 
 async function runIgonbCell(index) {
-  if (!igonbState) return;
+  if (!igonbState || igonbIsExecuting) return;
   try {
     scheduleIgonbSave();
     const target = igonbState.cells[index];
@@ -1312,13 +1328,13 @@ async function runIgonbCell(index) {
     const results = await ExecuteIgonbCells(content, index);
     applyIgonbResults(results);
   } catch (error) {
-    clearIgonbRunning();
+    finishIgonbRun();
     showMessage("Failed to execute cell: " + error, "error");
   }
 }
 
 async function runIgonbAll() {
-  if (!igonbState) return;
+  if (!igonbState || igonbIsExecuting) return;
   try {
     scheduleIgonbSave();
     setIgonbRunning(-1);
@@ -1326,8 +1342,27 @@ async function runIgonbAll() {
     const results = await ExecuteIgonbCells(content, -1);
     applyIgonbResults(results);
   } catch (error) {
-    clearIgonbRunning();
+    finishIgonbRun();
     showMessage("Failed to execute notebook: " + error, "error");
+  }
+}
+
+function applyIgonbResult(result) {
+  if (!result || !igonbState) return;
+  const idx = result.index;
+  if (idx < 0 || idx >= igonbState.cells.length) return;
+  const cell = igonbState.cells[idx];
+  cell.output = result.output || "";
+  cell.error = result.error || "";
+  cell.running = false;
+  cell.waiting = false;
+  cell.done = true;
+  updateIgonbCellOutput(cell);
+  if (cell.language === "markdown") {
+    updateIgonbCellRunningUI(cell);
+  }
+  if (igonbIsExecuting) {
+    advanceIgonbRunQueue(idx);
   }
 }
 
@@ -1335,17 +1370,12 @@ function applyIgonbResults(results) {
   if (!Array.isArray(results) || !igonbState) return;
   let hadError = false;
   results.forEach((result) => {
-    const idx = result.index;
-    if (idx < 0 || idx >= igonbState.cells.length) return;
-    igonbState.cells[idx].output = result.output || "";
-    igonbState.cells[idx].error = result.error || "";
-    igonbState.cells[idx].running = false;
-    if (result.error) {
+    if (result && result.error) {
       hadError = true;
     }
-    updateIgonbCellOutput(igonbState.cells[idx]);
+    applyIgonbResult(result);
   });
-  clearIgonbRunning();
+  finishIgonbRun();
   if (hadError) {
     showMessage("Notebook execution stopped due to an error", "error");
   }
@@ -1416,6 +1446,10 @@ function initIgonbEditors() {
       overviewRulerLanes: 0,
     });
 
+    editorInstance.onDidFocusEditorText(() => {
+      setIgonbSelectedId(cell.id);
+    });
+
     let lastHeight = 0;
     const updateHeight = () => {
       const height = Math.max(120, editorInstance.getContentHeight());
@@ -1438,6 +1472,7 @@ function initIgonbEditors() {
     }
     editorInstance.onDidChangeModelContent(() => {
       cell.source = model.getValue();
+      cell.done = false;
       scheduleIgonbSave();
       if (cell.language === "markdown") {
         updateMarkdownPreview(container, cell.source);
@@ -1477,27 +1512,45 @@ function updateIgonbCellOutput(cell) {
   if (cell.error) {
     output.innerHTML += `<div class="igonb-error-output">${escapeHtml(cell.error)}</div>`;
   }
+  updateIgonbCellRunningUI(cell);
+}
+
+function getIgonbRunnableIndices(upToIndex) {
+  if (!igonbState) return [];
+  const runnable = [];
+  igonbState.cells.forEach((cell, idx) => {
+    const shouldRun = upToIndex < 0 ? true : idx <= upToIndex;
+    if (shouldRun && cell.language !== "markdown") {
+      runnable.push(idx);
+    }
+  });
+  return runnable;
 }
 
 function setIgonbRunning(upToIndex) {
   if (!igonbState) return;
-  const runnableIndices = [];
-  igonbState.cells.forEach((cell, idx) => {
-    const shouldRun = upToIndex < 0 ? true : idx <= upToIndex;
-    if (shouldRun && cell.language !== "markdown") {
-      runnableIndices.push(idx);
-    }
-  });
+  igonbRunQueue = getIgonbRunnableIndices(upToIndex);
+  igonbIsExecuting = true;
 
-  const runningIndex = runnableIndices.length > 0 ? runnableIndices[0] : -1;
-  const runnableSet = new Set(runnableIndices);
-
-  igonbState.cells.forEach((cell, idx) => {
-    const shouldRun = runnableSet.has(idx);
-    cell.running = idx === runningIndex;
-    cell.waiting = shouldRun && idx !== runningIndex;
+  igonbState.cells.forEach((cell) => {
+    cell.running = false;
+    cell.waiting = false;
     updateIgonbCellRunningUI(cell);
   });
+
+  const runningIndex = igonbRunQueue.length > 0 ? igonbRunQueue[0] : -1;
+  const runnableSet = new Set(igonbRunQueue);
+
+  igonbState.cells.forEach((cell, idx) => {
+    if (!runnableSet.has(idx)) {
+      return;
+    }
+    cell.running = idx === runningIndex;
+    cell.waiting = idx !== runningIndex;
+    cell.done = false;
+    updateIgonbCellRunningUI(cell);
+  });
+  updateIgonbRunControls();
 }
 
 function clearIgonbRunning() {
@@ -1507,6 +1560,48 @@ function clearIgonbRunning() {
     cell.waiting = false;
     updateIgonbCellRunningUI(cell);
   });
+}
+
+function refreshIgonbRunQueueStatus() {
+  if (!igonbState) return;
+  if (igonbRunQueue.length === 0) return;
+  const runningIndex = igonbRunQueue[0];
+  const runnableSet = new Set(igonbRunQueue);
+  igonbState.cells.forEach((cell, idx) => {
+    if (!runnableSet.has(idx)) {
+      return;
+    }
+    cell.running = idx === runningIndex;
+    cell.waiting = idx !== runningIndex;
+    updateIgonbCellRunningUI(cell);
+  });
+}
+
+function advanceIgonbRunQueue(completedIndex) {
+  if (!igonbIsExecuting) return;
+  const queueIndex = igonbRunQueue.indexOf(completedIndex);
+  if (queueIndex !== -1) {
+    igonbRunQueue.splice(queueIndex, 1);
+  }
+  if (igonbRunQueue.length === 0) {
+    finishIgonbRun();
+    return;
+  }
+  refreshIgonbRunQueueStatus();
+}
+
+function finishIgonbRun() {
+  igonbIsExecuting = false;
+  igonbRunQueue = [];
+  clearIgonbRunning();
+  updateIgonbRunControls();
+}
+
+function updateIgonbRunControls() {
+  const runAllBtn = document.getElementById("igonb-run-all");
+  if (runAllBtn) {
+    runAllBtn.disabled = igonbIsExecuting;
+  }
 }
 
 function updateIgonbCellRunningUI(cell) {
@@ -1524,17 +1619,31 @@ function updateIgonbCellRunningUI(cell) {
   } else {
     container.classList.remove("waiting");
   }
+  if (cell.done && !cell.running && !cell.waiting) {
+    container.classList.add("done");
+  } else {
+    container.classList.remove("done");
+  }
+  if (cell.error && cell.done && !cell.running && !cell.waiting) {
+    container.classList.add("error");
+  } else {
+    container.classList.remove("error");
+  }
   const status = container.querySelector(".igonb-cell-status");
   if (status) {
     status.textContent = cell.running
       ? "Running..."
       : cell.waiting
         ? "Waiting..."
-        : "";
+        : cell.done
+          ? cell.error
+            ? "Error"
+            : "Done"
+          : "";
   }
   const runBtn = container.querySelector(".igonb-cell-run");
   if (runBtn) {
-    runBtn.disabled = cell.running || cell.waiting;
+    runBtn.disabled = igonbIsExecuting || cell.running || cell.waiting;
   }
 }
 
@@ -2883,6 +2992,53 @@ async function switchToFile(filename, force = false) {
   }
 }
 
+function getUniqueWorkspaceName(candidate) {
+  const existing = new Set(
+    (workspaceFiles || []).map((entry) => entry.name || entry.path),
+  );
+  if (!existing.has(candidate)) {
+    return candidate;
+  }
+  const parts = candidate.split("/");
+  const baseName = parts.pop() || "";
+  const folderPrefix = parts.length ? `${parts.join("/")}/` : "";
+  const dotIndex = baseName.lastIndexOf(".");
+  const stem = dotIndex > 0 ? baseName.slice(0, dotIndex) : baseName;
+  const ext = dotIndex > 0 ? baseName.slice(dotIndex) : "";
+  let counter = 1;
+  let nextName = "";
+  while (counter < 1000) {
+    nextName = `${folderPrefix}${stem}_${counter}${ext}`;
+    if (!existing.has(nextName)) {
+      return nextName;
+    }
+    counter += 1;
+  }
+  return `${folderPrefix}${stem}_${Date.now()}${ext}`;
+}
+
+async function createNewIgonb() {
+  const targetFolder = getTargetFolder();
+  const baseName = targetFolder
+    ? `${targetFolder}/notebook.igonb`
+    : "notebook.igonb";
+  const finalName = getUniqueWorkspaceName(baseName);
+
+  try {
+    await CreateNewFile(finalName);
+    const parentPath = getParentPath(finalName);
+    if (parentPath) {
+      expandedDirs.add(parentPath);
+    }
+    await loadWorkspaceFiles();
+    showMessage(`Notebook "${finalName}" created successfully`, "success");
+    await switchToFile(finalName);
+  } catch (error) {
+    console.error("Failed to create notebook:", error);
+    showMessage(`Failed to create notebook: ${error}`, "error");
+  }
+}
+
 async function createNewFile() {
   const targetFolder = getTargetFolder();
   const filename = prompt(
@@ -3488,6 +3644,9 @@ async function initApp() {
                         <button class="secondary icon-only" id="new-file-btn" title="New File (Ctrl+N)">
                             <i class="fas fa-file-circle-plus"></i>
                         </button>
+                        <button class="secondary icon-only" id="new-igonb-btn" title="New Notebook (.igonb)">
+                            <i class="fas fa-book"></i>
+                        </button>
                         <button class="secondary icon-only" id="new-folder-btn" title="New Folder">
                             <i class="fas fa-folder-plus"></i>
                         </button>
@@ -3641,6 +3800,9 @@ async function initApp() {
   document
     .getElementById("new-file-btn")
     .addEventListener("click", createNewFile);
+  document
+    .getElementById("new-igonb-btn")
+    .addEventListener("click", createNewIgonb);
   document
     .getElementById("new-folder-btn")
     .addEventListener("click", createNewFolder);
@@ -3864,6 +4026,12 @@ async function initApp() {
         }, 1000);
       }
     }
+  });
+
+  EventsOn("igonb:cell-result", (payload) => {
+    const data = Array.isArray(payload) ? payload[0] : payload;
+    if (!data || !igonbState || !isIgonbView) return;
+    applyIgonbResult(data);
   });
 
   EventsOn("import:file-progress", (payload) => {

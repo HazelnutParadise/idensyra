@@ -71,10 +71,37 @@ func NewExecutorWithSymbols(symbols map[string]map[string]reflect.Value) (*Execu
 }
 
 func (e *Executor) RunNotebook(nb *Notebook) ([]CellResult, error) {
+	return e.RunNotebookWithCallback(nb, -1, nil)
+}
+
+func (e *Executor) RunNotebookUpTo(nb *Notebook, index int) ([]CellResult, error) {
+	return e.RunNotebookWithCallback(nb, index, nil)
+}
+
+func (e *Executor) RunNotebookWithCallback(nb *Notebook, index int, onResult func(CellResult)) ([]CellResult, error) {
+	if nb == nil {
+		return nil, fmt.Errorf("notebook is nil")
+	}
+	if index >= len(nb.Cells) {
+		return nil, fmt.Errorf("cell index out of range: %d", index)
+	}
+
+	maxIndex := len(nb.Cells) - 1
+	if index >= 0 && index < maxIndex {
+		maxIndex = index
+	}
+
 	results := make([]CellResult, 0, len(nb.Cells))
 	pythonHandled := make([]bool, len(nb.Cells))
 
-	for idx := 0; idx < len(nb.Cells); idx++ {
+	emit := func(result CellResult) {
+		results = append(results, result)
+		if onResult != nil {
+			onResult(result)
+		}
+	}
+
+	for idx := 0; idx <= maxIndex; idx++ {
 		if pythonHandled[idx] {
 			continue
 		}
@@ -83,7 +110,7 @@ func (e *Executor) RunNotebook(nb *Notebook) ([]CellResult, error) {
 
 		switch lang {
 		case "markdown":
-			results = append(results, CellResult{
+			emit(CellResult{
 				Index:    idx,
 				Language: lang,
 				Output:   "",
@@ -97,14 +124,17 @@ func (e *Executor) RunNotebook(nb *Notebook) ([]CellResult, error) {
 			}
 			if err != nil {
 				result.Error = err.Error()
-				results = append(results, result)
+				emit(result)
 				return results, err
 			}
-			results = append(results, result)
+			emit(result)
 		case "python":
 			group := make([]Cell, 0)
 			groupIndices := make([]int, 0)
 			for scan := idx; scan < len(nb.Cells); scan++ {
+				if index >= 0 && scan > index {
+					break
+				}
 				scanLang := NormalizeLanguage(nb.Cells[scan].Language)
 				if scanLang == "python" {
 					group = append(group, nb.Cells[scan])
@@ -123,7 +153,9 @@ func (e *Executor) RunNotebook(nb *Notebook) ([]CellResult, error) {
 			}
 
 			groupResults, err := e.runPythonGroup(group, groupIndices)
-			results = append(results, groupResults...)
+			for _, result := range groupResults {
+				emit(result)
+			}
 			if err != nil {
 				return results, err
 			}
@@ -133,25 +165,12 @@ func (e *Executor) RunNotebook(nb *Notebook) ([]CellResult, error) {
 				Language: lang,
 				Error:    fmt.Sprintf("unsupported language: %s", cell.Language),
 			}
-			results = append(results, result)
+			emit(result)
 			return results, fmt.Errorf(result.Error)
 		}
 	}
 
 	return results, nil
-}
-
-func (e *Executor) RunNotebookUpTo(nb *Notebook, index int) ([]CellResult, error) {
-	if index < 0 {
-		return e.RunNotebook(nb)
-	}
-	if index >= len(nb.Cells) {
-		return nil, fmt.Errorf("cell index out of range: %d", index)
-	}
-
-	subset := *nb
-	subset.Cells = nb.Cells[:index+1]
-	return e.RunNotebook(&subset)
 }
 
 func (e *Executor) runGoCell(code string) (string, error) {
@@ -194,8 +213,10 @@ func (e *Executor) runPythonCell(code string) (string, error) {
 }
 
 func (e *Executor) runGoSegment(code string) (string, error) {
+	var evalValue reflect.Value
 	pipeOutput, err := captureStdIO(func() error {
-		_, evalErr := e.goInterp.Eval(code)
+		value, evalErr := e.goInterp.Eval(code)
+		evalValue = value
 		return evalErr
 	})
 
@@ -206,7 +227,70 @@ func (e *Executor) runGoSegment(code string) (string, error) {
 	}
 	e.goOutputOffset = len(all)
 
-	return interpOutput + pipeOutput, err
+	valueOutput := ""
+	if err == nil && interpOutput == "" && pipeOutput == "" && !isGoDeclarationChunk(code) {
+		valueOutput = formatGoEvalValue(evalValue)
+		if valueOutput != "" && !strings.HasSuffix(valueOutput, "\n") {
+			valueOutput += "\n"
+		}
+	}
+
+	return interpOutput + pipeOutput + valueOutput, err
+}
+
+func formatGoEvalValue(value reflect.Value) string {
+	if !value.IsValid() || !value.CanInterface() {
+		return ""
+	}
+	if value.Kind() == reflect.Func {
+		return ""
+	}
+	return fmt.Sprint(value.Interface())
+}
+
+func isGoDeclarationChunk(code string) bool {
+	lines := strings.Split(code, "\n")
+	inBlockComment := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if inBlockComment {
+			if strings.Contains(trimmed, "*/") {
+				inBlockComment = false
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "/*") {
+			if !strings.Contains(trimmed, "*/") {
+				inBlockComment = true
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+
+		switch firstGoToken(trimmed) {
+		case "func", "type", "var", "const", "import", "package":
+			return true
+		default:
+			return false
+		}
+	}
+
+	return false
+}
+
+func firstGoToken(line string) string {
+	for i, r := range line {
+		if r == ' ' || r == '\t' || r == '(' || r == '{' {
+			return line[:i]
+		}
+	}
+	return line
 }
 
 func buildPythonScript(imports []string, body string) string {
@@ -315,16 +399,29 @@ func buildPythonGroupScript(codes []string) (string, error) {
 	}
 	encoded := base64.StdEncoding.EncodeToString(payload)
 	script := fmt.Sprintf(`
-import base64, json, sys, io, contextlib, traceback
+import base64, json, sys, io, contextlib, traceback, ast
 _cells = json.loads(base64.b64decode("%s").decode("utf-8"))
 _results = []
 _globals = globals()
+def _exec_cell(_code, _globals):
+    _tree = ast.parse(_code, mode="exec")
+    if _tree.body and isinstance(_tree.body[-1], ast.Expr):
+        _last = _tree.body.pop()
+        if _tree.body:
+            _module = ast.Module(body=_tree.body, type_ignores=[])
+            exec(compile(_module, "<igonb>", "exec"), _globals)
+        _expr = ast.Expression(_last.value)
+        return eval(compile(_expr, "<igonb>", "eval"), _globals)
+    exec(_code, _globals)
+    return None
 for _idx, _code in enumerate(_cells):
     _buf_out = io.StringIO()
     _buf_err = io.StringIO()
     try:
         with contextlib.redirect_stdout(_buf_out), contextlib.redirect_stderr(_buf_err):
-            exec(_code, _globals)
+            _value = _exec_cell(_code, _globals)
+            if _value is not None:
+                print(_value)
         _results.append({"index": _idx, "output": _buf_out.getvalue() + _buf_err.getvalue(), "error": ""})
     except Exception:
         _results.append({"index": _idx, "output": _buf_out.getvalue() + _buf_err.getvalue(), "error": traceback.format_exc()})
@@ -422,7 +519,7 @@ func splitGoSegments(code string) []goSegment {
 var goRangeLoopRegex = regexp.MustCompile(`(?m)^(\s*)for\s+([A-Za-z_]\w*)\s*:=\s*range\s+([0-9]+)\s*\{`)
 
 func normalizeGoRangeLoops(code string) string {
-	return goRangeLoopRegex.ReplaceAllString(code, "$1for $2 := 0; $2 < $3; $2++ {")
+	return goRangeLoopRegex.ReplaceAllString(code, "${1}for ${2} := 0; ${2} < ${3}; ${2}++ {")
 }
 
 func expandGoSegments(segments []goSegment) []goSegment {

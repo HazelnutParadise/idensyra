@@ -15,9 +15,9 @@
     --resizer-hover-color: #007acc;
     --igonb-editor-font-size: 14px;
     --igonb-output-font-size: 13px;
-    --igonb-cell-border: rgba(255, 255, 255, 0.08);
-    --igonb-cell-border-strong: rgba(78, 201, 176, 0.6);
-    --igonb-toolbar-bg: rgba(255, 255, 255, 0.02);
+    --igonb-cell-border: rgba(255, 255, 255, 0.03);
+    --igonb-cell-border-strong: rgba(78, 201, 176, 0.4);
+    --igonb-toolbar-bg: rgba(255, 255, 255, 0.012);
 }
 
 [data-theme="light"] {
@@ -32,9 +32,9 @@
     --title-color: #007acc;
     --resizer-color: #cccccc;
     --resizer-hover-color: #007acc;
-    --igonb-cell-border: rgba(0, 0, 0, 0.12);
-    --igonb-cell-border-strong: rgba(0, 122, 204, 0.6);
-    --igonb-toolbar-bg: rgba(0, 0, 0, 0.03);
+    --igonb-cell-border: rgba(0, 0, 0, 0.06);
+    --igonb-cell-border-strong: rgba(0, 122, 204, 0.45);
+    --igonb-toolbar-bg: rgba(0, 0, 0, 0.018);
 }
 
 * {
@@ -188,6 +188,7 @@ button.secondary.icon-only.active {
     flex: 1;
     overflow: hidden;
     position: relative;
+    min-height: 0;
 }
 
 /* Workspace Sidebar */
@@ -360,6 +361,7 @@ button.secondary.icon-only.active {
     flex-direction: column;
     overflow: hidden;
     min-width: 200px;
+    min-height: 0;
 }
 
 .editor-header {
@@ -390,11 +392,16 @@ button.secondary.icon-only.active {
 .editor-container {
     flex: 1;
     overflow: hidden;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 #code-editor {
     width: 100%;
     height: 100%;
+    flex: 1;
+    min-height: 0;
 }
 
 /* Resizer */
@@ -514,9 +521,10 @@ button.secondary.icon-only.active {
 .igonb-container {
     display: none;
     flex-direction: column;
-    height: 100%;
     width: 100%;
     background: var(--background-color);
+    min-height: 0;
+    flex: 1;
 }
 
 .igonb-toolbar {
@@ -550,12 +558,13 @@ button.secondary.icon-only.active {
 
 .igonb-cells {
     flex: 1;
-    overflow-y: scroll;
+    overflow-y: auto;
     overflow-x: hidden;
-    padding: 16px;
+    padding: 12px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
+    min-height: 0;
 }
 
 .igonb-cell {
@@ -564,13 +573,14 @@ button.secondary.icon-only.active {
     background: var(--panel-background-color);
     overflow: hidden;
     transition: border-color 0.2s ease;
+    flex-shrink: 0;
 }
 
 .igonb-cell-toolbar {
     display: flex;
     justify-content: flex-start;
     align-items: center;
-    padding: 8px 12px;
+    padding: 6px 10px;
     border-bottom: 1px solid var(--igonb-cell-border);
     background: var(--igonb-toolbar-bg);
     gap: 12px;
@@ -619,6 +629,14 @@ button.secondary.icon-only.active {
     color: var(--warning-color);
 }
 
+.igonb-cell.done .igonb-cell-status {
+    color: var(--success-color);
+}
+
+.igonb-cell.error .igonb-cell-status {
+    color: var(--error-color);
+}
+
 .igonb-cell.drag-over {
     border-color: var(--igonb-cell-border-strong);
 }
@@ -645,7 +663,7 @@ body.igonb-dragging .igonb-drag-handle {
 }
 
 .igonb-cell-editor {
-    margin: 10px 12px 0 12px;
+    margin: 8px 10px 0 10px;
     border: 1px solid var(--igonb-cell-border);
     border-radius: 6px;
     overflow: hidden;
@@ -653,7 +671,7 @@ body.igonb-dragging .igonb-drag-handle {
 }
 
 .igonb-cell-output {
-    padding: 10px 12px 14px 12px;
+    padding: 8px 10px 12px 10px;
     font-family: "Consolas", "Monaco", "Courier New", monospace;
     font-size: var(--igonb-output-font-size);
     line-height: 1.5;
@@ -703,7 +721,9 @@ body.igonb-mode .editor-section {
 }
 
 .igonb-cell.markdown .igonb-cell-toolbar {
-    background: rgba(78, 201, 176, 0.12);
+    background: transparent;
+    padding: 4px 8px;
+    gap: 8px;
 }
 
 .igonb-cell.markdown .igonb-cell-editor {
@@ -712,6 +732,39 @@ body.igonb-mode .editor-section {
 
 .igonb-cell.markdown.editing .igonb-cell-editor {
     display: block;
+}
+
+.igonb-cell.markdown {
+    border-color: transparent;
+    background: transparent;
+}
+
+body[data-theme="dark"] .igonb-cell.markdown {
+    border-color: rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.01);
+}
+
+body[data-theme="light"] .igonb-cell.markdown {
+    border-color: rgba(0, 0, 0, 0.05);
+    background: rgba(0, 0, 0, 0.01);
+}
+
+.igonb-cell.markdown .igonb-cell-status {
+    display: none;
+}
+
+.igonb-cell.markdown .igonb-cell-language {
+    display: none;
+}
+
+.igonb-cell.markdown .igonb-cell-title {
+    font-weight: 500;
+}
+
+.igonb-cell.markdown .igonb-markdown-preview {
+    border-top: none;
+    background: transparent;
+    padding: 8px 8px 12px 8px;
 }
 
 .igonb-cell.running {

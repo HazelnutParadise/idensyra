@@ -6,6 +6,7 @@ import (
 
 	"github.com/HazelnutParadise/idensyra/igonb"
 	"github.com/HazelnutParadise/idensyra/internal"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ExecuteIgonbCells executes an igonb notebook up to cellIndex.
@@ -24,21 +25,22 @@ func (a *App) ExecuteIgonbCells(content string, cellIndex int) ([]igonb.CellResu
 		return nil, err
 	}
 
-	results, _ := runIgonbInWorkspace(exec, nb, cellIndex)
-	for i := range results {
-		if results[i].Language == "markdown" {
-			continue
+	formattedResults := make([]igonb.CellResult, 0)
+	results, runErr := runIgonbInWorkspace(exec, nb, cellIndex, func(result igonb.CellResult) {
+		formatted := formatIgonbResult(result)
+		formattedResults = append(formattedResults, formatted)
+		if a != nil && a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "igonb:cell-result", formatted)
 		}
-		if results[i].Output == "" {
-			continue
-		}
-		results[i].Output = internal.AnsiToHTMLWithBG(results[i].Output, "dark")
+	})
+	if len(formattedResults) != len(results) {
+		formattedResults = formatIgonbResults(results)
 	}
 
-	return results, nil
+	return formattedResults, runErr
 }
 
-func runIgonbInWorkspace(exec *igonb.Executor, nb *igonb.Notebook, cellIndex int) ([]igonb.CellResult, error) {
+func runIgonbInWorkspace(exec *igonb.Executor, nb *igonb.Notebook, cellIndex int, onResult func(igonb.CellResult)) ([]igonb.CellResult, error) {
 	var oldWD string
 	var restoreWD bool
 	if globalWorkspace != nil {
@@ -59,12 +61,34 @@ func runIgonbInWorkspace(exec *igonb.Executor, nb *igonb.Notebook, cellIndex int
 	}
 
 	if cellIndex >= 0 {
-		return exec.RunNotebookUpTo(nb, cellIndex)
+		return exec.RunNotebookWithCallback(nb, cellIndex, onResult)
 	}
-	return exec.RunNotebook(nb)
+	return exec.RunNotebookWithCallback(nb, -1, onResult)
 }
 
 // ExecuteIgonb runs all cells and returns formatted results.
 func (a *App) ExecuteIgonb(content string) ([]igonb.CellResult, error) {
 	return a.ExecuteIgonbCells(content, -1)
+}
+
+func formatIgonbResults(results []igonb.CellResult) []igonb.CellResult {
+	if len(results) == 0 {
+		return results
+	}
+	formatted := make([]igonb.CellResult, len(results))
+	for i, result := range results {
+		formatted[i] = formatIgonbResult(result)
+	}
+	return formatted
+}
+
+func formatIgonbResult(result igonb.CellResult) igonb.CellResult {
+	if result.Language == "markdown" {
+		return result
+	}
+	if result.Output == "" {
+		return result
+	}
+	result.Output = internal.AnsiToHTMLWithBG(result.Output, "dark")
+	return result
 }
