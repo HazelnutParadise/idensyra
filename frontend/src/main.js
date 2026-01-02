@@ -44,6 +44,8 @@ const ExecutePythonFile = (...args) =>
   window.go.main.App.ExecutePythonFile(...args);
 const ExecuteIgonbCells = (...args) =>
   window.go.main.App.ExecuteIgonbCells(...args);
+const ResetIgonbEnvironment = (...args) =>
+  window.go.main.App.ResetIgonbEnvironment(...args);
 
 let editor;
 let liveRun = false;
@@ -769,6 +771,9 @@ function ensureIgonbContainer() {
         <button class="secondary" id="igonb-clear-output" title="Clear output from all cells">
           <i class="fas fa-eraser"></i> Clear Output
         </button>
+        <button class="secondary" id="igonb-reset-env" title="Reset Go/Python environment">
+          <i class="fas fa-broom"></i> Reset Env
+        </button>
         <button class="secondary" id="igonb-toggle-output" title="Toggle output height">
           <i class="fas fa-align-left"></i> Scroll Output
         </button>
@@ -790,6 +795,9 @@ function ensureIgonbContainer() {
   container
     .querySelector("#igonb-clear-output")
     .addEventListener("click", () => clearIgonbOutputs());
+  container
+    .querySelector("#igonb-reset-env")
+    .addEventListener("click", () => resetIgonbEnvironment());
   container
     .querySelector("#igonb-run-all")
     .addEventListener("click", () => runIgonbAll());
@@ -1125,6 +1133,13 @@ function createIgonbCellElement(cell, index) {
     runUpBtn.addEventListener("click", () => runIgonbCellWithAbove(index));
     actionGroup.appendChild(runUpBtn);
 
+    const runDownBtn = document.createElement("button");
+    runDownBtn.className = "secondary igonb-cell-run-down";
+    runDownBtn.disabled = igonbIsExecuting || cell.running || cell.waiting;
+    runDownBtn.innerHTML = '<i class="fas fa-arrow-down"></i> Run Down';
+    runDownBtn.addEventListener("click", () => runIgonbCellDown(index));
+    actionGroup.appendChild(runDownBtn);
+
     const clearBtn = document.createElement("button");
     clearBtn.className = "secondary icon-only igonb-cell-clear";
     clearBtn.title = "Clear output";
@@ -1353,6 +1368,19 @@ function clearIgonbCellOutput(index) {
   scheduleIgonbSave();
 }
 
+async function resetIgonbEnvironment() {
+  if (igonbIsExecuting) {
+    showMessage("Cannot reset while executing", "warning");
+    return;
+  }
+  try {
+    await ResetIgonbEnvironment();
+    showMessage("Environment reset", "success");
+  } catch (error) {
+    showMessage("Failed to reset environment: " + error, "error");
+  }
+}
+
 function scheduleIgonbSave() {
   if (!activeFileName || !activeFileName.endsWith(".igonb")) return;
   if (!igonbState) return;
@@ -1415,6 +1443,39 @@ async function runIgonbCellWithAbove(index) {
   }
 }
 
+async function runIgonbCellDown(index) {
+  if (!igonbState || igonbIsExecuting) return;
+  const indices = getIgonbRunnableIndicesFrom(index);
+  if (indices.length === 0) return;
+  try {
+    scheduleIgonbSave();
+    const target = igonbState.cells[index];
+    if (target) {
+      setIgonbSelectedId(target.id);
+    }
+    setIgonbRunningIndices(indices);
+    const content = getIgonbContent();
+    let hadError = false;
+    for (const idx of indices) {
+      const encodedIndex = -idx - 2;
+      const results = await ExecuteIgonbCells(content, encodedIndex);
+      if (applyIgonbResultsWithoutFinish(results)) {
+        hadError = true;
+        break;
+      }
+    }
+    if (hadError) {
+      finishIgonbRun();
+      showMessage("Notebook execution stopped due to an error", "error");
+    } else if (igonbIsExecuting) {
+      finishIgonbRun();
+    }
+  } catch (error) {
+    finishIgonbRun();
+    showMessage("Failed to execute notebook: " + error, "error");
+  }
+}
+
 async function runIgonbAll() {
   if (!igonbState || igonbIsExecuting) return;
   try {
@@ -1462,6 +1523,18 @@ function applyIgonbResults(results) {
   if (hadError) {
     showMessage("Notebook execution stopped due to an error", "error");
   }
+}
+
+function applyIgonbResultsWithoutFinish(results) {
+  if (!Array.isArray(results) || !igonbState) return false;
+  let hadError = false;
+  results.forEach((result) => {
+    if (result && result.error) {
+      hadError = true;
+    }
+    applyIgonbResult(result);
+  });
+  return hadError;
 }
 
 function disposeIgonbEditors() {
@@ -1634,6 +1707,18 @@ function getIgonbRunnableIndices(upToIndex) {
   return runnable;
 }
 
+function getIgonbRunnableIndicesFrom(startIndex) {
+  if (!igonbState) return [];
+  const runnable = [];
+  igonbState.cells.forEach((cell, idx) => {
+    if (idx < startIndex) return;
+    if (cell.language !== "markdown") {
+      runnable.push(idx);
+    }
+  });
+  return runnable;
+}
+
 function setIgonbRunningIndices(indices) {
   if (!igonbState) return;
   igonbRunQueue = Array.isArray(indices) ? [...indices] : [];
@@ -1754,7 +1839,7 @@ function updateIgonbCellRunningUI(cell) {
           : "";
   }
   const runButtons = container.querySelectorAll(
-    ".igonb-cell-run, .igonb-cell-run-up",
+    ".igonb-cell-run, .igonb-cell-run-up, .igonb-cell-run-down",
   );
   runButtons.forEach((button) => {
     button.disabled = igonbIsExecuting || cell.running || cell.waiting;

@@ -321,6 +321,20 @@ func (e *Executor) ensurePythonSession() (*PythonSession, error) {
 	return session, nil
 }
 
+func (e *Executor) Close() error {
+	if e == nil {
+		return nil
+	}
+	e.pythonMu.Lock()
+	defer e.pythonMu.Unlock()
+	if e.pythonSession != nil {
+		_ = e.pythonSession.Close()
+		e.pythonSession = nil
+	}
+	e.pythonErr = nil
+	return nil
+}
+
 func (e *Executor) runGoSegment(code string) (string, error) {
 	var evalValue reflect.Value
 	pipeOutput, err := captureStdIO(func() error {

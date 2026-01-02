@@ -155,3 +155,16 @@ func formatIgonbResult(result igonb.CellResult) igonb.CellResult {
 	result.Output = internal.AnsiToHTMLWithBG(result.Output, "dark")
 	return result
 }
+
+// ResetIgonbEnvironment clears the Go/Python execution environment for the active notebook.
+func (a *App) ResetIgonbEnvironment() error {
+	key := getIgonbExecutorKey()
+	igonbExecutorMu.Lock()
+	defer igonbExecutorMu.Unlock()
+
+	if exec, ok := igonbExecutors[key]; ok {
+		_ = exec.Close()
+		delete(igonbExecutors, key)
+	}
+	return nil
+}
