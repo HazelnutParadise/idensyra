@@ -4,6 +4,7 @@ package igonb
 var DefaultGoImports = []string{
 	"fmt",
 	"log",
+	"math",
 	"github.com/HazelnutParadise/insyra/isr",
 	"github.com/HazelnutParadise/insyra",
 	"github.com/HazelnutParadise/insyra/datafetch",

@@ -2,8 +2,6 @@ package igonb
 
 import (
 	"bytes"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -12,11 +10,11 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/HazelnutParadise/insyra"
-	"github.com/HazelnutParadise/insyra/py"
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
 )
@@ -33,9 +31,9 @@ type Executor struct {
 	goOutput       bytes.Buffer
 	goOutputOffset int
 	goImports      map[string]bool
-	pythonSession  *PythonSession
-	pythonMu       sync.Mutex
-	pythonErr      error
+	sharedMu       sync.Mutex
+	sharedVars     map[string]any
+	pythonRunID    int
 }
 
 type GoSetupFunc func(*interp.Interpreter) error
@@ -52,7 +50,8 @@ const (
 
 func NewExecutor(goSetup GoSetupFunc) (*Executor, error) {
 	exec := &Executor{
-		goImports: make(map[string]bool),
+		goImports:  make(map[string]bool),
+		sharedVars: make(map[string]any),
 	}
 
 	exec.goInterp = interp.New(interp.Options{
@@ -255,6 +254,7 @@ func (e *Executor) runGoCell(code string) (string, error) {
 	}
 
 	code = normalizeGoRangeLoops(code)
+	defer e.syncSharedFromGo(code)
 	segments := expandGoSegments(splitGoSegments(code))
 	if len(segments) == 0 {
 		return "", nil
@@ -322,48 +322,14 @@ func (e *Executor) runGoCell(code string) (string, error) {
 	return output.String(), nil
 }
 
-func (e *Executor) runPythonCell(code string) (string, error) {
-	if strings.TrimSpace(code) == "" {
-		return "", nil
-	}
-
-	pipeOutput, err := captureStdIO(func() error {
-		return py.RunCode(nil, code)
-	})
-	return pipeOutput, err
-}
-
-func (e *Executor) ensurePythonSession() (*PythonSession, error) {
-	if e.pythonSession != nil || e.pythonErr != nil {
-		return e.pythonSession, e.pythonErr
-	}
-
-	e.pythonMu.Lock()
-	defer e.pythonMu.Unlock()
-	if e.pythonSession != nil || e.pythonErr != nil {
-		return e.pythonSession, e.pythonErr
-	}
-
-	session, err := NewPythonSession()
-	if err != nil {
-		e.pythonErr = err
-		return nil, err
-	}
-	e.pythonSession = session
-	return session, nil
-}
-
 func (e *Executor) Close() error {
 	if e == nil {
 		return nil
 	}
-	e.pythonMu.Lock()
-	defer e.pythonMu.Unlock()
-	if e.pythonSession != nil {
-		_ = e.pythonSession.Close()
-		e.pythonSession = nil
-	}
-	e.pythonErr = nil
+	e.sharedMu.Lock()
+	e.sharedVars = make(map[string]any)
+	e.pythonRunID = 0
+	e.sharedMu.Unlock()
 	return nil
 }
 
@@ -491,6 +457,64 @@ func formatGoEvalValue(value reflect.Value) string {
 		return ""
 	}
 	return fmt.Sprint(value.Interface())
+}
+
+func (e *Executor) nextPythonRunID() int {
+	if e == nil {
+		return 0
+	}
+	e.sharedMu.Lock()
+	defer e.sharedMu.Unlock()
+	e.pythonRunID++
+	return e.pythonRunID
+}
+
+func (e *Executor) setSharedVar(name string, value any) {
+	if e == nil || name == "" {
+		return
+	}
+	e.sharedMu.Lock()
+	if e.sharedVars == nil {
+		e.sharedVars = make(map[string]any)
+	}
+	e.sharedVars[name] = value
+	e.sharedMu.Unlock()
+}
+
+func (e *Executor) snapshotSharedVars() map[string]any {
+	if e == nil {
+		return nil
+	}
+	e.sharedMu.Lock()
+	defer e.sharedMu.Unlock()
+	if len(e.sharedVars) == 0 {
+		return nil
+	}
+	snapshot := make(map[string]any, len(e.sharedVars))
+	for key, value := range e.sharedVars {
+		snapshot[key] = value
+	}
+	return snapshot
+}
+
+func (e *Executor) syncSharedFromGo(code string) {
+	if e == nil || e.goInterp == nil {
+		return
+	}
+	names := collectGoAssignedNames(code)
+	if len(names) == 0 {
+		return
+	}
+	for _, name := range names {
+		if strings.HasPrefix(name, "__igonb") {
+			continue
+		}
+		value, err := e.goInterp.Eval(name)
+		if err != nil || !value.IsValid() || !value.CanInterface() {
+			continue
+		}
+		e.setSharedVar(name, value.Interface())
+	}
 }
 
 func isGoDeclarationChunk(code string) bool {
@@ -649,13 +673,6 @@ func firstGoToken(line string) string {
 	return line
 }
 
-func buildPythonScript(imports []string, body string) string {
-	if len(imports) == 0 {
-		return body
-	}
-	return strings.Join(imports, "\n") + "\n" + body
-}
-
 func captureStdIO(run func() error) (string, error) {
 	oldStdout := os.Stdout
 	oldStderr := os.Stderr
@@ -684,14 +701,6 @@ func captureStdIO(run func() error) (string, error) {
 	return pipeOutput, runErr
 }
 
-type pythonCellOutput struct {
-	Index  int    `json:"index"`
-	Output string `json:"output"`
-	Error  string `json:"error"`
-}
-
-const pythonOutputMarker = "__IGONB__"
-
 func (e *Executor) runPythonGroup(cells []Cell, indices []int) ([]CellResult, error) {
 	if len(cells) == 0 {
 		return nil, nil
@@ -700,14 +709,9 @@ func (e *Executor) runPythonGroup(cells []Cell, indices []int) ([]CellResult, er
 		return nil, fmt.Errorf("python group index mismatch")
 	}
 
-	session, err := e.ensurePythonSession()
-	if err != nil {
-		return nil, err
-	}
-
 	results := make([]CellResult, 0, len(cells))
 	for i, cell := range cells {
-		output, runErr := session.Run(cell.Source)
+		output, runErr := e.runPythonCell(cell.Source)
 		result := CellResult{
 			Index:    indices[i],
 			Language: "python",
@@ -814,63 +818,6 @@ func buildGoImportSegment(specs []goImportSpec) string {
 	}
 	builder.WriteString(")")
 	return builder.String()
-}
-
-func buildPythonGroupScript(codes []string) (string, error) {
-	payload, err := json.Marshal(codes)
-	if err != nil {
-		return "", err
-	}
-	encoded := base64.StdEncoding.EncodeToString(payload)
-	script := fmt.Sprintf(`
-import base64, json, sys, io, contextlib, traceback, ast
-_cells = json.loads(base64.b64decode("%s").decode("utf-8"))
-_results = []
-_globals = globals()
-def _exec_cell(_code, _globals):
-    _tree = ast.parse(_code, mode="exec")
-    if _tree.body and isinstance(_tree.body[-1], ast.Expr):
-        _last = _tree.body.pop()
-        if _tree.body:
-            _module = ast.Module(body=_tree.body, type_ignores=[])
-            exec(compile(_module, "<igonb>", "exec"), _globals)
-        _expr = ast.Expression(_last.value)
-        return eval(compile(_expr, "<igonb>", "eval"), _globals)
-    exec(_code, _globals)
-    return None
-for _idx, _code in enumerate(_cells):
-    _buf_out = io.StringIO()
-    _buf_err = io.StringIO()
-    try:
-        with contextlib.redirect_stdout(_buf_out), contextlib.redirect_stderr(_buf_err):
-            _value = _exec_cell(_code, _globals)
-            if _value is not None:
-                print(_value)
-        _results.append({"index": _idx, "output": _buf_out.getvalue() + _buf_err.getvalue(), "error": ""})
-    except Exception:
-        _results.append({"index": _idx, "output": _buf_out.getvalue() + _buf_err.getvalue(), "error": traceback.format_exc()})
-        break
-print("%s" + json.dumps(_results))
-`, encoded, pythonOutputMarker)
-	return script, nil
-}
-
-func parsePythonGroupOutput(output string) ([]pythonCellOutput, error) {
-	index := strings.LastIndex(output, pythonOutputMarker)
-	if index == -1 {
-		return nil, fmt.Errorf("python output missing marker")
-	}
-
-	payload := strings.TrimSpace(output[index+len(pythonOutputMarker):])
-	if payload == "" {
-		return nil, fmt.Errorf("python output missing payload")
-	}
-
-	var parsed []pythonCellOutput
-	if err := json.Unmarshal([]byte(payload), &parsed); err != nil {
-		return nil, err
-	}
-	return parsed, nil
 }
 
 func splitGoSegments(code string) []goSegment {
@@ -1110,6 +1057,101 @@ func splitGoTrailingExpressionAST(code string) (string, string, bool) {
 	}
 	prefixText := strings.TrimRight(code[:start], " \t\r\n")
 	return prefixText, exprText, true
+}
+
+func collectGoAssignedNames(code string) []string {
+	if strings.TrimSpace(code) == "" {
+		return nil
+	}
+
+	names := make(map[string]struct{})
+	addName := func(name string) {
+		if name == "" || name == "_" || !token.IsIdentifier(name) {
+			return
+		}
+		names[name] = struct{}{}
+	}
+
+	src := "package main\n" + code + "\n"
+	if file, err := parser.ParseFile(token.NewFileSet(), "snippet.go", src, parser.AllErrors); err == nil {
+		for _, decl := range file.Decls {
+			genDecl, ok := decl.(*ast.GenDecl)
+			if !ok {
+				continue
+			}
+			if genDecl.Tok != token.VAR && genDecl.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range genDecl.Specs {
+				valueSpec, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for _, name := range valueSpec.Names {
+					addName(name.Name)
+				}
+			}
+		}
+	}
+
+	wrapped := "package main\nfunc _(){\n" + code + "\n}"
+	if file, err := parser.ParseFile(token.NewFileSet(), "snippet.go", wrapped, parser.AllErrors); err == nil {
+		for _, decl := range file.Decls {
+			funcDecl, ok := decl.(*ast.FuncDecl)
+			if !ok || funcDecl.Name == nil || funcDecl.Name.Name != "_" || funcDecl.Body == nil {
+				continue
+			}
+			ast.Inspect(funcDecl.Body, func(node ast.Node) bool {
+				switch stmt := node.(type) {
+				case *ast.AssignStmt:
+					for _, expr := range stmt.Lhs {
+						if ident, ok := expr.(*ast.Ident); ok {
+							addName(ident.Name)
+						}
+					}
+				case *ast.RangeStmt:
+					if ident, ok := stmt.Key.(*ast.Ident); ok {
+						addName(ident.Name)
+					}
+					if ident, ok := stmt.Value.(*ast.Ident); ok {
+						addName(ident.Name)
+					}
+				case *ast.IncDecStmt:
+					if ident, ok := stmt.X.(*ast.Ident); ok {
+						addName(ident.Name)
+					}
+				case *ast.DeclStmt:
+					genDecl, ok := stmt.Decl.(*ast.GenDecl)
+					if !ok {
+						break
+					}
+					if genDecl.Tok != token.VAR && genDecl.Tok != token.CONST {
+						break
+					}
+					for _, spec := range genDecl.Specs {
+						valueSpec, ok := spec.(*ast.ValueSpec)
+						if !ok {
+							continue
+						}
+						for _, name := range valueSpec.Names {
+							addName(name.Name)
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+
+	if len(names) == 0 {
+		return nil
+	}
+	ordered := make([]string, 0, len(names))
+	for name := range names {
+		ordered = append(ordered, name)
+	}
+	sort.Strings(ordered)
+	return ordered
 }
 
 func stripGoLineComment(line string) string {
