@@ -46,6 +46,8 @@ const ExecuteIgonbCells = (...args) =>
   window.go.main.App.ExecuteIgonbCells(...args);
 const ResetIgonbEnvironment = (...args) =>
   window.go.main.App.ResetIgonbEnvironment(...args);
+const StopIgonbExecution = (...args) =>
+  window.go.main.App.StopIgonbExecution(...args);
 
 let editor;
 let liveRun = false;
@@ -777,6 +779,9 @@ function ensureIgonbContainer() {
         <button class="secondary" id="igonb-toggle-output" title="Toggle output height">
           <i class="fas fa-align-left"></i> Scroll Output
         </button>
+        <button class="danger" id="igonb-stop" title="Stop execution">
+          <i class="fas fa-stop"></i> Stop
+        </button>
         <button class="success" id="igonb-run-all"><i class="fas fa-play"></i> Run All</button>
       </div>
     </div>
@@ -798,6 +803,9 @@ function ensureIgonbContainer() {
   container
     .querySelector("#igonb-reset-env")
     .addEventListener("click", () => resetIgonbEnvironment());
+  container
+    .querySelector("#igonb-stop")
+    .addEventListener("click", () => stopIgonbExecution());
   container
     .querySelector("#igonb-run-all")
     .addEventListener("click", () => runIgonbAll());
@@ -1381,6 +1389,18 @@ async function resetIgonbEnvironment() {
   }
 }
 
+async function stopIgonbExecution() {
+  if (!igonbIsExecuting) return;
+  try {
+    await StopIgonbExecution();
+  } catch (error) {
+    showMessage("Failed to stop execution: " + error, "error");
+  } finally {
+    finishIgonbRun();
+    showMessage("Execution stopped", "warning");
+  }
+}
+
 function scheduleIgonbSave() {
   if (!activeFileName || !activeFileName.endsWith(".igonb")) return;
   if (!igonbState) return;
@@ -1803,6 +1823,10 @@ function updateIgonbRunControls() {
   const runAllBtn = document.getElementById("igonb-run-all");
   if (runAllBtn) {
     runAllBtn.disabled = igonbIsExecuting;
+  }
+  const stopBtn = document.getElementById("igonb-stop");
+  if (stopBtn) {
+    stopBtn.disabled = !igonbIsExecuting;
   }
 }
 

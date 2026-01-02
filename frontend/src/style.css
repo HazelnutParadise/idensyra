@@ -156,6 +156,14 @@ button.success:hover {
     background-color: #218838;
 }
 
+button.danger {
+    background-color: #c0392b;
+}
+
+button.danger:hover {
+    background-color: #a93226;
+}
+
 button.icon-only {
     padding: 6px 8px;
     min-width: unset;
@@ -555,14 +563,16 @@ button.secondary.icon-only.active {
 }
 
 .igonb-container .secondary,
-.igonb-container .success {
+.igonb-container .success,
+.igonb-container .danger {
     padding: 4px 8px;
     font-size: 11px;
     line-height: 1.2;
 }
 
 .igonb-container .secondary i,
-.igonb-container .success i {
+.igonb-container .success i,
+.igonb-container .danger i {
     margin-right: 4px;
 }
 

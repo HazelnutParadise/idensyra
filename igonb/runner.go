@@ -71,6 +71,7 @@ func (r *Runner) ExecuteNotebook(nb *Notebook, options RunOptions) ([]CellResult
 	if err != nil {
 		return nil, err
 	}
+	exec.ClearStop()
 
 	formattedResults := make([]CellResult, 0)
 	callback := func(result CellResult) {
@@ -96,6 +97,17 @@ func (r *Runner) ExecuteNotebook(nb *Notebook, options RunOptions) ([]CellResult
 		formattedResults = FormatResults(results, options.Formatter)
 	}
 	return formattedResults, runErr
+}
+
+func (r *Runner) Cancel(key string) {
+	if key == "" {
+		key = "default"
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if exec, ok := r.executors[key]; ok {
+		exec.RequestStop()
+	}
 }
 
 func (r *Runner) Reset(key string) error {

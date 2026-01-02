@@ -2,6 +2,7 @@ package igonb
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -36,6 +37,7 @@ type Executor struct {
 	pythonRunID    int
 	pythonState    string
 	pythonDefs     []pythonDef
+	stopRequested  bool
 }
 
 type GoSetupFunc func(*interp.Interpreter) error
@@ -49,6 +51,8 @@ const (
 	goSegmentImport = "import"
 	goSegmentCode   = "code"
 )
+
+var ErrExecutionStopped = errors.New("execution stopped")
 
 func NewExecutor(goSetup GoSetupFunc) (*Executor, error) {
 	exec := &Executor{
@@ -100,6 +104,9 @@ func (e *Executor) RunNotebookCellWithCallback(nb *Notebook, index int, onResult
 	}
 	if index < 0 || index >= len(nb.Cells) {
 		return nil, fmt.Errorf("cell index out of range: %d", index)
+	}
+	if e.isStopRequested() {
+		return nil, ErrExecutionStopped
 	}
 
 	emit := func(result CellResult, results []CellResult) []CellResult {
@@ -179,6 +186,9 @@ func (e *Executor) RunNotebookWithCallback(nb *Notebook, index int, onResult fun
 	}
 
 	for idx := 0; idx <= maxIndex; idx++ {
+		if e.isStopRequested() {
+			return results, ErrExecutionStopped
+		}
 		if pythonHandled[idx] {
 			continue
 		}
@@ -333,8 +343,36 @@ func (e *Executor) Close() error {
 	e.pythonRunID = 0
 	e.pythonState = ""
 	e.pythonDefs = nil
+	e.stopRequested = false
 	e.sharedMu.Unlock()
 	return nil
+}
+
+func (e *Executor) RequestStop() {
+	if e == nil {
+		return
+	}
+	e.sharedMu.Lock()
+	e.stopRequested = true
+	e.sharedMu.Unlock()
+}
+
+func (e *Executor) ClearStop() {
+	if e == nil {
+		return
+	}
+	e.sharedMu.Lock()
+	e.stopRequested = false
+	e.sharedMu.Unlock()
+}
+
+func (e *Executor) isStopRequested() bool {
+	if e == nil {
+		return false
+	}
+	e.sharedMu.Lock()
+	defer e.sharedMu.Unlock()
+	return e.stopRequested
 }
 
 func (e *Executor) PreloadGoImports(paths []string) error {
@@ -373,9 +411,19 @@ func (e *Executor) PreloadGoImports(paths []string) error {
 
 func (e *Executor) runGoSegment(code string, allowAutoOutput bool) (string, error) {
 	var evalValue reflect.Value
-	pipeOutput, err := captureStdIO(func() error {
-		value, evalErr := e.goInterp.Eval(code)
+	pipeOutput, err := captureStdIO(func() (evalErr error) {
+		defer func() {
+			if r := recover(); r != nil {
+				if rErr, ok := r.(error); ok {
+					evalErr = rErr
+				} else {
+					evalErr = fmt.Errorf("%v", r)
+				}
+			}
+		}()
+		value, innerErr := e.goInterp.Eval(code)
 		evalValue = value
+		evalErr = innerErr
 		return evalErr
 	})
 
@@ -892,9 +940,12 @@ func splitGoSegments(code string) []goSegment {
 }
 
 var goRangeLoopRegex = regexp.MustCompile(`(?m)^(\s*)for\s+([A-Za-z_]\w*)\s*:=\s*range\s+([0-9]+)\s*\{`)
+var goRangeLoopNoVarRegex = regexp.MustCompile(`(?m)^(\s*)for\s+range\s+([0-9]+)\s*\{`)
 
 func normalizeGoRangeLoops(code string) string {
-	return goRangeLoopRegex.ReplaceAllString(code, "${1}for ${2} := 0; ${2} < ${3}; ${2}++ {")
+	updated := goRangeLoopRegex.ReplaceAllString(code, "${1}for ${2} := 0; ${2} < ${3}; ${2}++ {")
+	updated = goRangeLoopNoVarRegex.ReplaceAllString(updated, "${1}for __igonb_i := 0; __igonb_i < ${2}; __igonb_i++ {")
+	return updated
 }
 
 func expandGoSegments(segments []goSegment) []goSegment {

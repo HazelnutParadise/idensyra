@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -64,6 +65,15 @@ func (a *App) ExecuteIgonbCells(content string, cellIndex int) ([]igonb.CellResu
 	}
 
 	results, runErr := runIgonbInWorkspace(run)
+	if runErr != nil && errors.Is(runErr, igonb.ErrExecutionStopped) {
+		if results == nil {
+			results = []igonb.CellResult{}
+		}
+		return results, nil
+	}
+	if runErr != nil && len(results) > 0 {
+		return results, nil
+	}
 	return results, runErr
 }
 
@@ -99,4 +109,11 @@ func runIgonbInWorkspace(run func() ([]igonb.CellResult, error)) ([]igonb.CellRe
 func (a *App) ResetIgonbEnvironment() error {
 	key := getIgonbExecutorKey()
 	return igonbRunner.Reset(key)
+}
+
+// StopIgonbExecution requests the current notebook execution to stop after the active cell.
+func (a *App) StopIgonbExecution() error {
+	key := getIgonbExecutorKey()
+	igonbRunner.Cancel(key)
+	return nil
 }

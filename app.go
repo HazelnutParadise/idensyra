@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/HazelnutParadise/idensyra/internal"
@@ -274,27 +275,35 @@ func executeGoCode(code string, colorBG string) string {
 	// Redirect standard output and standard error
 	oldStdout := os.Stdout
 	oldStderr := os.Stderr
-	r, w, _ := os.Pipe()
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		return fmt.Sprintf("Failed to execute code: %v", pipeErr)
+	}
 	os.Stdout = w
 	os.Stderr = w
 
 	// Create a channel to receive output
-	outputChan := make(chan string)
+	outputChan := make(chan string, 1)
 	go func() {
 		var outputBuf bytes.Buffer
 		io.Copy(&outputBuf, r)
 		outputChan <- outputBuf.String()
 	}()
 
-	// Execute code
-	_, err := i.Eval(code)
-	if err != nil {
-		w.Close()
-		os.Stdout = oldStdout
-		os.Stderr = oldStderr
-		return fmt.Sprintf("Failed to execute code: %v", err)
-	}
-
+	code = normalizeGoRangeLoops(code)
+	execErr := func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				if rErr, ok := r.(error); ok {
+					err = rErr
+				} else {
+					err = fmt.Errorf("%v", r)
+				}
+			}
+		}()
+		_, err = i.Eval(code)
+		return err
+	}()
 	// Restore standard output and standard error
 	w.Close()
 	os.Stdout = oldStdout
@@ -306,9 +315,29 @@ func executeGoCode(code string, colorBG string) string {
 	// Merge yaegi captured output and redirected output
 	result := buf.String() + output
 
+	if execErr != nil {
+		if result != "" && !strings.HasSuffix(result, "\n") {
+			result += "\n"
+		}
+		result += fmt.Sprintf("Failed to execute code: %v", execErr)
+		if colorBG == "light" || colorBG == "dark" {
+			return internal.AnsiToHTMLWithBG(result, colorBG)
+		}
+		return internal.AnsiToHTML(result)
+	}
+
 	// Convert ANSI to HTML based on color scheme
 	if colorBG == "light" || colorBG == "dark" {
 		return internal.AnsiToHTMLWithBG(result, colorBG)
 	}
 	return internal.AnsiToHTML(result)
+}
+
+var goRangeLoopRegex = regexp.MustCompile(`(?m)^(\s*)for\s+([A-Za-z_]\w*)\s*:=\s*range\s+([0-9]+)\s*\{`)
+var goRangeLoopNoVarRegex = regexp.MustCompile(`(?m)^(\s*)for\s+range\s+([0-9]+)\s*\{`)
+
+func normalizeGoRangeLoops(code string) string {
+	updated := goRangeLoopRegex.ReplaceAllString(code, "${1}for ${2} := 0; ${2} < ${3}; ${2}++ {")
+	updated = goRangeLoopNoVarRegex.ReplaceAllString(updated, "${1}for __igonb_i := 0; __igonb_i < ${2}; __igonb_i++ {")
+	return updated
 }
