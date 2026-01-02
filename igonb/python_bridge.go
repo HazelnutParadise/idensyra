@@ -2,6 +2,7 @@ package igonb
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/token"
 	"math"
@@ -29,6 +30,23 @@ type pythonBinding struct {
 	name        string
 	placeholder string
 	argExpr     string
+}
+
+var errUnsupportedGoValue = errors.New("unsupported go value")
+
+type unsupportedGoValueError struct {
+	name string
+}
+
+func (e unsupportedGoValueError) Error() string {
+	if e.name == "" {
+		return "unsupported value"
+	}
+	return fmt.Sprintf("unsupported value for %s", e.name)
+}
+
+func (e unsupportedGoValueError) Unwrap() error {
+	return errUnsupportedGoValue
 }
 
 func (e *Executor) runPythonCell(code string) (string, error) {
@@ -490,6 +508,9 @@ func (e *Executor) applyPythonPayload(payload pythonRunPayload) error {
 			continue
 		}
 		if err := e.setGoVariable(name, goValue); err != nil {
+			if errors.Is(err, errUnsupportedGoValue) {
+				continue
+			}
 			return err
 		}
 	}
@@ -559,7 +580,7 @@ func (e *Executor) setGoVariable(name string, value any) error {
 		}
 		literal, ok := formatGoLiteralForType(value, targetType)
 		if !ok {
-			return fmt.Errorf("unsupported value for %s", name)
+			return unsupportedGoValueError{name: name}
 		}
 		e.ensureLiteralImports(literal)
 		if _, err := e.runGoSegment(fmt.Sprintf("%s = %s", name, literal), false); err != nil {
@@ -577,7 +598,7 @@ func (e *Executor) setGoVariable(name string, value any) error {
 
 	literal, ok := formatGoLiteral(value)
 	if !ok {
-		return fmt.Errorf("unsupported value for %s", name)
+		return unsupportedGoValueError{name: name}
 	}
 	e.ensureLiteralImports(literal)
 	if _, err := e.runGoSegment(fmt.Sprintf("var %s = %s", name, literal), false); err != nil {
@@ -601,7 +622,7 @@ func (e *Executor) assignDataList(name string, list insyra.IDataList, targetType
 	if targetType != nil && isIsrDlType(targetType) {
 		code, ok := buildIsrDataListAssignment(name, list)
 		if !ok {
-			return fmt.Errorf("unsupported value for %s", name)
+			return unsupportedGoValueError{name: name}
 		}
 		e.ensureLiteralImports(code)
 		if _, err := e.runGoSegment(code, false); err != nil {
@@ -612,7 +633,7 @@ func (e *Executor) assignDataList(name string, list insyra.IDataList, targetType
 
 	literal, ok := formatDataListLiteralInsyra(list)
 	if !ok {
-		return fmt.Errorf("unsupported value for %s", name)
+		return unsupportedGoValueError{name: name}
 	}
 	e.ensureLiteralImports(literal)
 
@@ -632,7 +653,7 @@ func (e *Executor) assignDataTable(name string, table insyra.IDataTable, targetT
 	if targetType != nil && isIsrDtType(targetType) {
 		code, ok := buildIsrDataTableAssignment(name, table)
 		if !ok {
-			return fmt.Errorf("unsupported value for %s", name)
+			return unsupportedGoValueError{name: name}
 		}
 		e.ensureLiteralImports(code)
 		if _, err := e.runGoSegment(code, false); err != nil {
@@ -649,7 +670,7 @@ func (e *Executor) assignDataTable(name string, table insyra.IDataTable, targetT
 		literal, ok = formatDataTableLiteralIsr(table)
 	}
 	if !ok {
-		return fmt.Errorf("unsupported value for %s", name)
+		return unsupportedGoValueError{name: name}
 	}
 	e.ensureLiteralImports(literal)
 
@@ -816,6 +837,11 @@ func formatGoLiteral(value any) (string, bool) {
 		return strconv.FormatBool(v), true
 	case string:
 		return strconv.Quote(v), true
+	case json.Number:
+		if text, ok := formatJSONNumberLiteral(v); ok {
+			return text, true
+		}
+		return "", false
 	case int:
 		return strconv.Itoa(v), true
 	case int8:
@@ -1121,6 +1147,17 @@ func toInt64(value any) (int64, bool) {
 		return floatToInt64(float64(v))
 	case float64:
 		return floatToInt64(v)
+	case json.Number:
+		if v == "" {
+			return 0, false
+		}
+		if i, err := v.Int64(); err == nil {
+			return i, true
+		}
+		if f, err := v.Float64(); err == nil {
+			return floatToInt64(f)
+		}
+		return 0, false
 	default:
 		return 0, false
 	}
@@ -1180,6 +1217,20 @@ func toUint64(value any) (uint64, bool) {
 		return floatToUint64(float64(v))
 	case float64:
 		return floatToUint64(v)
+	case json.Number:
+		if v == "" {
+			return 0, false
+		}
+		if i, err := v.Int64(); err == nil {
+			if i < 0 {
+				return 0, false
+			}
+			return uint64(i), true
+		}
+		if f, err := v.Float64(); err == nil {
+			return floatToUint64(f)
+		}
+		return 0, false
 	default:
 		return 0, false
 	}
@@ -1227,6 +1278,15 @@ func toFloat64(value any) (float64, bool) {
 		return float64(v), true
 	case uint64:
 		return float64(v), true
+	case json.Number:
+		if v == "" {
+			return 0, false
+		}
+		f, err := v.Float64()
+		if err != nil {
+			return 0, false
+		}
+		return f, true
 	default:
 		return 0, false
 	}
@@ -1247,6 +1307,19 @@ func formatFloatLiteral(value float64) string {
 		text += ".0"
 	}
 	return text
+}
+
+func formatJSONNumberLiteral(value json.Number) (string, bool) {
+	if value == "" {
+		return "", false
+	}
+	if intValue, err := value.Int64(); err == nil {
+		return strconv.FormatInt(intValue, 10), true
+	}
+	if floatValue, err := value.Float64(); err == nil {
+		return formatFloatLiteral(floatValue), true
+	}
+	return "", false
 }
 
 func formatAnySliceLiteral(items []any) (string, bool) {
