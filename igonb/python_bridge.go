@@ -180,7 +180,13 @@ func (e *Executor) buildPythonBindings(shared map[string]any) []pythonBinding {
 
 func (e *Executor) pythonArgExpr(name string, value any) (string, bool) {
 	if isGoIdentifier(name) && e.goNameExists(name) {
-		return name, true
+		if targetType := e.goVarType(name); targetType != nil {
+			if _, ok := formatGoLiteralForType(value, targetType); ok {
+				return name, true
+			}
+		} else {
+			return name, true
+		}
 	}
 	literal, ok := formatGoLiteral(value)
 	if !ok {
@@ -312,6 +318,19 @@ def __igonb_dump_state(globs):
     except Exception:
         return ""
 
+def __igonb_restore_value(value):
+    if isinstance(value, dict):
+        vtype = value.get("__igonb_type__")
+        if vtype == "pyobject" and value.get("pickle"):
+            try:
+                data = base64.b64decode(value["pickle"].encode("utf-8"))
+                return pickle.loads(data)
+            except Exception:
+                return value
+        if vtype == "pyrepr":
+            return value.get("repr", "")
+    return value
+
 def __igonb_export_value(value):
     try:
         import pandas as pd
@@ -351,8 +370,25 @@ def __igonb_export_value(value):
             json.dumps(value)
             return True, value
     except Exception:
+        pass
+    try:
+        data = pickle.dumps(value)
+        return True, {
+            "__igonb_type__": "pyobject",
+            "pickle": base64.b64encode(data).decode("utf-8"),
+            "repr": repr(value),
+            "pytype": type(value).__name__,
+        }
+    except Exception:
+        pass
+    try:
+        return True, {
+            "__igonb_type__": "pyrepr",
+            "repr": repr(value),
+            "pytype": type(value).__name__,
+        }
+    except Exception:
         return False, None
-    return False, None
 
 def __igonb_export(globs):
     exported = {}
@@ -384,7 +420,7 @@ try:
                 pass
     __igonb_load_state(__igonb_state_b64, __igonb_globals)
     for _k, _v in __igonb_injected.items():
-        __igonb_globals[_k] = _v
+        __igonb_globals[_k] = __igonb_restore_value(_v)
     _value = __igonb_exec(__igonb_code, __igonb_globals)
     if _value is not None:
         print(_value)
