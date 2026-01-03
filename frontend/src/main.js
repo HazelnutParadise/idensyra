@@ -475,7 +475,8 @@ function getOrCreateFileModel(filename, content) {
   );
   let model = monaco.editor.getModel(uri);
   if (model && !model.isDisposed()) {
-    if (!model.getValue()) {
+    // Always update content when not from cache (e.g., after opening new workspace)
+    if (model.getValue() !== content) {
       model.setValue(content);
     }
   } else {
@@ -521,6 +522,33 @@ function removeFileModelsInFolder(folderPath) {
       removeFileModel(key);
     }
   });
+}
+
+function clearAllFileModels() {
+  // Detach current model from editor first
+  if (editor) {
+    editor.setModel(null);
+  }
+
+  // Dispose all cached models
+  Array.from(fileModelCache.keys()).forEach((key) => {
+    const model = fileModelCache.get(key);
+    if (model && !model.isDisposed()) {
+      model.dispose();
+    }
+  });
+
+  // Also dispose any Monaco models that might not be in our cache
+  // (to ensure clean slate when opening new workspace)
+  monaco.editor.getModels().forEach((model) => {
+    if (!model.isDisposed()) {
+      model.dispose();
+    }
+  });
+
+  fileModelCache.clear();
+  fileModelSizes.clear();
+  fileModelBytes = 0;
 }
 
 function disposeOrphanModel(filename, model) {
@@ -4376,6 +4404,9 @@ async function openWorkspace() {
     if (!workspacePath) {
       return; // User cancelled
     }
+
+    // Clear all cached Monaco models to avoid stale content from previous workspace
+    clearAllFileModels();
 
     await loadWorkspaceFiles();
     updateWorkspaceIndicator();
