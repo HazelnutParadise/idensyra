@@ -219,7 +219,7 @@ button.secondary.icon-only.active {
 
 .workspace-header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     padding: 8px 8px;
     background-color: var(--panel-background-color);
@@ -230,11 +230,40 @@ button.secondary.icon-only.active {
     gap: 4px;
 }
 
+.workspace-title {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
 .workspace-label {
     font-size: 13px;
     font-weight: 600;
     color: var(--text-color);
     margin-right: 4px;
+}
+
+.workspace-info {
+    font-size: 11px;
+    color: var(--label-text-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+}
+
+.workspace-info.temp {
+    color: var(--warning-color);
+}
+
+.workspace-info.copyable {
+    cursor: pointer;
+}
+
+.workspace-info.copyable:hover {
+    color: var(--text-color);
+    text-decoration: underline;
 }
 
 .workspace-buttons {
@@ -296,6 +325,15 @@ button.secondary.icon-only.active {
 
 .file-item.active .modified-indicator {
     color: white;
+}
+
+.file-item.drag-target {
+    background-color: rgba(78, 201, 176, 0.18);
+}
+
+.file-tree.drag-root {
+    outline: 2px dashed var(--border-color);
+    outline-offset: -4px;
 }
 
 .file-actions {
@@ -369,6 +407,126 @@ button.secondary.icon-only.active {
 
 .file-action-item.file-action-delete:hover {
     background-color: rgba(244, 135, 113, 0.16);
+}
+
+/* Python packages modal */
+.python-packages-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+}
+
+.python-packages-modal.active {
+    display: flex;
+}
+
+.python-packages-card {
+    width: min(560px, 92vw);
+    max-height: 70vh;
+    background: var(--panel-background-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.python-packages-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.python-packages-controls {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px;
+    flex-wrap: wrap;
+}
+
+.python-packages-hint {
+    font-size: 11px;
+    color: var(--label-text-color);
+    padding: 0 12px 6px;
+}
+
+.python-packages-controls input {
+    flex: 1;
+    min-width: 200px;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--background-color);
+    color: var(--text-color);
+    font-size: 12px;
+}
+
+.python-packages-status {
+    font-size: 11px;
+    color: var(--label-text-color);
+    padding: 0 12px 6px;
+}
+
+.python-packages-list {
+    padding: 6px 12px 12px;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: var(--background-color);
+}
+
+.python-package-row {
+    display: grid;
+    grid-template-columns: 1fr minmax(90px, auto) auto;
+    align-items: center;
+    column-gap: 10px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+    border: 1px solid var(--border-color);
+}
+
+.python-package-remove {
+    padding: 4px 6px;
+    font-size: 11px;
+}
+
+.python-package-row:hover {
+    background-color: rgba(78, 201, 176, 0.12);
+}
+
+.python-package-name {
+    font-size: 12px;
+    color: var(--text-color);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.python-package-version {
+    font-size: 11px;
+    color: var(--label-text-color);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    min-width: 90px;
+}
+
+.python-packages-empty {
+    font-size: 12px;
+    color: var(--label-text-color);
+    padding: 6px 4px;
 }
 
 /* Editor Section */

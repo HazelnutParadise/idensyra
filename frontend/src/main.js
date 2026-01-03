@@ -48,6 +48,10 @@ const ResetIgonbEnvironment = (...args) =>
   window.go.main.App.ResetIgonbEnvironment(...args);
 const StopIgonbExecution = (...args) =>
   window.go.main.App.StopIgonbExecution(...args);
+const PipList = (...args) => window.go.main.App.PipList(...args);
+const PipInstall = (...args) => window.go.main.App.PipInstall(...args);
+const PipUninstall = (...args) => window.go.main.App.PipUninstall(...args);
+const ReinstallPyEnv = (...args) => window.go.main.App.ReinstallPyEnv(...args);
 
 let editor;
 let liveRun = false;
@@ -85,6 +89,8 @@ let selectedFolderPath = "";
 let isRootFolderSelected = false;
 let workspaceLoadToken = 0;
 let fileTreeRenderToken = 0;
+let fileTreeDragPath = "";
+let fileTreeDragIsDir = false;
 const fileTreeChunkSize = 120;
 const fileModelCache = new Map();
 const fileModelSizes = new Map();
@@ -98,6 +104,7 @@ let previewMode = null;
 let previewUpdateTimer = null;
 const excelSheetSelections = new Map();
 let excelPreviewToken = 0;
+let pythonPackagesLoading = false;
 
 // Detect system theme preference
 function getSystemTheme() {
@@ -773,8 +780,11 @@ function ensureIgonbContainer() {
         <button class="secondary" id="igonb-clear-output" title="Clear output from all cells">
           <i class="fas fa-eraser"></i> Clear Output
         </button>
-        <button class="secondary" id="igonb-reset-env" title="Reset Go/Python environment">
-          <i class="fas fa-broom"></i> Reset Env
+        <button class="secondary" id="igonb-reset-env" title="Restart kernel (Go/Python)">
+          <i class="fas fa-broom"></i> Restart Kernel
+        </button>
+        <button class="secondary" id="igonb-packages-btn" title="Manage Python packages">
+          <i class="fas fa-boxes"></i> Packages
         </button>
         <button class="secondary" id="igonb-toggle-output" title="Toggle output height">
           <i class="fas fa-align-left"></i> Scroll Output
@@ -803,6 +813,9 @@ function ensureIgonbContainer() {
   container
     .querySelector("#igonb-reset-env")
     .addEventListener("click", () => resetIgonbEnvironment());
+  container
+    .querySelector("#igonb-packages-btn")
+    .addEventListener("click", () => openPythonPackageManager());
   container
     .querySelector("#igonb-stop")
     .addEventListener("click", () => stopIgonbExecution());
@@ -846,6 +859,7 @@ function showIgonbNotebook(content, filename) {
   container.style.display = "flex";
   isIgonbView = true;
   document.body.classList.add("igonb-mode");
+  updatePythonPackageButtons();
   applyIgonbOutputMode();
   applyIgonbFontSizes();
   updateIgonbRunControls();
@@ -864,6 +878,7 @@ function hideIgonbNotebook() {
   const editorContainer = document.getElementById("code-editor");
   editorContainer.style.display = "block";
   isIgonbView = false;
+  updatePythonPackageButtons();
   igonbState = null;
   igonbSelectedId = null;
   igonbDragId = null;
@@ -1378,14 +1393,17 @@ function clearIgonbCellOutput(index) {
 
 async function resetIgonbEnvironment() {
   if (igonbIsExecuting) {
-    showMessage("Cannot reset while executing", "warning");
+    showMessage("Cannot restart while executing", "warning");
+    return;
+  }
+  if (!confirm("Restart kernel? This will clear the Go/Python state.")) {
     return;
   }
   try {
     await ResetIgonbEnvironment();
-    showMessage("Environment reset", "success");
+    showMessage("Kernel restarted", "success");
   } catch (error) {
-    showMessage("Failed to reset environment: " + error, "error");
+    showMessage("Failed to restart kernel: " + error, "error");
   }
 }
 
@@ -1496,10 +1514,26 @@ async function runIgonbCellDown(index) {
   }
 }
 
+function ensureIgonbMarkdownPreview() {
+  if (!igonbState) return;
+  let changed = false;
+  igonbState.cells.forEach((cell) => {
+    if (cell.language === "markdown" && cell.editing) {
+      cell.editing = false;
+      changed = true;
+    }
+  });
+  if (changed) {
+    renderIgonbCells();
+    scheduleIgonbSave();
+  }
+}
+
 async function runIgonbAll() {
   if (!igonbState || igonbIsExecuting) return;
   try {
     scheduleIgonbSave();
+    ensureIgonbMarkdownPreview();
     setIgonbRunning(-1);
     const content = getIgonbContent();
     const results = await ExecuteIgonbCells(content, -1);
@@ -2322,6 +2356,282 @@ function showMessage(message, type = "success") {
   }, 3000);
 }
 
+function copyTextToClipboard(text) {
+  if (!text) return false;
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text);
+    return true;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  let success = false;
+  try {
+    success = document.execCommand("copy");
+  } catch (error) {
+    success = false;
+  }
+  document.body.removeChild(textarea);
+  return success;
+}
+
+function updatePythonPackageButtons() {
+  const fileButton = document.getElementById("python-packages-btn");
+  if (fileButton) {
+    const showFileButton =
+      activeFileName &&
+      activeFileName.endsWith(".py") &&
+      !isImagePreview &&
+      !isLargeFilePreview &&
+      !isBinaryPreview;
+    fileButton.style.display = showFileButton ? "inline-flex" : "none";
+  }
+
+  const igonbButton = document.getElementById("igonb-packages-btn");
+  if (igonbButton) {
+    igonbButton.style.display = isIgonbView ? "inline-flex" : "none";
+  }
+}
+
+function setPythonPackagesLoading(isLoading) {
+  pythonPackagesLoading = isLoading;
+  const installBtn = document.getElementById("python-package-install");
+  const uninstallBtn = document.getElementById("python-package-uninstall");
+  const reinstallBtn = document.getElementById("python-package-reinstall");
+  const refreshBtn = document.getElementById("python-package-refresh");
+  const input = document.getElementById("python-package-input");
+  if (installBtn) installBtn.disabled = isLoading;
+  if (uninstallBtn) uninstallBtn.disabled = isLoading;
+  if (reinstallBtn) reinstallBtn.disabled = isLoading;
+  if (refreshBtn) refreshBtn.disabled = isLoading;
+  if (input) input.disabled = isLoading;
+}
+
+function setPythonPackagesStatus(message) {
+  const statusEl = document.getElementById("python-packages-status");
+  if (statusEl) {
+    statusEl.textContent = message || "";
+  }
+}
+
+function renderPythonPackageList(packages) {
+  const listEl = document.getElementById("python-packages-list");
+  if (!listEl) return;
+  listEl.innerHTML = "";
+
+  const entries = Object.entries(packages || {}).map(([name, version]) => ({
+    name,
+    version,
+  }));
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+
+  if (entries.length === 0) {
+    listEl.innerHTML =
+      '<div class="python-packages-empty">No packages found.</div>';
+    return;
+  }
+
+  const input = document.getElementById("python-package-input");
+  entries.forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = "python-package-row";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "python-package-name";
+    nameSpan.textContent = entry.name;
+
+    const versionSpan = document.createElement("span");
+    versionSpan.className = "python-package-version";
+    versionSpan.textContent = entry.version || "";
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "secondary icon-only python-package-remove";
+    removeBtn.title = `Uninstall ${entry.name}`;
+    removeBtn.innerHTML = '<i class="fas fa-trash"></i>';
+    removeBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      uninstallPythonPackageByName(entry.name);
+    });
+
+    row.addEventListener("click", () => {
+      if (input) {
+        input.value = entry.name;
+        input.focus();
+      }
+    });
+
+    row.appendChild(nameSpan);
+    row.appendChild(versionSpan);
+    row.appendChild(removeBtn);
+    listEl.appendChild(row);
+  });
+}
+
+async function refreshPythonPackages(force = false) {
+  if (pythonPackagesLoading && !force) return;
+  setPythonPackagesLoading(true);
+  setPythonPackagesStatus("Loading packages...");
+  try {
+    const packages = await PipList();
+    renderPythonPackageList(packages || {});
+    setPythonPackagesStatus(
+      `Loaded ${Object.keys(packages || {}).length} packages`,
+    );
+  } catch (error) {
+    console.error("Failed to load packages:", error);
+    renderPythonPackageList({});
+    setPythonPackagesStatus("Failed to load packages");
+    showMessage("Failed to load packages: " + error, "error");
+  } finally {
+    setPythonPackagesLoading(false);
+  }
+}
+
+async function installPythonPackage() {
+  if (pythonPackagesLoading) return;
+  const input = document.getElementById("python-package-input");
+  const pkgName = input ? input.value.trim() : "";
+  if (!pkgName) {
+    showMessage("Enter a package name to install", "warning");
+    return;
+  }
+  setPythonPackagesLoading(true);
+  setPythonPackagesStatus(`Installing ${pkgName}...`);
+  try {
+    await PipInstall(pkgName);
+    if (input) input.value = "";
+    showMessage(`Installed ${pkgName}`, "success");
+    await refreshPythonPackages(true);
+  } catch (error) {
+    console.error("Failed to install package:", error);
+    showMessage("Failed to install package: " + error, "error");
+    setPythonPackagesStatus("Install failed");
+  } finally {
+    setPythonPackagesLoading(false);
+  }
+}
+
+async function uninstallPythonPackage() {
+  if (pythonPackagesLoading) return;
+  const input = document.getElementById("python-package-input");
+  const pkgName = input ? input.value.trim() : "";
+  if (!pkgName) {
+    showMessage("Enter a package name to uninstall", "warning");
+    return;
+  }
+  await uninstallPythonPackageByName(pkgName);
+  if (input) input.value = "";
+}
+
+async function uninstallPythonPackageByName(pkgName) {
+  if (!pkgName) return;
+  if (!confirm(`Uninstall ${pkgName}?`)) {
+    return;
+  }
+  setPythonPackagesLoading(true);
+  setPythonPackagesStatus(`Uninstalling ${pkgName}...`);
+  try {
+    await PipUninstall(pkgName);
+    showMessage(`Uninstalled ${pkgName}`, "success");
+    await refreshPythonPackages(true);
+  } catch (error) {
+    console.error("Failed to uninstall package:", error);
+    showMessage("Failed to uninstall package: " + error, "error");
+    setPythonPackagesStatus("Uninstall failed");
+  } finally {
+    setPythonPackagesLoading(false);
+  }
+}
+
+async function reinstallPythonEnvironment() {
+  if (pythonPackagesLoading) return;
+  if (
+    !confirm(
+      "Reinstalling will reset the embedded Python environment. Continue?",
+    )
+  ) {
+    return;
+  }
+  setPythonPackagesLoading(true);
+  setPythonPackagesStatus("Reinstalling Python environment...");
+  try {
+    await ReinstallPyEnv();
+    showMessage("Python environment reinstalled", "success");
+    await refreshPythonPackages(true);
+  } catch (error) {
+    console.error("Failed to reinstall Python env:", error);
+    showMessage("Failed to reinstall Python env: " + error, "error");
+    setPythonPackagesStatus("Reinstall failed");
+  } finally {
+    setPythonPackagesLoading(false);
+  }
+}
+
+function openPythonPackageManager() {
+  const modal = document.getElementById("python-packages-modal");
+  if (!modal) return;
+  modal.classList.add("active");
+  refreshPythonPackages();
+}
+
+function closePythonPackageManager() {
+  const modal = document.getElementById("python-packages-modal");
+  if (!modal) return;
+  modal.classList.remove("active");
+  setPythonPackagesStatus("");
+}
+
+function initPythonPackageModal() {
+  const modal = document.getElementById("python-packages-modal");
+  if (!modal) return;
+
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) {
+      closePythonPackageManager();
+    }
+  });
+
+  const closeBtn = document.getElementById("python-packages-close");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", closePythonPackageManager);
+  }
+
+  const installBtn = document.getElementById("python-package-install");
+  if (installBtn) {
+    installBtn.addEventListener("click", installPythonPackage);
+  }
+
+  const uninstallBtn = document.getElementById("python-package-uninstall");
+  if (uninstallBtn) {
+    uninstallBtn.addEventListener("click", uninstallPythonPackage);
+  }
+
+  const reinstallBtn = document.getElementById("python-package-reinstall");
+  if (reinstallBtn) {
+    reinstallBtn.addEventListener("click", reinstallPythonEnvironment);
+  }
+
+  const refreshBtn = document.getElementById("python-package-refresh");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", refreshPythonPackages);
+  }
+
+  const input = document.getElementById("python-package-input");
+  if (input) {
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        installPythonPackage();
+      }
+    });
+  }
+}
+
 function closeActionMenu() {
   if (!currentActionMenu) return;
   currentActionMenu.classList.remove("active");
@@ -2424,6 +2734,7 @@ function updateRunButtonState() {
   runButton.title = runnable
     ? "Run"
     : "Run is only available for .go, .py, and .igonb files";
+  updatePythonPackageButtons();
 }
 
 function isRunnableFileName(filename) {
@@ -2819,6 +3130,50 @@ function hideImportProgress(delayMs = 0) {
 }
 
 // Workspace functions
+async function updateWorkspaceIndicator() {
+  const infoEl = document.getElementById("workspace-info");
+  if (!infoEl) return;
+
+  try {
+    const info = await GetWorkspaceInfo();
+    if (!info || !info.initialized) {
+      infoEl.textContent = "Workspace unavailable";
+      infoEl.title = "";
+      infoEl.classList.add("temp");
+      infoEl.classList.remove("copyable");
+      infoEl.dataset.path = "";
+      return;
+    }
+
+    if (info.isTemp) {
+      infoEl.textContent = "Temporary workspace";
+      infoEl.title = "Temporary workspace";
+      infoEl.classList.add("temp");
+      infoEl.classList.remove("copyable");
+      infoEl.dataset.path = "";
+      return;
+    }
+
+    const pathLabel = info.workDir ? `Folder: ${info.workDir}` : "Workspace";
+    infoEl.textContent = pathLabel;
+    infoEl.title = info.workDir || pathLabel;
+    infoEl.classList.remove("temp");
+    if (info.workDir) {
+      infoEl.classList.add("copyable");
+      infoEl.dataset.path = info.workDir;
+    } else {
+      infoEl.classList.remove("copyable");
+      infoEl.dataset.path = "";
+    }
+  } catch (error) {
+    infoEl.textContent = "Workspace unavailable";
+    infoEl.title = "";
+    infoEl.classList.add("temp");
+    infoEl.classList.remove("copyable");
+    infoEl.dataset.path = "";
+  }
+}
+
 async function loadWorkspaceFiles() {
   const loadToken = ++workspaceLoadToken;
   try {
@@ -2832,6 +3187,7 @@ async function loadWorkspaceFiles() {
     workspaceFiles = files;
     activeFileName = activeFile;
     renderFileTree();
+    updateWorkspaceIndicator();
   } catch (error) {
     console.error("Failed to load workspace files:", error);
   }
@@ -2855,6 +3211,7 @@ async function loadWorkspaceWithRetry(maxRetries = 5, delayMs = 100) {
       ]);
       workspaceFiles = files;
       activeFileName = activeFile;
+      updateWorkspaceIndicator();
 
       // Check if we got any files
       if (workspaceFiles && workspaceFiles.length > 0) {
@@ -2981,11 +3338,159 @@ function collectRenderEntries(node, depth, initialized, list) {
   });
 }
 
+function getBaseName(path) {
+  const parts = path.split("/");
+  return parts[parts.length - 1] || path;
+}
+
+function startFileTreeDrag(event, entry) {
+  fileTreeDragPath = entry.path || "";
+  fileTreeDragIsDir = !!entry.isDir;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", entry.path);
+  }
+  document.body.classList.add("file-tree-dragging");
+}
+
+function clearFileTreeDragState() {
+  fileTreeDragPath = "";
+  fileTreeDragIsDir = false;
+  document.body.classList.remove("file-tree-dragging");
+  document
+    .querySelectorAll(".file-item.drag-target")
+    .forEach((el) => el.classList.remove("drag-target"));
+  const fileTree = document.getElementById("file-tree");
+  if (fileTree) {
+    fileTree.classList.remove("drag-root");
+  }
+}
+
+function canMoveToTarget(sourcePath, targetDir) {
+  if (!sourcePath) return false;
+  const targetPath = targetDir
+    ? `${targetDir}/${getBaseName(sourcePath)}`
+    : getBaseName(sourcePath);
+  if (targetPath === sourcePath) return false;
+  if (fileTreeDragIsDir) {
+    if (targetDir === sourcePath || targetDir.startsWith(`${sourcePath}/`)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function moveWorkspaceEntry(sourcePath, targetDir) {
+  if (!sourcePath) return;
+  const entry = workspaceFiles.find((file) => file.name === sourcePath);
+  if (!entry) return;
+
+  const targetPath = targetDir
+    ? `${targetDir}/${getBaseName(sourcePath)}`
+    : getBaseName(sourcePath);
+  if (targetPath === sourcePath) return;
+
+  if (
+    entry.isDir &&
+    targetDir &&
+    (targetDir === sourcePath || targetDir.startsWith(`${sourcePath}/`))
+  ) {
+    showMessage("Cannot move a folder into itself", "warning");
+    return;
+  }
+  if (workspaceFiles.some((file) => file.name === targetPath)) {
+    showMessage(`Target already exists: ${targetPath}`, "error");
+    return;
+  }
+
+  try {
+    if (
+      !entry.isDir &&
+      sourcePath === activeFileName &&
+      !isImagePreview &&
+      !isLargeFilePreview &&
+      !isBinaryPreview
+    ) {
+      const currentContent =
+        isIgonbView && activeFileName.endsWith(".igonb")
+          ? getIgonbContent()
+          : editor.getValue();
+      await UpdateFileContent(sourcePath, currentContent);
+    }
+
+    if (entry.isDir) {
+      const previousActive = activeFileName;
+      await RenameFolder(sourcePath, targetPath);
+      renameFileModelsInFolder(sourcePath, targetPath);
+
+      if (previousActive && previousActive.startsWith(`${sourcePath}/`)) {
+        activeFileName = previousActive.replace(
+          `${sourcePath}/`,
+          `${targetPath}/`,
+        );
+      }
+
+      if (selectedFolderPath === sourcePath) {
+        selectedFolderPath = targetPath;
+        isRootFolderSelected = false;
+      } else if (selectedFolderPath.startsWith(`${sourcePath}/`)) {
+        selectedFolderPath = selectedFolderPath.replace(
+          `${sourcePath}/`,
+          `${targetPath}/`,
+        );
+        isRootFolderSelected = false;
+      }
+
+      if (expandedDirs.size > 0) {
+        const updated = new Set();
+        expandedDirs.forEach((path) => {
+          if (path === sourcePath) {
+            updated.add(targetPath);
+            return;
+          }
+          if (path.startsWith(`${sourcePath}/`)) {
+            updated.add(path.replace(`${sourcePath}/`, `${targetPath}/`));
+            return;
+          }
+          updated.add(path);
+        });
+        expandedDirs.clear();
+        updated.forEach((path) => expandedDirs.add(path));
+      }
+
+      await loadWorkspaceFiles();
+      if (activeFileName) {
+        await switchToFile(activeFileName, true);
+      }
+      showMessage(`Folder moved to "${targetPath}"`, "success");
+      return;
+    }
+
+    await RenameFile(sourcePath, targetPath);
+    const wasActive = sourcePath === activeFileName;
+    renameFileModel(sourcePath, targetPath);
+
+    activeFileName = "";
+    await loadWorkspaceFiles();
+
+    if (wasActive) {
+      hideImagePreview();
+      hideBinaryPreview();
+      await switchToFile(targetPath, true);
+    }
+    showMessage(`File moved to "${targetPath}"`, "success");
+  } catch (error) {
+    console.error("Failed to move entry:", error);
+    showMessage("Failed to move entry: " + error, "error");
+  }
+}
+
 function createFileItem(entry, depth) {
   const fileItem = document.createElement("div");
   fileItem.className = "file-item";
   fileItem.style.paddingLeft = `${8 + depth * 14}px`;
   fileItem.title = entry.name;
+  fileItem.draggable = true;
 
   if (entry.meta && entry.meta.tooLarge) {
     fileItem.classList.add("file-large");
@@ -3062,6 +3567,39 @@ function createFileItem(entry, depth) {
 
     switchToFile(entry.path);
   });
+
+  fileItem.addEventListener("dragstart", (event) => {
+    startFileTreeDrag(event, entry);
+  });
+
+  fileItem.addEventListener("dragend", () => {
+    clearFileTreeDragState();
+  });
+
+  if (entry.isDir) {
+    fileItem.addEventListener("dragover", (event) => {
+      if (!fileTreeDragPath) return;
+      if (!canMoveToTarget(fileTreeDragPath, entry.path)) return;
+      event.preventDefault();
+      fileItem.classList.add("drag-target");
+    });
+
+    fileItem.addEventListener("dragleave", () => {
+      fileItem.classList.remove("drag-target");
+    });
+
+    fileItem.addEventListener("drop", async (event) => {
+      if (!fileTreeDragPath) return;
+      event.preventDefault();
+      fileItem.classList.remove("drag-target");
+      if (!canMoveToTarget(fileTreeDragPath, entry.path)) {
+        clearFileTreeDragState();
+        return;
+      }
+      await moveWorkspaceEntry(fileTreeDragPath, entry.path);
+      clearFileTreeDragState();
+    });
+  }
 
   const fileActions = fileItem.querySelector(".file-actions");
   const actionBtn = fileItem.querySelector(".file-action-btn");
@@ -3566,6 +4104,7 @@ async function createWorkspace() {
     }
 
     scheduleWorkspaceRefresh();
+    updateWorkspaceIndicator();
     showMessage(`Workspace created at: ${workspacePath}`, "success");
   } catch (error) {
     console.error("Failed to create workspace:", error);
@@ -3617,6 +4156,7 @@ async function openWorkspace() {
     }
 
     await loadWorkspaceFiles();
+    updateWorkspaceIndicator();
 
     // Load the active file
     if (workspaceFiles.length > 0) {
@@ -3867,7 +4407,10 @@ async function initApp() {
         <div class="main-content">
             <div class="workspace-sidebar">
                 <div class="workspace-header">
-                    <span class="workspace-label">Workspace</span>
+                    <div class="workspace-title">
+                        <span class="workspace-label">Workspace</span>
+                        <span class="workspace-info" id="workspace-info">Loading...</span>
+                    </div>
                     <div class="workspace-buttons">
                         <button class="secondary icon-only" id="new-file-btn" title="New File (Ctrl+N)">
                             <i class="fas fa-file-circle-plus"></i>
@@ -3911,6 +4454,9 @@ async function initApp() {
                         <button class="secondary" id="export-file-btn" title="Export Current File">
                             <i class="fas fa-file-export"></i> Export
                         </button>
+                        <button class="secondary" id="python-packages-btn" title="Manage Python packages" style="display: none;">
+                            <i class="fas fa-boxes"></i> Packages
+                        </button>
                     </div>
                 </div>
                 <div class="editor-container">
@@ -3950,6 +4496,36 @@ async function initApp() {
                 </div>
             </div>
         </div>
+        <div id="python-packages-modal" class="python-packages-modal">
+            <div class="python-packages-card">
+                <div class="python-packages-header">
+                    <span>Python Packages (Insyra env)</span>
+                    <button class="secondary icon-only" id="python-packages-close" title="Close">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="python-packages-hint">
+                    Manage the embedded Python environment for .py and igonb.
+                </div>
+                <div class="python-packages-controls">
+                    <input id="python-package-input" type="text" placeholder="Package name (e.g., numpy)">
+                    <button class="secondary" id="python-package-install">
+                        <i class="fas fa-download"></i> Install
+                    </button>
+                    <button class="secondary" id="python-package-uninstall">
+                        <i class="fas fa-trash"></i> Uninstall
+                    </button>
+                    <button class="danger" id="python-package-reinstall">
+                        <i class="fas fa-rotate"></i> Reinstall Env
+                    </button>
+                    <button class="secondary icon-only" id="python-package-refresh" title="Refresh">
+                        <i class="fas fa-rotate"></i>
+                    </button>
+                </div>
+                <div class="python-packages-status" id="python-packages-status"></div>
+                <div class="python-packages-list" id="python-packages-list"></div>
+            </div>
+        </div>
         <div id="import-progress-overlay" class="import-progress-overlay">
             <div class="import-progress-card">
                 <div id="import-progress-title" class="import-progress-title">Importing file</div>
@@ -3973,6 +4549,7 @@ async function initApp() {
 
   const resultOutput = document.getElementById("result-output");
   const fileTree = document.getElementById("file-tree");
+  const workspaceInfo = document.getElementById("workspace-info");
   if (fileTree) {
     fileTree.addEventListener("click", (event) => {
       if (event.target.closest(".file-item")) {
@@ -3981,6 +4558,42 @@ async function initApp() {
       selectedFolderPath = "";
       isRootFolderSelected = true;
       renderFileTree();
+    });
+    fileTree.addEventListener("dragover", (event) => {
+      if (!fileTreeDragPath) return;
+      if (event.target.closest(".file-item")) return;
+      if (!canMoveToTarget(fileTreeDragPath, "")) return;
+      event.preventDefault();
+      fileTree.classList.add("drag-root");
+    });
+    fileTree.addEventListener("dragleave", (event) => {
+      if (event.relatedTarget && fileTree.contains(event.relatedTarget)) {
+        return;
+      }
+      fileTree.classList.remove("drag-root");
+    });
+    fileTree.addEventListener("drop", async (event) => {
+      if (!fileTreeDragPath) return;
+      if (event.target.closest(".file-item")) return;
+      event.preventDefault();
+      fileTree.classList.remove("drag-root");
+      if (!canMoveToTarget(fileTreeDragPath, "")) {
+        clearFileTreeDragState();
+        return;
+      }
+      await moveWorkspaceEntry(fileTreeDragPath, "");
+      clearFileTreeDragState();
+    });
+  }
+  if (workspaceInfo) {
+    workspaceInfo.addEventListener("click", () => {
+      const path = workspaceInfo.dataset.path || "";
+      if (!path) return;
+      if (copyTextToClipboard(path)) {
+        showMessage("Workspace path copied", "success");
+      } else {
+        showMessage("Failed to copy workspace path", "error");
+      }
     });
   }
   if (resultOutput) {
@@ -4025,6 +4638,9 @@ async function initApp() {
   document
     .getElementById("export-file-btn")
     .addEventListener("click", exportCurrentFile);
+  document
+    .getElementById("python-packages-btn")
+    .addEventListener("click", openPythonPackageManager);
   document
     .getElementById("new-file-btn")
     .addEventListener("click", createNewFile);
@@ -4100,6 +4716,7 @@ async function initApp() {
     document.getElementById("wordwrap-toggle").classList.add("active");
   }
 
+  initPythonPackageModal();
   updateRunButtonState();
 
   // Keyboard shortcuts

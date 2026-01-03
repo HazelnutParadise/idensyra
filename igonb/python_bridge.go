@@ -1,6 +1,7 @@
 package igonb
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,6 +55,7 @@ func (e *Executor) runPythonCell(code string) (string, error) {
 		return "", nil
 	}
 	if err := e.PreloadGoImports([]string{
+		"context",
 		"github.com/HazelnutParadise/insyra/py",
 		"github.com/HazelnutParadise/insyra",
 		"github.com/HazelnutParadise/insyra/isr",
@@ -486,12 +488,27 @@ func (e *Executor) executePythonWrapper(wrapper string, bindings []pythonBinding
 	runID := e.nextPythonRunID()
 	resultVar := fmt.Sprintf("__igonb_py_result_%d", runID)
 	errVar := fmt.Sprintf("__igonb_py_err_%d", runID)
+	ctxVar := fmt.Sprintf("__igonb_py_ctx_%d", runID)
+	cancelVar := fmt.Sprintf("__igonb_py_cancel_%d", runID)
 
 	if _, err := e.runGoSegment(fmt.Sprintf("var %s map[string]any", resultVar), false); err != nil {
 		return payload, "", err
 	}
 	if _, err := e.runGoSegment(fmt.Sprintf("var %s error", errVar), false); err != nil {
 		return payload, "", err
+	}
+	if _, err := e.runGoSegment(fmt.Sprintf("%s, %s := context.WithCancel(context.Background())", ctxVar, cancelVar), false); err != nil {
+		return payload, "", err
+	}
+	cancelValue, err := e.goInterp.Eval(cancelVar)
+	if err == nil && cancelValue.IsValid() && cancelValue.CanInterface() {
+		if cancelFunc, ok := cancelValue.Interface().(context.CancelFunc); ok && cancelFunc != nil {
+			e.setPythonCancel(cancelFunc)
+			defer func() {
+				e.clearPythonCancel(cancelFunc)
+				cancelFunc()
+			}()
+		}
 	}
 
 	codeLiteral := strconv.Quote(wrapper)
@@ -507,7 +524,7 @@ func (e *Executor) executePythonWrapper(wrapper string, bindings []pythonBinding
 		argList = ", " + strings.Join([]string{strconv.Quote(defsJSON), strconv.Quote(state)}, ", ")
 	}
 
-	call := fmt.Sprintf("%s = py.RunCodef(&%s, %s%s)", errVar, resultVar, codeLiteral, argList)
+	call := fmt.Sprintf("%s = py.RunCodefContext(%s, &%s, %s%s)", errVar, ctxVar, resultVar, codeLiteral, argList)
 	output, err := e.runGoSegment(call, false)
 	if err != nil {
 		return payload, output, err
@@ -519,6 +536,9 @@ func (e *Executor) executePythonWrapper(wrapper string, bindings []pythonBinding
 	}
 	if errValue.IsValid() && !errValue.IsNil() {
 		if errInterface, ok := errValue.Interface().(error); ok && errInterface != nil {
+			if errors.Is(errInterface, context.Canceled) || errors.Is(errInterface, context.DeadlineExceeded) {
+				return payload, output, ErrExecutionStopped
+			}
 			return payload, output, errInterface
 		}
 		return payload, output, fmt.Errorf("python execution failed")

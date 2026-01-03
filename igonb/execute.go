@@ -40,6 +40,7 @@ type Executor struct {
 	pythonDefs     []pythonDef
 	stopRequested  bool
 	goCancel       context.CancelFunc
+	pythonCancel   context.CancelFunc
 }
 
 type GoSetupFunc func(*interp.Interpreter) error
@@ -341,6 +342,7 @@ func (e *Executor) Close() error {
 		return nil
 	}
 	var goCancel context.CancelFunc
+	var pythonCancel context.CancelFunc
 	e.sharedMu.Lock()
 	e.sharedVars = make(map[string]any)
 	e.pythonRunID = 0
@@ -349,9 +351,14 @@ func (e *Executor) Close() error {
 	e.stopRequested = false
 	goCancel = e.goCancel
 	e.goCancel = nil
+	pythonCancel = e.pythonCancel
+	e.pythonCancel = nil
 	e.sharedMu.Unlock()
 	if goCancel != nil {
 		goCancel()
+	}
+	if pythonCancel != nil {
+		pythonCancel()
 	}
 	return nil
 }
@@ -361,12 +368,17 @@ func (e *Executor) RequestStop() {
 		return
 	}
 	var goCancel context.CancelFunc
+	var pythonCancel context.CancelFunc
 	e.sharedMu.Lock()
 	e.stopRequested = true
 	goCancel = e.goCancel
+	pythonCancel = e.pythonCancel
 	e.sharedMu.Unlock()
 	if goCancel != nil {
 		goCancel()
+	}
+	if pythonCancel != nil {
+		pythonCancel()
 	}
 }
 
@@ -394,6 +406,24 @@ func (e *Executor) clearGoCancel(cancel context.CancelFunc) {
 	}
 	e.sharedMu.Lock()
 	e.goCancel = nil
+	e.sharedMu.Unlock()
+}
+
+func (e *Executor) setPythonCancel(cancel context.CancelFunc) {
+	if e == nil {
+		return
+	}
+	e.sharedMu.Lock()
+	e.pythonCancel = cancel
+	e.sharedMu.Unlock()
+}
+
+func (e *Executor) clearPythonCancel(cancel context.CancelFunc) {
+	if e == nil {
+		return
+	}
+	e.sharedMu.Lock()
+	e.pythonCancel = nil
 	e.sharedMu.Unlock()
 }
 
