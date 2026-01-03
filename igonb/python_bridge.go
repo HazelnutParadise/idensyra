@@ -61,6 +61,9 @@ func (e *Executor) runPythonCell(code string) (string, error) {
 	}); err != nil {
 		return "", err
 	}
+	if e.isStopRequested() {
+		return "", ErrExecutionStopped
+	}
 
 	shared := e.snapshotSharedVars()
 	state := e.snapshotPythonState()
@@ -321,6 +324,30 @@ def __igonb_dump_state(globs):
 def __igonb_restore_value(value):
     if isinstance(value, dict):
         vtype = value.get("__igonb_type__")
+        if vtype == "datalist":
+            try:
+                import pandas as pd
+                data = value.get("data", [])
+                name = value.get("name", None)
+                if name == "":
+                    name = None
+                return pd.Series(data, name=name)
+            except Exception:
+                return value.get("data", [])
+        if vtype == "datatable":
+            try:
+                import pandas as pd
+                data = value.get("data", [])
+                df = pd.DataFrame(data)
+                cols = value.get("columns", [])
+                if isinstance(cols, list) and any(str(c).strip() != "" for c in cols):
+                    df.columns = cols
+                rows = value.get("index", [])
+                if isinstance(rows, list) and any(str(r).strip() != "" for r in rows):
+                    df.index = rows
+                return df
+            except Exception:
+                return value.get("data", [])
         if vtype == "pyobject" and value.get("pickle"):
             try:
                 data = base64.b64decode(value["pickle"].encode("utf-8"))

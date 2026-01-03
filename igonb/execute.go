@@ -2,6 +2,7 @@ package igonb
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -38,6 +39,7 @@ type Executor struct {
 	pythonState    string
 	pythonDefs     []pythonDef
 	stopRequested  bool
+	goCancel       context.CancelFunc
 }
 
 type GoSetupFunc func(*interp.Interpreter) error
@@ -338,13 +340,19 @@ func (e *Executor) Close() error {
 	if e == nil {
 		return nil
 	}
+	var goCancel context.CancelFunc
 	e.sharedMu.Lock()
 	e.sharedVars = make(map[string]any)
 	e.pythonRunID = 0
 	e.pythonState = ""
 	e.pythonDefs = nil
 	e.stopRequested = false
+	goCancel = e.goCancel
+	e.goCancel = nil
 	e.sharedMu.Unlock()
+	if goCancel != nil {
+		goCancel()
+	}
 	return nil
 }
 
@@ -352,9 +360,14 @@ func (e *Executor) RequestStop() {
 	if e == nil {
 		return
 	}
+	var goCancel context.CancelFunc
 	e.sharedMu.Lock()
 	e.stopRequested = true
+	goCancel = e.goCancel
 	e.sharedMu.Unlock()
+	if goCancel != nil {
+		goCancel()
+	}
 }
 
 func (e *Executor) ClearStop() {
@@ -363,6 +376,24 @@ func (e *Executor) ClearStop() {
 	}
 	e.sharedMu.Lock()
 	e.stopRequested = false
+	e.sharedMu.Unlock()
+}
+
+func (e *Executor) setGoCancel(cancel context.CancelFunc) {
+	if e == nil {
+		return
+	}
+	e.sharedMu.Lock()
+	e.goCancel = cancel
+	e.sharedMu.Unlock()
+}
+
+func (e *Executor) clearGoCancel(cancel context.CancelFunc) {
+	if e == nil {
+		return
+	}
+	e.sharedMu.Lock()
+	e.goCancel = nil
 	e.sharedMu.Unlock()
 }
 
@@ -411,6 +442,9 @@ func (e *Executor) PreloadGoImports(paths []string) error {
 
 func (e *Executor) runGoSegment(code string, allowAutoOutput bool) (string, error) {
 	var evalValue reflect.Value
+	if e.isStopRequested() {
+		return "", ErrExecutionStopped
+	}
 	pipeOutput, err := captureStdIO(func() (evalErr error) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -421,9 +455,16 @@ func (e *Executor) runGoSegment(code string, allowAutoOutput bool) (string, erro
 				}
 			}
 		}()
-		value, innerErr := e.goInterp.Eval(code)
+		ctx, cancel := context.WithCancel(context.Background())
+		e.setGoCancel(cancel)
+		defer e.clearGoCancel(cancel)
+		value, innerErr := e.goInterp.EvalWithContext(ctx, code)
 		evalValue = value
-		evalErr = innerErr
+		if errors.Is(innerErr, context.Canceled) {
+			evalErr = ErrExecutionStopped
+		} else {
+			evalErr = innerErr
+		}
 		return evalErr
 	})
 

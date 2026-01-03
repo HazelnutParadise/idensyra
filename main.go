@@ -17,9 +17,11 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:  "Idensyra - Go IDE for Insyra",
-		Width:  1200,
-		Height: 650,
+		Title:     "Idensyra - Go IDE for Insyra",
+		Width:     1200,
+		MinWidth:  1000,
+		Height:    650,
+		MinHeight: 600,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
@@ -31,6 +33,7 @@ func main() {
 		Bind: []any{
 			app,
 		},
+		EnableDefaultContextMenu: false,
 	})
 
 	if err != nil {
