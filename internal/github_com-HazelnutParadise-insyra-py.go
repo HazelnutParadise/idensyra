@@ -10,12 +10,19 @@ import (
 func init() {
 	Symbols["github.com/HazelnutParadise/insyra/py/py"] = map[string]reflect.Value{
 		// function, constant and variable definitions
-		"PipInstall":     reflect.ValueOf(py.PipInstall),
-		"PipUninstall":   reflect.ValueOf(py.PipUninstall),
-		"ReinstallPyEnv": reflect.ValueOf(py.ReinstallPyEnv),
-		"RunCode":        reflect.ValueOf(py.RunCode),
-		"RunCodef":       reflect.ValueOf(py.RunCodef),
-		"RunFile":        reflect.ValueOf(py.RunFile),
-		"RunFilef":       reflect.ValueOf(py.RunFilef),
+		"PipFreeze":          reflect.ValueOf(py.PipFreeze),
+		"PipInstall":         reflect.ValueOf(py.PipInstall),
+		"PipList":            reflect.ValueOf(py.PipList),
+		"PipUninstall":       reflect.ValueOf(py.PipUninstall),
+		"ReinstallPyEnv":     reflect.ValueOf(py.ReinstallPyEnv),
+		"RunCode":            reflect.ValueOf(py.RunCode),
+		"RunCodeContext":     reflect.ValueOf(py.RunCodeContext),
+		"RunCodeWithTimeout": reflect.ValueOf(py.RunCodeWithTimeout),
+		"RunCodef":           reflect.ValueOf(py.RunCodef),
+		"RunCodefContext":    reflect.ValueOf(py.RunCodefContext),
+		"RunFile":            reflect.ValueOf(py.RunFile),
+		"RunFileContext":     reflect.ValueOf(py.RunFileContext),
+		"RunFilef":           reflect.ValueOf(py.RunFilef),
+		"RunFilefContext":    reflect.ValueOf(py.RunFilefContext),
 	}
 }

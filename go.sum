@@ -15,8 +15,8 @@ git.sr.ht/~sbinet/gg v0.7.0/go.mod h1:VYeli15tpMM4EvqlivlVbbyvWZlOU+EZn4XZmfBGUd
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/HazelnutParadise/Go-Utils v0.8.2 h1:36GZ8zWw/W6/hw9nB7AxR88XKMSfZIs+PLX1Y0+AL0Q=
 github.com/HazelnutParadise/Go-Utils v0.8.2/go.mod h1:TR4d00qeSIL20jAuljAtgrZ27645d8ui1hu9txyyHow=
-github.com/HazelnutParadise/insyra v0.2.11 h1:PqPOoWgPuuxQLTgKIP1QgKThTKMxv5N522YRV+E1xk0=
-github.com/HazelnutParadise/insyra v0.2.11/go.mod h1:NdSqObEEoTK+K41sbFyPvA3yArMyNbU7IHke1gQWAlM=
+github.com/HazelnutParadise/insyra v0.2.12 h1:1/N6o1V+3TsW3jCiyJxOsY1Mvc+24a4R8dmAIU1+KKY=
+github.com/HazelnutParadise/insyra v0.2.12/go.mod h1:NdSqObEEoTK+K41sbFyPvA3yArMyNbU7IHke1gQWAlM=
 github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c h1:RGWPOewvKIROun94nF7v2cua9qP+thov/7M50KEoeSU=
 github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c/go.mod h1:X0CRv0ky0k6m906ixxpzmDRLvX58TFUKS2eePweuyxk=
 github.com/Masterminds/squirrel v1.5.4 h1:uUcX/aBc8O7Fg9kaISIUsHXdKuqehiXAMQTYX8afzqM=

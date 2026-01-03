@@ -3,7 +3,7 @@ module github.com/HazelnutParadise/idensyra
 go 1.25
 
 require (
-	github.com/HazelnutParadise/insyra v0.2.11
+	github.com/HazelnutParadise/insyra v0.2.12
 	github.com/traefik/yaegi v0.16.1
 	github.com/wailsapp/wails/v2 v2.11.0
 	github.com/xuri/excelize/v2 v2.10.0

@@ -291,6 +291,7 @@ func executeGoCode(code string, colorBG string) string {
 	}()
 
 	code = normalizeGoRangeLoops(code)
+
 	execErr := func() (err error) {
 		defer func() {
 			if r := recover(); r != nil {

@@ -60,7 +60,7 @@ func init() {
 		"SqrtRat":                  reflect.ValueOf(insyra.SqrtRat),
 		"ToFloat64":                reflect.ValueOf(&insyra.ToFloat64).Elem(),
 		"ToFloat64Safe":            reflect.ValueOf(&insyra.ToFloat64Safe).Elem(),
-		"Version":                  reflect.ValueOf(constant.MakeFromLiteral("\"0.2.11\"", token.STRING, 0)),
+		"Version":                  reflect.ValueOf(constant.MakeFromLiteral("\"0.2.12\"", token.STRING, 0)),
 		"VersionName":              reflect.ValueOf(constant.MakeFromLiteral("\"Pier-2\"", token.STRING, 0)),
 
 		// type definitions
