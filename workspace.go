@@ -575,6 +575,11 @@ func (a *App) AutoSaveTempWorkspace() error {
 	globalWorkspace.mu.Lock()
 	defer globalWorkspace.mu.Unlock()
 
+	// Only auto-save in temp workspace, not real workspace
+	if !globalWorkspace.isTemp {
+		return nil
+	}
+
 	// Only auto-save if there are modified files
 	hasModified := false
 	for _, file := range globalWorkspace.files {

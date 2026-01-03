@@ -51,32 +51,35 @@ func (a *App) ExecutePythonFile(filename string, content string) string {
 	return executeGoCode(code, "dark")
 }
 
-func writeExecutionFile(workDir string, cleanName string, content string) error {
-	fullPath := filepath.Join(workDir, filepath.FromSlash(cleanName))
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-		return err
-	}
-	return os.WriteFile(fullPath, []byte(content), 0644)
-}
-
-func buildPythonFileRunner(relPath string) string {
-	quotedPath := strconv.Quote(relPath)
-	// Add UTF-8 encoding setup before running the file
-	return fmt.Sprintf(`import (
-	"fmt"
-	"github.com/HazelnutParadise/insyra/py"
-)
-
-func main() {
-	// Setup UTF-8 encoding for Python output on Windows
-	py.RunCode(nil, `+"`"+`
+// pythonEncodingSetup is prepended to Python files to ensure UTF-8 output on Windows
+const pythonEncodingSetup = `# -*- coding: utf-8 -*-
 import sys
 if sys.platform == 'win32':
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     if hasattr(sys.stderr, 'reconfigure'):
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-`+"`"+`)
+# End of encoding setup
+`
+
+func writeExecutionFile(workDir string, cleanName string, content string) error {
+	fullPath := filepath.Join(workDir, filepath.FromSlash(cleanName))
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		return err
+	}
+	// Prepend UTF-8 encoding setup to ensure proper output on Windows
+	wrappedContent := pythonEncodingSetup + content
+	return os.WriteFile(fullPath, []byte(wrappedContent), 0644)
+}
+
+func buildPythonFileRunner(relPath string) string {
+	quotedPath := strconv.Quote(relPath)
+	return fmt.Sprintf(`import (
+	"fmt"
+	"github.com/HazelnutParadise/insyra/py"
+)
+
+func main() {
 	if err := py.RunFile(nil, %s); err != nil {
 		fmt.Println(err)
 	}
