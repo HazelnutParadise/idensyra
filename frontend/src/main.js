@@ -52,6 +52,14 @@ const PipList = (...args) => window.go.main.App.PipList(...args);
 const PipInstall = (...args) => window.go.main.App.PipInstall(...args);
 const PipUninstall = (...args) => window.go.main.App.PipUninstall(...args);
 const ReinstallPyEnv = (...args) => window.go.main.App.ReinstallPyEnv(...args);
+const GetIPyNBAsIgonbContent = (...args) =>
+  window.go.main.App.GetIPyNBAsIgonbContent(...args);
+const ConvertIPyNBToIgonb = (...args) =>
+  window.go.main.App.ConvertIPyNBToIgonb(...args);
+const UpdateIPyNBContent = (...args) =>
+  window.go.main.App.UpdateIPyNBContent(...args);
+const AutoSaveTempWorkspace = (...args) =>
+  window.go.main.App.AutoSaveTempWorkspace(...args);
 
 let editor;
 let liveRun = false;
@@ -556,6 +564,12 @@ function applyTextFileContent(filename, content, fromCache = false) {
     return;
   }
 
+  // Handle .ipynb files by converting to igonb format for viewing
+  if (filename.endsWith(".ipynb")) {
+    showIPyNBNotebook(content, filename);
+    return;
+  }
+
   hideIgonbNotebook();
 
   const model = fromCache
@@ -777,6 +791,9 @@ function ensureIgonbContainer() {
         <button class="secondary" id="igonb-add-md"><i class="fas fa-plus"></i> Markdown</button>
       </div>
       <div class="igonb-toolbar-right">
+        <button class="success" id="igonb-convert-ipynb" title="Convert .ipynb to .igonb format" style="display: none;">
+          <i class="fas fa-file-export"></i> Convert to .igonb
+        </button>
         <button class="secondary" id="igonb-clear-output" title="Clear output from all cells">
           <i class="fas fa-eraser"></i> Clear Output
         </button>
@@ -807,6 +824,9 @@ function ensureIgonbContainer() {
   container
     .querySelector("#igonb-add-md")
     .addEventListener("click", () => addIgonbCell("markdown"));
+  container
+    .querySelector("#igonb-convert-ipynb")
+    .addEventListener("click", () => convertIPyNBToIgonb());
   container
     .querySelector("#igonb-clear-output")
     .addEventListener("click", () => clearIgonbOutputs());
@@ -863,6 +883,8 @@ function showIgonbNotebook(content, filename) {
   applyIgonbOutputMode();
   applyIgonbFontSizes();
   updateIgonbRunControls();
+  updateIPyNBConvertButton(false); // Hide convert button for .igonb files
+  updateAddGoCellButton(true); // Show Add Go button for .igonb files
 
   renderIgonbCells();
   setResultOutput(
@@ -870,11 +892,67 @@ function showIgonbNotebook(content, filename) {
   );
 }
 
+// Show .ipynb file using igonb notebook viewer (read-only mode with convert button)
+async function showIPyNBNotebook(content, filename) {
+  try {
+    // Convert ipynb to igonb format using backend
+    const igonbContent = await GetIPyNBAsIgonbContent(filename);
+    const parsed = parseIgonbContent(igonbContent);
+    if (!parsed) {
+      showMessage("Failed to parse ipynb content", "error");
+      hideIgonbNotebook();
+      const model = getOrCreateFileModel(filename, content);
+      editor.setModel(model);
+      monaco.editor.setModelLanguage(model, "json");
+      return;
+    }
+
+    igonbState = parsed;
+    igonbIsExecuting = false;
+    igonbRunQueue = [];
+    ensureIgonbSelection();
+    disposeIgonbEditors();
+    ensureIgonbContainer();
+
+    clearPreviewIfNeeded();
+    hideImagePreview();
+    hideLargeFilePreview();
+    hideBinaryPreview();
+
+    const editorContainer = document.getElementById("code-editor");
+    editorContainer.style.display = "none";
+
+    const container = document.getElementById("igonb-container");
+    container.style.display = "flex";
+    isIgonbView = true;
+    document.body.classList.add("igonb-mode");
+    updatePythonPackageButtons();
+    applyIgonbOutputMode();
+    applyIgonbFontSizes();
+    updateIgonbRunControls();
+    updateIPyNBConvertButton(true);
+    updateAddGoCellButton(false); // Hide Add Go button for .ipynb files
+
+    renderIgonbCells();
+    setResultOutput(
+      '<div style="color: #888;">Viewing .ipynb file. Use "Convert to .igonb" to save as editable format.</div>',
+    );
+  } catch (error) {
+    console.error("Failed to load ipynb:", error);
+    showMessage(`Failed to load ipynb: ${error}`, "error");
+    // Show as binary preview to avoid creating cached model
+    hideIgonbNotebook();
+    showBinaryPreview(filename, "Jupyter Notebook (Error)");
+    clearPreviewIfNeeded();
+  }
+}
+
 function hideIgonbNotebook() {
   const container = document.getElementById("igonb-container");
   if (container) {
     container.style.display = "none";
   }
+  updateIPyNBConvertButton(false);
   const editorContainer = document.getElementById("code-editor");
   editorContainer.style.display = "block";
   isIgonbView = false;
@@ -895,6 +973,47 @@ function hideIgonbNotebook() {
 function toggleIgonbOutputMode() {
   igonbOutputMode = igonbOutputMode === "scroll" ? "full" : "scroll";
   applyIgonbOutputMode();
+}
+
+// Update the visibility of the "Convert to .igonb" button based on whether viewing an .ipynb file
+function updateIPyNBConvertButton(show) {
+  const container = document.getElementById("igonb-container");
+  if (!container) return;
+  const convertBtn = container.querySelector("#igonb-convert-ipynb");
+  if (convertBtn) {
+    convertBtn.style.display = show ? "inline-flex" : "none";
+  }
+}
+
+// Update Add Go button visibility - hide for .ipynb files (Python notebooks)
+function updateAddGoCellButton(show) {
+  const container = document.getElementById("igonb-container");
+  if (!container) return;
+  const addGoBtn = container.querySelector("#igonb-add-go");
+  if (addGoBtn) {
+    addGoBtn.style.display = show ? "inline-flex" : "none";
+  }
+}
+
+// Convert the current .ipynb file to .igonb format and save as a copy
+async function convertIPyNBToIgonb() {
+  if (!activeFileName || !activeFileName.endsWith(".ipynb")) {
+    showMessage("No .ipynb file is currently open", "error");
+    return;
+  }
+
+  try {
+    const newFileName = await ConvertIPyNBToIgonb(activeFileName);
+    if (newFileName) {
+      await loadWorkspaceFiles();
+      showMessage(`Converted to "${newFileName}" successfully`, "success");
+      // Switch to the new igonb file
+      await switchToFile(newFileName);
+    }
+  } catch (error) {
+    console.error("Failed to convert ipynb:", error);
+    showMessage(`Failed to convert: ${error}`, "error");
+  }
 }
 
 function applyIgonbOutputMode() {
@@ -1464,12 +1583,20 @@ async function stopIgonbExecution() {
 }
 
 function scheduleIgonbSave() {
-  if (!activeFileName || !activeFileName.endsWith(".igonb")) return;
+  if (!activeFileName) return;
+  if (!activeFileName.endsWith(".igonb") && !activeFileName.endsWith(".ipynb"))
+    return;
   if (!igonbState) return;
   clearTimeout(igonbSaveTimer);
   igonbSaveTimer = setTimeout(async () => {
     const payload = getIgonbContent();
-    await UpdateFileContent(activeFileName, payload);
+    if (activeFileName.endsWith(".ipynb")) {
+      // For .ipynb files, use special API that converts igonb back to ipynb format
+      await UpdateIPyNBContent(activeFileName, payload);
+    } else {
+      // For .igonb files, save as igonb format
+      await UpdateFileContent(activeFileName, payload);
+    }
     scheduleWorkspaceRefresh();
   }, 600);
 }
@@ -3567,6 +3694,8 @@ function createFileItem(entry, depth) {
     iconClass = "fa-file-image";
   } else if (entry.path.endsWith(".igonb")) {
     iconClass = "fa-book";
+  } else if (entry.path.endsWith(".ipynb")) {
+    iconClass = "fa-book";
   } else if (entry.path.endsWith(".md")) {
     iconClass = "fa-file-lines";
   } else if (entry.path.endsWith(".json")) {
@@ -3714,11 +3843,18 @@ async function switchToFile(filename, force = false) {
         (file) => file.name === activeFileName,
       );
       if (isKnownFile) {
-        const currentContent =
-          isIgonbView && activeFileName.endsWith(".igonb")
-            ? getIgonbContent()
-            : editor.getValue();
-        await UpdateFileContent(activeFileName, currentContent);
+        if (isIgonbView && activeFileName.endsWith(".ipynb")) {
+          // For .ipynb files, use special API that converts igonb back to ipynb format
+          const igonbContent = getIgonbContent();
+          await UpdateIPyNBContent(activeFileName, igonbContent);
+        } else if (isIgonbView && activeFileName.endsWith(".igonb")) {
+          // For .igonb files, save as igonb format
+          const currentContent = getIgonbContent();
+          await UpdateFileContent(activeFileName, currentContent);
+        } else {
+          // For other files, use editor content
+          await UpdateFileContent(activeFileName, editor.getValue());
+        }
       } else {
         activeFileName = "";
         hideImagePreview();
@@ -3746,7 +3882,10 @@ async function switchToFile(filename, force = false) {
       return;
     }
 
-    const cachedModel = getCachedFileModel(filename);
+    // Skip cached model for notebook files - they need fresh content from backend
+    const isNotebookFile =
+      filename.endsWith(".igonb") || filename.endsWith(".ipynb");
+    const cachedModel = isNotebookFile ? null : getCachedFileModel(filename);
     if (cachedModel) {
       const cachedContent = cachedModel.getValue();
       hideImagePreview();
@@ -4098,11 +4237,19 @@ async function saveCurrentFile() {
   }
 
   try {
-    const currentContent =
-      isIgonbView && activeFileName.endsWith(".igonb")
-        ? getIgonbContent()
-        : editor.getValue();
-    await UpdateFileContent(activeFileName, currentContent);
+    // Update file content before saving
+    if (isIgonbView && activeFileName.endsWith(".ipynb")) {
+      // For .ipynb files, use special API that converts igonb back to ipynb format
+      const igonbContent = getIgonbContent();
+      await UpdateIPyNBContent(activeFileName, igonbContent);
+    } else if (isIgonbView && activeFileName.endsWith(".igonb")) {
+      // For .igonb files, save as igonb format
+      const currentContent = getIgonbContent();
+      await UpdateFileContent(activeFileName, currentContent);
+    } else {
+      // For other files, use editor content
+      await UpdateFileContent(activeFileName, editor.getValue());
+    }
 
     // Try to save to disk
     await SaveFile(activeFileName);
@@ -4134,11 +4281,18 @@ async function saveAllFiles() {
       !isLargeFilePreview &&
       !isBinaryPreview
     ) {
-      const currentContent =
-        isIgonbView && activeFileName.endsWith(".igonb")
-          ? getIgonbContent()
-          : editor.getValue();
-      await UpdateFileContent(activeFileName, currentContent);
+      if (isIgonbView && activeFileName.endsWith(".ipynb")) {
+        // For .ipynb files, use special API that converts igonb back to ipynb format
+        const igonbContent = getIgonbContent();
+        await UpdateIPyNBContent(activeFileName, igonbContent);
+      } else if (isIgonbView && activeFileName.endsWith(".igonb")) {
+        // For .igonb files, save as igonb format
+        const currentContent = getIgonbContent();
+        await UpdateFileContent(activeFileName, currentContent);
+      } else {
+        // For other files, use editor content
+        await UpdateFileContent(activeFileName, editor.getValue());
+      }
     }
 
     await SaveAllFiles();
@@ -4185,7 +4339,11 @@ async function exportCurrentFile() {
       !isLargeFilePreview &&
       !isBinaryPreview
     ) {
-      const currentContent = editor.getValue();
+      const currentContent =
+        isIgonbView &&
+        (activeFileName.endsWith(".igonb") || activeFileName.endsWith(".ipynb"))
+          ? getIgonbContent()
+          : editor.getValue();
       await UpdateFileContent(activeFileName, currentContent);
     }
 
@@ -4909,7 +5067,11 @@ async function initApp() {
   // Mark file as modified on content change
   editor.onDidChangeModelContent(() => {
     if (activeFileName) {
-      if (activeFileName.endsWith(".igonb") && isIgonbView) {
+      // Skip for notebook files - they have their own content management via scheduleIgonbSave
+      if (
+        isIgonbView &&
+        (activeFileName.endsWith(".igonb") || activeFileName.endsWith(".ipynb"))
+      ) {
         return;
       }
       updateActiveFileModelSize();
@@ -5049,6 +5211,16 @@ async function initApp() {
       hideImportProgress(0);
     }
   });
+
+  // Auto-save temp workspace every 5 seconds
+  setInterval(async () => {
+    try {
+      await AutoSaveTempWorkspace();
+    } catch (error) {
+      // Silently ignore auto-save errors
+      console.debug("Auto-save:", error);
+    }
+  }, 5000);
 }
 
 // Start the app when DOM is ready

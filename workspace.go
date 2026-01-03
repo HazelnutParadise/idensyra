@@ -406,6 +406,11 @@ func shouldTreatAsBinary(filename string, content []byte) bool {
 	if isBinaryPreviewFile(filename) {
 		return true
 	}
+	// Never treat .ipynb files as binary - they are JSON text files
+	ext := strings.ToLower(filepath.Ext(filename))
+	if ext == ".ipynb" {
+		return false
+	}
 	return isBinaryContent(content)
 }
 
@@ -560,6 +565,61 @@ func (a *App) SaveAllFiles() error {
 	return nil
 }
 
+// AutoSaveTempWorkspace saves all modified files to the temp workspace directory
+// This is used for auto-save in temporary workspaces
+func (a *App) AutoSaveTempWorkspace() error {
+	if globalWorkspace == nil {
+		return fmt.Errorf("workspace not initialized")
+	}
+
+	globalWorkspace.mu.Lock()
+	defer globalWorkspace.mu.Unlock()
+
+	// Only auto-save if there are modified files
+	hasModified := false
+	for _, file := range globalWorkspace.files {
+		if file.Modified && !file.IsDir && !file.TooLarge {
+			hasModified = true
+			break
+		}
+	}
+	if !hasModified {
+		return nil
+	}
+
+	for filename, file := range globalWorkspace.files {
+		if file.IsDir || file.TooLarge || !file.Modified {
+			continue
+		}
+		// Only wrap with preCode/endCode for .go files
+		var fullContent []byte
+		if file.IsBinary {
+			decoded, err := base64.StdEncoding.DecodeString(file.Content)
+			if err != nil {
+				continue // Skip files that fail to decode
+			}
+			fullContent = decoded
+		} else if strings.HasSuffix(filename, ".go") {
+			fullContent = []byte(preCode + "\n" + file.Content + "\n" + endCode)
+		} else {
+			fullContent = []byte(file.Content)
+		}
+
+		filePath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(filename))
+		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+			continue // Skip files that fail to create directory
+		}
+		if err := os.WriteFile(filePath, fullContent, 0644); err != nil {
+			continue // Skip files that fail to write
+		}
+		// Mark as saved but keep Modified=true so user knows there are unsaved changes
+		// relative to their "official" save
+		file.SavedContent = file.Content
+	}
+
+	return nil
+}
+
 // CreateNewFile creates a new Go file in the workspace with the default template
 func (a *App) CreateNewFile(filename string) error {
 	if globalWorkspace == nil {
@@ -592,6 +652,25 @@ func (a *App) CreateNewFile(filename string) error {
 		content = "" // Empty content for non-Go files
 	}
 
+	// Write new file to disk immediately
+	if globalWorkspace.workDir != "" {
+		fullPath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanName))
+		parentDir := filepath.Dir(fullPath)
+		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			return fmt.Errorf("failed to create parent directory: %w", err)
+		}
+		// Write content to disk (with preCode/endCode for .go files)
+		var fullContent []byte
+		if strings.HasSuffix(cleanName, ".go") {
+			fullContent = []byte(preCode + "\n" + content + "\n" + endCode)
+		} else {
+			fullContent = []byte(content)
+		}
+		if err := os.WriteFile(fullPath, fullContent, 0644); err != nil {
+			return fmt.Errorf("failed to write new file: %w", err)
+		}
+	}
+
 	newFile := &WorkspaceFile{
 		Name:         cleanName,
 		Content:      content,
@@ -599,19 +678,11 @@ func (a *App) CreateNewFile(filename string) error {
 		TooLarge:     false,
 		IsBinary:     isBinaryPreviewFile(cleanName),
 		IsDir:        false,
-		SavedContent: "",
-		IsNew:        true,
-		Modified:     true,
+		SavedContent: content, // Already saved to disk
+		IsNew:        false,   // Not new since saved to disk
+		Modified:     false,   // Not modified since saved to disk
 	}
 	globalWorkspace.files[cleanName] = newFile
-
-	if globalWorkspace.workDir != "" {
-		fullPath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanName))
-		parentDir := filepath.Dir(fullPath)
-		if err := os.MkdirAll(parentDir, 0755); err != nil {
-			return fmt.Errorf("failed to create parent directory: %w", err)
-		}
-	}
 
 	parentParts := strings.Split(cleanName, "/")
 	if len(parentParts) > 1 {
@@ -1306,24 +1377,33 @@ func (a *App) ImportFileToWorkspaceAt(targetDir string) error {
 		isBinary = isBinaryPreviewFile(finalName)
 	}
 
-	if tooLarge && globalWorkspace.workDir != "" {
+	// Always write imported files to disk immediately
+	if globalWorkspace.workDir != "" {
 		targetPath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(finalName))
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 			return fmt.Errorf("failed to create parent directory: %w", err)
 		}
-		if err := copyFile(filePath, targetPath); err != nil {
-			if a.ctx != nil {
-				runtime.EventsEmit(a.ctx, "import:file-progress", map[string]any{
-					"phase":    "error",
-					"fileName": finalName,
-					"message":  err.Error(),
-				})
+		if tooLarge {
+			// For large files, copy directly
+			if err := copyFile(filePath, targetPath); err != nil {
+				if a.ctx != nil {
+					runtime.EventsEmit(a.ctx, "import:file-progress", map[string]any{
+						"phase":    "error",
+						"fileName": finalName,
+						"message":  err.Error(),
+					})
+				}
+				return fmt.Errorf("failed to import large file: %w", err)
 			}
-			return fmt.Errorf("failed to import large file: %w", err)
-		}
-		if progressFn != nil {
-			progressFn(0, info.Size())
-			progressFn(info.Size(), info.Size())
+			if progressFn != nil {
+				progressFn(0, info.Size())
+				progressFn(info.Size(), info.Size())
+			}
+		} else {
+			// For regular files, write content to disk
+			if err := os.WriteFile(targetPath, content, 0644); err != nil {
+				return fmt.Errorf("failed to write imported file: %w", err)
+			}
 		}
 	}
 
@@ -1333,9 +1413,9 @@ func (a *App) ImportFileToWorkspaceAt(targetDir string) error {
 		Size:         info.Size(),
 		TooLarge:     tooLarge,
 		IsBinary:     isBinary,
-		SavedContent: "",
-		IsNew:        !tooLarge,
-		Modified:     !tooLarge,
+		SavedContent: contentStr, // Already saved to disk
+		IsNew:        false,      // Not new since saved to disk
+		Modified:     false,      // Not modified since saved to disk
 	}
 
 	parentParts := strings.Split(finalName, "/")
@@ -1781,6 +1861,219 @@ func (a *App) getExcelPreview(filename string, sheetName string, maxRows int, ma
 	builder.WriteString("</tbody></table>")
 
 	return builder.String(), nil
+}
+
+// ConvertIPyNBToIgonb converts the current .ipynb file to .igonb format and saves a copy
+func (a *App) ConvertIPyNBToIgonb(filename string) (string, error) {
+	if globalWorkspace == nil {
+		return "", fmt.Errorf("workspace not initialized")
+	}
+
+	cleanName, err := cleanRelativePath(filename)
+	if err != nil {
+		return "", err
+	}
+
+	if !strings.HasSuffix(strings.ToLower(cleanName), ".ipynb") {
+		return "", fmt.Errorf("file is not an ipynb file: %s", cleanName)
+	}
+
+	globalWorkspace.mu.Lock()
+	defer globalWorkspace.mu.Unlock()
+
+	file, exists := globalWorkspace.files[cleanName]
+	if !exists {
+		return "", fmt.Errorf("file not found: %s", cleanName)
+	}
+	if file.IsDir {
+		return "", fmt.Errorf("path is a directory: %s", cleanName)
+	}
+	if file.TooLarge {
+		return "", fmt.Errorf("file too large to convert")
+	}
+
+	// For .ipynb files, try to read fresh from disk first, fall back to memory content
+	var rawContent []byte
+	filePath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanName))
+	diskContent, diskErr := os.ReadFile(filePath)
+	if diskErr == nil {
+		rawContent = diskContent
+	} else {
+		// File not on disk (e.g., temp workspace), use memory content
+		if file.IsBinary {
+			decoded, err := base64.StdEncoding.DecodeString(file.Content)
+			if err != nil {
+				return "", fmt.Errorf("failed to decode file content: %w", err)
+			}
+			rawContent = decoded
+		} else {
+			rawContent = []byte(file.Content)
+		}
+	}
+
+	// Parse the ipynb content and convert to igonb
+	igonbJSON, err := igonb.IPyNBToIgonbJSON(rawContent)
+	if err != nil {
+		return "", fmt.Errorf("failed to convert ipynb: %w", err)
+	}
+
+	// Generate new filename with .igonb extension
+	igonbName := strings.TrimSuffix(cleanName, filepath.Ext(cleanName)) + ".igonb"
+
+	// Check if file already exists, generate unique name if needed
+	finalName := igonbName
+	if _, exists := globalWorkspace.files[finalName]; exists {
+		ext := ".igonb"
+		base := strings.TrimSuffix(igonbName, ext)
+		counter := 1
+		for {
+			newName := fmt.Sprintf("%s_%d%s", base, counter, ext)
+			if _, exists := globalWorkspace.files[newName]; !exists {
+				finalName = newName
+				break
+			}
+			counter++
+		}
+	}
+
+	// Create the new igonb file
+	newFile := &WorkspaceFile{
+		Name:         finalName,
+		Content:      igonbJSON,
+		Size:         int64(len(igonbJSON)),
+		TooLarge:     false,
+		IsBinary:     false,
+		IsDir:        false,
+		SavedContent: "",
+		IsNew:        true,
+		Modified:     true,
+	}
+	globalWorkspace.files[finalName] = newFile
+
+	// Write to disk if not temp workspace
+	if !globalWorkspace.isTemp && globalWorkspace.workDir != "" {
+		filePath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(finalName))
+		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+			return "", fmt.Errorf("failed to create parent directory: %w", err)
+		}
+		if err := os.WriteFile(filePath, []byte(igonbJSON), 0644); err != nil {
+			return "", fmt.Errorf("failed to write igonb file: %w", err)
+		}
+		newFile.Modified = false
+		newFile.IsNew = false
+		newFile.SavedContent = igonbJSON
+	}
+
+	updateWorkspaceModifiedLocked()
+
+	return finalName, nil
+}
+
+// GetIPyNBAsIgonbContent returns the ipynb file content converted to igonb format (for viewing)
+func (a *App) GetIPyNBAsIgonbContent(filename string) (string, error) {
+	if globalWorkspace == nil {
+		return "", fmt.Errorf("workspace not initialized")
+	}
+
+	cleanName, err := cleanRelativePath(filename)
+	if err != nil {
+		return "", err
+	}
+
+	if !strings.HasSuffix(strings.ToLower(cleanName), ".ipynb") {
+		return "", fmt.Errorf("file is not an ipynb file: %s", cleanName)
+	}
+
+	globalWorkspace.mu.RLock()
+	defer globalWorkspace.mu.RUnlock()
+
+	file, exists := globalWorkspace.files[cleanName]
+	if !exists {
+		return "", fmt.Errorf("file not found: %s", cleanName)
+	}
+	if file.IsDir {
+		return "", fmt.Errorf("path is a directory: %s", cleanName)
+	}
+	if file.TooLarge {
+		return "", fmt.Errorf("file too large to preview")
+	}
+
+	// For .ipynb files, use memory content (which may have unsaved changes)
+	// This ensures we don't lose edits when switching files
+	var rawContent []byte
+	if file.Content != "" {
+		// Use memory content (may have unsaved changes)
+		if file.IsBinary {
+			decoded, err := base64.StdEncoding.DecodeString(file.Content)
+			if err != nil {
+				return "", fmt.Errorf("failed to decode file content: %w", err)
+			}
+			rawContent = decoded
+		} else {
+			rawContent = []byte(file.Content)
+		}
+	} else {
+		// Fall back to disk if memory content is empty
+		filePath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanName))
+		diskContent, diskErr := os.ReadFile(filePath)
+		if diskErr != nil {
+			return "", fmt.Errorf("failed to read file: %w", diskErr)
+		}
+		rawContent = diskContent
+	}
+
+	// Parse the ipynb content and convert to igonb format
+	igonbJSON, err := igonb.IPyNBToIgonbJSON(rawContent)
+	if err != nil {
+		return "", fmt.Errorf("failed to convert ipynb: %w", err)
+	}
+
+	return igonbJSON, nil
+}
+
+// UpdateIPyNBContent updates an ipynb file content from igonb format
+// This converts the igonb JSON back to ipynb format before saving
+func (a *App) UpdateIPyNBContent(filename string, igonbContent string) error {
+	if globalWorkspace == nil {
+		return fmt.Errorf("workspace not initialized")
+	}
+
+	cleanName, err := cleanRelativePath(filename)
+	if err != nil {
+		return err
+	}
+
+	if !strings.HasSuffix(strings.ToLower(cleanName), ".ipynb") {
+		return fmt.Errorf("file is not an ipynb file: %s", cleanName)
+	}
+
+	// Convert igonb content back to ipynb format
+	ipynbJSON, err := igonb.IgonbToIPyNBJSON([]byte(igonbContent))
+	if err != nil {
+		return fmt.Errorf("failed to convert to ipynb: %w", err)
+	}
+
+	globalWorkspace.mu.Lock()
+	defer globalWorkspace.mu.Unlock()
+
+	file, exists := globalWorkspace.files[cleanName]
+	if !exists {
+		return fmt.Errorf("file not found: %s", cleanName)
+	}
+	if file.IsDir {
+		return fmt.Errorf("path is a directory: %s", cleanName)
+	}
+	if file.TooLarge {
+		return fmt.Errorf("file too large to edit")
+	}
+
+	// Update the file content with the ipynb format
+	file.Content = ipynbJSON
+	file.Size = int64(len(ipynbJSON))
+	file.Modified = file.IsNew || file.Content != file.SavedContent
+	updateWorkspaceModifiedLocked()
+
+	return nil
 }
 
 // CleanupWorkspace removes the temporary workspace directory if temp

@@ -61,12 +61,22 @@ func writeExecutionFile(workDir string, cleanName string, content string) error 
 
 func buildPythonFileRunner(relPath string) string {
 	quotedPath := strconv.Quote(relPath)
+	// Add UTF-8 encoding setup before running the file
 	return fmt.Sprintf(`import (
 	"fmt"
 	"github.com/HazelnutParadise/insyra/py"
 )
 
 func main() {
+	// Setup UTF-8 encoding for Python output on Windows
+	py.RunCode(nil, `+"`"+`
+import sys
+if sys.platform == 'win32':
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+`+"`"+`)
 	if err := py.RunFile(nil, %s); err != nil {
 		fmt.Println(err)
 	}

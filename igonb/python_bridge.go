@@ -236,7 +236,14 @@ func buildPythonWrapper(code string, bindings []pythonBinding, bindingCount int)
 	statePlaceholder := fmt.Sprintf("$v%d", bindingCount+2)
 
 	wrapper := fmt.Sprintf(`
-import ast, traceback, types, base64, json, pickle
+import ast, traceback, types, base64, json, pickle, sys, io
+
+# Force UTF-8 encoding for stdout/stderr on Windows
+if sys.platform == 'win32':
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 __igonb_code = %s
 __igonb_defs_json = %s
@@ -360,19 +367,35 @@ def __igonb_restore_value(value):
             return value.get("repr", "")
     return value
 
+def __igonb_sanitize_for_json(value):
+    import math
+    if isinstance(value, float):
+        if math.isnan(value):
+            return None
+        if math.isinf(value):
+            return None
+    if isinstance(value, list):
+        return [__igonb_sanitize_for_json(v) for v in value]
+    if isinstance(value, dict):
+        return {k: __igonb_sanitize_for_json(v) for k, v in value.items()}
+    return value
+
 def __igonb_export_value(value):
     try:
         import pandas as pd
         if isinstance(value, pd.Series):
+            data = value.where(pd.notnull(value), None).tolist()
             return True, {
                 "__igonb_type__": "datalist",
-                "data": value.tolist(),
+                "data": __igonb_sanitize_for_json(data),
                 "name": value.name if value.name is not None else "",
             }
         if isinstance(value, pd.DataFrame):
+            df_clean = value.where(pd.notnull(value), None)
+            data = df_clean.to_numpy().tolist()
             return True, {
                 "__igonb_type__": "datatable",
-                "data": value.to_numpy().tolist(),
+                "data": __igonb_sanitize_for_json(data),
                 "columns": list(value.columns),
                 "index": list(value.index),
             }
@@ -381,9 +404,10 @@ def __igonb_export_value(value):
     try:
         import numpy as np
         if isinstance(value, np.ndarray):
-            return True, value.tolist()
+            return True, __igonb_sanitize_for_json(value.tolist())
         if isinstance(value, np.generic):
-            return True, value.item()
+            item = value.item()
+            return True, __igonb_sanitize_for_json(item)
     except Exception:
         pass
     if value is None:
