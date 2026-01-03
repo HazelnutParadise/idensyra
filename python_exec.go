@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -43,11 +44,14 @@ func (a *App) ExecutePythonFile(filename string, content string) string {
 		return "workspace directory not set"
 	}
 
-	if err := writeExecutionFile(workDir, cleanName, content); err != nil {
+	// Create a temporary file with encoding setup instead of modifying the original
+	tempFile, err := createTempPythonFile(workDir, cleanName, content)
+	if err != nil {
 		return fmt.Sprintf("failed to prepare python file: %v", err)
 	}
+	defer os.Remove(tempFile) // Clean up temp file after execution
 
-	code := buildPythonFileRunner(cleanName)
+	code := buildPythonFileRunner(tempFile)
 	return executeGoCode(code, "dark")
 }
 
@@ -62,14 +66,33 @@ if sys.platform == 'win32':
 # End of encoding setup
 `
 
-func writeExecutionFile(workDir string, cleanName string, content string) error {
-	fullPath := filepath.Join(workDir, filepath.FromSlash(cleanName))
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-		return err
+// createTempPythonFile creates a temporary Python file with encoding setup
+// without modifying the original file
+func createTempPythonFile(workDir string, cleanName string, content string) (string, error) {
+	// Create temp file in a temporary directory
+	tempDir := filepath.Join(workDir, ".igonb_temp")
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return "", err
 	}
-	// Prepend UTF-8 encoding setup to ensure proper output on Windows
-	wrappedContent := pythonEncodingSetup + content
-	return os.WriteFile(fullPath, []byte(wrappedContent), 0644)
+
+	// Create temp file with encoding setup prepended
+	tempFile, err := os.CreateTemp(tempDir, "*.py")
+	if err != nil {
+		return "", err
+	}
+	defer tempFile.Close()
+
+	// Write encoding setup and then the original content
+	if _, err := io.WriteString(tempFile, pythonEncodingSetup); err != nil {
+		os.Remove(tempFile.Name())
+		return "", err
+	}
+	if _, err := io.WriteString(tempFile, content); err != nil {
+		os.Remove(tempFile.Name())
+		return "", err
+	}
+
+	return tempFile.Name(), nil
 }
 
 func buildPythonFileRunner(relPath string) string {
