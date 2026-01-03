@@ -4,6 +4,63 @@ All notable changes to this project will be documented in this file.
 
 ## [NEXT]
 
+## [0.2.0] - (In Development)
+
+### New Features
+
+#### igonb Notebook
+
+- New `.igonb` file format: Jupyter-like interactive notebooks for Go
+- Multi-language cells: Go, Python, and Markdown support
+- Flexible execution modes:
+  - Run single cell
+  - Run cell with all cells above
+  - Run from cell downward
+- Cell management: drag-and-drop reordering, add, delete, collapse
+- Markdown live preview in notebook cells
+- Execution control: stop execution, reset environment
+- Output modes: Full (complete output) / Compact (condensed output)
+- Auto-save notebook content
+
+#### Python Support
+
+- Execute `.py` files directly from the workspace
+- Built-in Python package manager (pip list/install/uninstall)
+- Reinstall Python environment option
+- Go-Python interoperability: share variables between Go and Python cells in igonb
+
+#### IPython Notebook Support
+
+- Open and preview `.ipynb` files
+- One-click conversion from `.ipynb` to `.igonb` format
+
+#### Workspace Enhancements
+
+- File drag-and-drop for moving and reordering
+- Auto-save temporary workspace content
+
+### Improvements
+
+- Go range over integers syntax support (Go 1.22+)
+- REPL-style execution: auto-display last expression value
+- Updated Go requirement to 1.25
+- Updated Insyra to v0.2.12
+
+### Technical Changes
+
+- Added `igonb/` module for notebook core functionality
+  - `igonb.go`: Notebook structure and parsing
+  - `runner.go`: Executor management with multi-key support
+  - `execute.go`: Cell execution logic with callback support
+  - `python_bridge.go`: Go-Python variable interoperability
+- Added `igonb_exec.go` for notebook execution bindings
+- Added `python_exec.go` for Python file execution
+- Added `python_packages.go` for pip management via Insyra py module
+- Frontend: Added notebook UI components and cell editors
+- Frontend: Added Python package manager modal
+
+---
+
 ## [0.1.0] - 2026-01-01
 
 ### New Features

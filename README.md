@@ -18,10 +18,34 @@
 - 跨平台、輕量：Windows/macOS/Linux，使用系統 WebView
 - 完全本地化：所有前端資源本地打包，離線可用
 
+### igonb Notebook（v0.2.0 新增）
+
+- `.igonb` 格式：類似 Jupyter 的互動式筆記本
+- 多語言 Cell：支援 Go、Python、Markdown
+- 靈活執行：單一 Cell 執行、與上方 Cell 一起執行、向下執行全部
+- Cell 管理：拖放排序、新增、刪除、摺疊
+- Markdown 即時預覽
+- 執行控制：停止執行、重置環境
+- 輸出模式：Full（完整顯示）/ Compact（精簡顯示）切換
+- 自動保存編輯內容
+
+### Python 支援（v0.2.0 新增）
+
+- 執行 `.py` 檔案
+- 內建 Python 套件管理器（pip list/install/uninstall）
+- 可重新安裝 Python 環境
+- Go-Python 互操作：在 igonb 中共享變數
+
+### IPython Notebook 支援（v0.2.0 新增）
+
+- 開啟 `.ipynb` 檔案並預覽
+- 一鍵轉換 `.ipynb` 到 `.igonb` 格式
+
 ### 工作區與檔案
 
 - 啟動即建立臨時工作區，可建立/開啟工作區資料夾以持久保存
 - 多檔案與資料夾樹狀管理，支援建立/重新命名/刪除
+- 檔案拖放移動與排序
 - 匯入外部檔案（任意格式），匯出目前檔案到指定位置
 - 自動暫存：編輯後約 1 秒同步到工作區暫存區
 - 檔案修改與大型檔案提示（`*` 與 `L` 標示）
@@ -51,7 +75,7 @@
 ### 開發環境
 
 - Go 1.25 或更高版本
-- Node.js 16 或更高版本
+- Node.js 16 或更高版本（或 Bun）
 - Wails CLI v2.11.0 或更高版本
 
 ### 運行環境
@@ -83,7 +107,7 @@ go mod download
 
 # 安裝前端依賴
 cd frontend
-npm install
+npm install  # 或 bun install
 cd ..
 ```
 
@@ -112,16 +136,44 @@ wails build
 2. **編寫與管理檔案**
    - 左側檔案樹點擊切換
    - 檔案或資料夾右側 `...` 選單可重新命名/刪除
+   - 拖放檔案可移動位置
 3. **儲存**
    - `Ctrl/Cmd + S` 儲存目前檔案
    - `Ctrl/Cmd + Shift + S` 儲存全部
    - 臨時工作區會提示建立工作區資料夾
 4. **執行與預覽**
-   - 只有 `.go` 檔案可 Run 或 `Ctrl/Cmd + Enter`
+   - `.go` 檔案可 Run 或 `Ctrl/Cmd + Enter`
+   - `.py` 檔案可直接執行
+   - `.igonb` 檔案以 Notebook 模式顯示
    - HTML/Markdown/CSV/TSV/Excel/媒體檔會顯示預覽
 5. **匯出與輸出保存**
    - Export 會將目前檔案輸出到指定位置
    - Output 的 Save 會將結果寫入工作區（`result.txt` 或 `result_#.txt`）
+
+### igonb Notebook 使用
+
+1. **建立 Notebook**
+   - 點擊工具列的 Notebook 按鈕建立 `.igonb` 檔案
+2. **Cell 操作**
+   - 點擊 Cell 選擇，使用語言選擇器切換 Go/Python/Markdown
+   - `▶` 執行單一 Cell
+   - `▲▶` 執行目前及上方所有 Cell
+   - `▼▶` 從目前 Cell 向下執行全部
+   - `+` 新增 Cell，`×` 刪除 Cell
+   - 拖動 Cell 左側把手可排序
+3. **執行控制**
+   - Run All 執行所有 Cell
+   - Stop 停止執行
+   - Reset 重置環境（清除變數與狀態）
+4. **Go-Python 互操作**
+   - 在 Go Cell 中定義的變數可在 Python Cell 中使用
+   - 支援基本型別與 Insyra DataList/DataTable
+
+### Python 套件管理
+
+1. 點擊工具列的 Python 按鈕開啟套件管理器
+2. 可查看已安裝套件、安裝新套件、解除安裝套件
+3. 如遇問題可重新安裝 Python 環境
 
 ### 快捷鍵
 
@@ -143,12 +195,14 @@ wails build
 2. **Minimap** - 切換程式碼縮略圖
 3. **Word Wrap** - 切換換行模式
 4. **Theme** - 切換深色/淺色主題
-5. **GitHub** - 開啟專案 GitHub 頁面
-6. **Insyra 官網** - 開啟 Insyra 官方網站
+5. **Python** - 開啟 Python 套件管理器
+6. **GitHub** - 開啟專案 GitHub 頁面
+7. **Insyra 官網** - 開啟 Insyra 官方網站
 
 **工作區側邊欄：**
 
 - **New File** - 建立新檔案（`Ctrl/Cmd + N`）
+- **New Notebook** - 建立新的 igonb 筆記本
 - **New Folder** - 建立資料夾
 - **Import File** - 匯入外部檔案到工作區
 - **Open Workspace** - 開啟現有工作區資料夾
@@ -165,9 +219,18 @@ wails build
 
 **輸出區域：**
 
-- **Run** - 執行程式碼（僅 `.go`）
+- **Run** - 執行程式碼（`.go` 或 `.py`）
 - **Copy** - 複製輸出內容到剪貼簿
 - **Save** - 將輸出結果寫入工作區檔案
+
+**igonb Notebook 工具列：**
+
+- **Run All** - 執行所有 Cell
+- **Stop** - 停止執行
+- **Reset** - 重置執行環境
+- **Clear All** - 清除所有輸出
+- **Full/Compact** - 切換輸出顯示模式
+- **Convert** - 轉換 .ipynb 到 .igonb（僅 .ipynb 檔案）
 
 ### Live Run 模式
 
@@ -181,6 +244,8 @@ wails build
 - **設定保存**: 主題、Minimap、Word Wrap 會保存並在下次啟動時恢復
 
 ## 示例代碼
+
+### Go 程式碼
 
 ```go
 import (
@@ -196,6 +261,28 @@ func main() {
     log.Println("this is a log message")
     dl := isr.DL.Of(1, 2, 3)
     insyra.Show("My_Data", dl)
+}
+```
+
+### igonb Notebook 範例
+
+```json
+{
+  "version": 1,
+  "cells": [
+    {
+      "language": "go",
+      "source": "data := isr.DL.Of(1, 2, 3, 4, 5)\nfmt.Println(\"Sum:\", data.Sum())"
+    },
+    {
+      "language": "python",
+      "source": "print(f\"Data from Go: {data}\")"
+    },
+    {
+      "language": "markdown",
+      "source": "## 分析結果\n這是一個簡單的數據分析範例。"
+    }
+  ]
 }
 ```
 
@@ -224,9 +311,19 @@ Idensyra 支持以下 Insyra 子包：
 idensyra/
 ├── app.go                 # Wails 應用後端邏輯
 ├── workspace.go           # 工作區與檔案管理
+├── igonb_exec.go          # igonb 執行器綁定
+├── python_exec.go         # Python 檔案執行
+├── python_packages.go     # Python 套件管理
 ├── main.go                # 應用入口點
+├── version.go             # 版本資訊
 ├── wails.json             # Wails 配置文件
 ├── go.mod                 # Go 模塊定義
+├── igonb/                 # igonb 核心模組
+│   ├── igonb.go           # Notebook 結構與解析
+│   ├── runner.go          # 執行器管理
+│   ├── execute.go         # Cell 執行邏輯
+│   ├── python_bridge.go   # Go-Python 互操作
+│   └── ...
 ├── internal/              # Yaegi 符號表
 │   ├── ansi2html.go       # ANSI 轉 HTML
 │   ├── extract.go         # 符號提取
@@ -289,15 +386,29 @@ wails build -debug
 - **編輯器**: Monaco Editor v0.55.1（本地化）
 - **UI 框架**: Bootstrap v5.3.8（本地化）
 - **圖標**: Font Awesome v7.1.0（本地化）
+- **Markdown**: marked.js
 
 ### 後端
 
 - **框架**: Wails v2.11.0
 - **解釋器**: Yaegi v0.16.1
-- **核心庫**: Insyra v0.2.11
+- **核心庫**: Insyra v0.2.12
 - **試算表預覽**: Excelize v2.10.0
+- **Python 互操作**: Insyra py 模組
 
 ## 更新日誌
+
+### v0.2.0 (開發中)
+
+- 新增 igonb Notebook 格式（類似 Jupyter）
+- 支援 Go、Python、Markdown 多語言 Cell
+- 新增 Python 檔案執行功能
+- 新增 Python 套件管理器
+- 支援 Go-Python 互操作（共享變數）
+- 支援開啟與轉換 .ipynb 檔案
+- 新增檔案拖放移動功能
+- 更新 Insyra 至 v0.2.12
+- 更新 Go 至 1.25
 
 ### v0.1.0 (2026-01-01)
 

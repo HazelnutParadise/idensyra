@@ -1,4 +1,5 @@
 <!-- omit in toc -->
+
 # Contributing to Idensyra
 
 First off, thanks for taking the time to contribute!
@@ -6,12 +7,14 @@ First off, thanks for taking the time to contribute!
 All types of contributions are encouraged and valued. See the [Table of Contents](#table-of-contents) for different ways to help and details about how this project handles them. Please make sure to read the relevant section before making your contribution. It will make it a lot easier for us maintainers and smooth out the experience for all involved. The community looks forward to your contributions.
 
 > And if you like the project, but just don't have time to contribute, that's fine. There are other easy ways to support the project and show your appreciation:
+>
 > - Star the project
 > - Share it with others
 > - Mention the project in your project's readme
 > - Talk about it at local meetups
 
 <!-- omit in toc -->
+
 ## Table of Contents
 
 - [I Have a Question](#i-have-a-question)
@@ -41,11 +44,13 @@ We will then take care of the issue as soon as possible.
 ## I Want To Contribute
 
 > ### Legal Notice <!-- omit in toc -->
+>
 > When contributing to this project, you must agree that you have authored 100% of the content, that you have the necessary rights to the content and that the content you contribute may be provided under the project license.
 
 ### Reporting Bugs
 
 <!-- omit in toc -->
+
 #### Before Submitting a Bug Report
 
 A good bug report shouldn't leave others needing to chase you up for more information. Therefore, we ask you to investigate carefully, collect information and describe the issue in detail in your report. Please complete the following steps in advance to help us fix any potential bug as fast as possible.
@@ -60,6 +65,7 @@ A good bug report shouldn't leave others needing to chase you up for more inform
   - Steps to reproduce and expected vs actual behavior
 
 <!-- omit in toc -->
+
 #### How Do I Submit a Good Bug Report?
 
 > Please do not report security-related issues, vulnerabilities, or sensitive data in public issues. Contact the maintainers directly or use GitHub Security Advisories if available.
@@ -82,6 +88,7 @@ Once it's filed:
 This section guides you through submitting an enhancement suggestion for Idensyra, **including completely new features and minor improvements to existing functionality**. Following these guidelines will help maintainers and the community to understand your suggestion and find related suggestions.
 
 <!-- omit in toc -->
+
 #### Before Submitting an Enhancement
 
 - Make sure that you are using the latest version.
@@ -90,6 +97,7 @@ This section guides you through submitting an enhancement suggestion for Idensyr
 - Ensure the idea fits the scope and aims of the project.
 
 <!-- omit in toc -->
+
 #### How Do I Submit a Good Enhancement Suggestion?
 
 Enhancement suggestions are tracked as [GitHub issues](https://github.com/HazelnutParadise/idensyra/issues).
@@ -104,11 +112,11 @@ Enhancement suggestions are tracked as [GitHub issues](https://github.com/Hazeln
 
 1. Install prerequisites:
    - Go 1.25+
-   - Node.js 16+
+   - Node.js 16+ (or Bun)
    - Wails CLI v2.11.0+
 2. Install dependencies:
    - `go mod download`
-   - `cd frontend && npm install`
+   - `cd frontend && npm install` (or `bun install`)
 3. Run the dev build:
    - `wails dev`
 4. Build a production package:
@@ -116,11 +124,26 @@ Enhancement suggestions are tracked as [GitHub issues](https://github.com/Hazeln
 5. If you update Insyra packages, regenerate symbols:
    - `cd internal && go generate`
 
+#### Key Code Areas
+
+- **Backend**
+  - `app.go` - Main Wails bindings and Go code execution
+  - `workspace.go` - Workspace and file management
+  - `igonb_exec.go` - igonb notebook execution bindings
+  - `python_exec.go` - Python file execution
+  - `python_packages.go` - Python package management (pip)
+  - `igonb/` - Core igonb module (parsing, execution, Go-Python bridge)
+
+- **Frontend**
+  - `frontend/src/main.js` - Main UI logic, Monaco editor, igonb notebook UI
+  - `frontend/src/style.css` - Styling
+
 ### Improving The Documentation
 
 - Update `README.md`, `FEATURES.md`, `QUICK_REFERENCE.md`, and `CHANGELOG.md` when behavior changes.
 - Keep examples aligned with the default template in the app.
 - Prefer concise, task-focused instructions.
+- Document igonb notebook features and Go-Python interoperability when relevant.
 
 ## Styleguides
 
@@ -135,6 +158,7 @@ Enhancement suggestions are tracked as [GitHub issues](https://github.com/Hazeln
 If you are interested in joining the core team, open an issue to start a discussion.
 
 <!-- omit in toc -->
+
 ## Attribution
 
 This guide is based on the **contributing-gen**. [Make your own](https://github.com/bttger/contributing-gen)!
