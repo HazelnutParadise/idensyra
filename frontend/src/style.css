@@ -1406,7 +1406,7 @@ button.secondary {
     font-weight: bold;
 }
 .ansi-dim {
-    opacity: 0.6;
+    opacity: 0.75;
 }
 .ansi-italic {
     font-style: italic;

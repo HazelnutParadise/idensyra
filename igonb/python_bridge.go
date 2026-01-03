@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"go/token"
 	"math"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strconv"
@@ -28,9 +30,8 @@ type pythonDef struct {
 }
 
 type pythonBinding struct {
-	name        string
-	placeholder string
-	argExpr     string
+	name  string
+	value any
 }
 
 var errUnsupportedGoValue = errors.New("unsupported go value")
@@ -79,12 +80,47 @@ func (e *Executor) runPythonCell(code string) (string, error) {
 	if defsJSONStr == "null" || defsJSONStr == "" {
 		defsJSONStr = "[]"
 	}
-	wrapper, err := buildPythonWrapper(code, bindings, len(bindings))
+
+	// Write large data to temp files to avoid Windows command line length limit
+	tempDir := os.TempDir()
+	runID := e.nextPythonRunID()
+
+	stateFile := filepath.Join(tempDir, fmt.Sprintf("igonb_state_%d.txt", runID))
+	defsFile := filepath.Join(tempDir, fmt.Sprintf("igonb_defs_%d.json", runID))
+	bindingsFile := filepath.Join(tempDir, fmt.Sprintf("igonb_bindings_%d.json", runID))
+	wrapperFile := filepath.Join(tempDir, fmt.Sprintf("igonb_wrapper_%d.py", runID))
+
+	if err := os.WriteFile(stateFile, []byte(state), 0600); err != nil {
+		return "", fmt.Errorf("failed to write state file: %w", err)
+	}
+	defer os.Remove(stateFile)
+
+	if err := os.WriteFile(defsFile, []byte(defsJSONStr), 0600); err != nil {
+		return "", fmt.Errorf("failed to write defs file: %w", err)
+	}
+	defer os.Remove(defsFile)
+
+	// Serialize bindings to JSON file to avoid command line length limit
+	bindingsData, err := serializeBindingsToJSON(bindings)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize bindings: %w", err)
+	}
+	if err := os.WriteFile(bindingsFile, bindingsData, 0600); err != nil {
+		return "", fmt.Errorf("failed to write bindings file: %w", err)
+	}
+	defer os.Remove(bindingsFile)
+
+	wrapper, err := buildPythonWrapper(code, stateFile, defsFile, bindingsFile)
 	if err != nil {
 		return "", err
 	}
 
-	payload, output, err := e.executePythonWrapper(wrapper, bindings, defsJSONStr, state)
+	if err := os.WriteFile(wrapperFile, []byte(wrapper), 0600); err != nil {
+		return "", fmt.Errorf("failed to write wrapper file: %w", err)
+	}
+	defer os.Remove(wrapperFile)
+
+	payload, output, err := e.executePythonWrapper(wrapperFile)
 	if err != nil {
 		return output, err
 	}
@@ -170,34 +206,97 @@ func (e *Executor) buildPythonBindings(shared map[string]any) []pythonBinding {
 		if !canPassToPython(value) {
 			continue
 		}
-		argExpr, ok := e.pythonArgExpr(name, value)
-		if !ok {
-			continue
-		}
 		bindings = append(bindings, pythonBinding{
-			name:        name,
-			placeholder: fmt.Sprintf("$v%d", len(bindings)+1),
-			argExpr:     argExpr,
+			name:  name,
+			value: value,
 		})
 	}
 	return bindings
 }
 
-func (e *Executor) pythonArgExpr(name string, value any) (string, bool) {
-	if isGoIdentifier(name) && e.goNameExists(name) {
-		if targetType := e.goVarType(name); targetType != nil {
-			if _, ok := formatGoLiteralForType(value, targetType); ok {
-				return name, true
+// serializeBindingsToJSON converts bindings to JSON for passing to Python via file
+func serializeBindingsToJSON(bindings []pythonBinding) ([]byte, error) {
+	if len(bindings) == 0 {
+		return []byte("{}"), nil
+	}
+
+	result := make(map[string]any, len(bindings))
+	for _, binding := range bindings {
+		converted := convertValueForPythonJSON(binding.value)
+		result[binding.name] = converted
+	}
+
+	return json.Marshal(result)
+}
+
+// convertValueForPythonJSON converts Go values to Python-compatible JSON representations
+func convertValueForPythonJSON(value any) any {
+	if value == nil {
+		return nil
+	}
+
+	rv := reflect.ValueOf(value)
+	if !rv.IsValid() {
+		return nil
+	}
+
+	// Handle pointers
+	if rv.Kind() == reflect.Ptr {
+		if rv.IsNil() {
+			return nil
+		}
+		rv = rv.Elem()
+		value = rv.Interface()
+	}
+
+	// Handle IDataList
+	if isInsyraIDataListType(rv.Type()) || isIsrDlType(rv.Type()) {
+		if dl, ok := value.(interface {
+			Data() []any
+			GetName() string
+		}); ok {
+			return map[string]any{
+				"__igonb_type__": "datalist",
+				"data":           dl.Data(),
+				"name":           dl.GetName(),
 			}
-		} else {
-			return name, true
 		}
 	}
-	literal, ok := formatGoLiteral(value)
-	if !ok {
-		return "", false
+
+	// Handle IDataTable
+	if isInsyraIDataTableType(rv.Type()) || isIsrDtType(rv.Type()) {
+		if dt, ok := value.(interface {
+			To2DSlice() [][]any
+			ColNames() []string
+			RowNames() []string
+		}); ok {
+			return map[string]any{
+				"__igonb_type__": "datatable",
+				"data":           dt.To2DSlice(),
+				"columns":        dt.ColNames(),
+				"index":          dt.RowNames(),
+			}
+		}
 	}
-	return literal, true
+
+	// Handle basic types that JSON can serialize directly
+	switch rv.Kind() {
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64, reflect.String:
+		return value
+	case reflect.Slice, reflect.Array:
+		return value
+	case reflect.Map:
+		return value
+	}
+
+	// Try JSON marshal for other types
+	if _, err := json.Marshal(value); err == nil {
+		return value
+	}
+
+	return nil
 }
 
 func (e *Executor) goNameExists(name string) bool {
@@ -208,32 +307,16 @@ func (e *Executor) goNameExists(name string) bool {
 	return err == nil
 }
 
-func buildPythonWrapper(code string, bindings []pythonBinding, bindingCount int) (string, error) {
+func buildPythonWrapper(code string, stateFile string, defsFile string, bindingsFile string) (string, error) {
 	codeLiteral, err := json.Marshal(code)
 	if err != nil {
 		return "", err
 	}
 
-	injected := "{}"
-	if len(bindings) > 0 {
-		var builder strings.Builder
-		builder.WriteString("{\n")
-		for i, binding := range bindings {
-			builder.WriteString("    ")
-			builder.WriteString(strconv.Quote(binding.name))
-			builder.WriteString(": ")
-			builder.WriteString(binding.placeholder)
-			if i < len(bindings)-1 {
-				builder.WriteString(",")
-			}
-			builder.WriteString("\n")
-		}
-		builder.WriteString("}")
-		injected = builder.String()
-	}
-
-	defsPlaceholder := fmt.Sprintf("$v%d", bindingCount+1)
-	statePlaceholder := fmt.Sprintf("$v%d", bindingCount+2)
+	// Use actual file paths instead of placeholders
+	stateFileLiteral := strconv.Quote(filepath.ToSlash(stateFile))
+	defsFileLiteral := strconv.Quote(filepath.ToSlash(defsFile))
+	bindingsFileLiteral := strconv.Quote(filepath.ToSlash(bindingsFile))
 
 	wrapper := fmt.Sprintf(`
 import ast, traceback, types, base64, json, pickle, sys, io
@@ -246,10 +329,29 @@ if sys.platform == 'win32':
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 __igonb_code = %s
-__igonb_defs_json = %s
-__igonb_state_b64 = %s
+__igonb_state_file = %s
+__igonb_defs_file = %s
+__igonb_bindings_file = %s
+
+# Read state, defs, and bindings from temp files to avoid command line length limit
+def __igonb_read_file(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception:
+        return ""
+
+def __igonb_read_json_file(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+__igonb_state_b64 = __igonb_read_file(__igonb_state_file)
+__igonb_defs_json = __igonb_read_file(__igonb_defs_file)
 __igonb_globals = globals()
-__igonb_injected = %s
+__igonb_injected = __igonb_read_json_file(__igonb_bindings_file)
 __igonb_reserved = {
     "insyra",
     "insyra_return",
@@ -498,12 +600,12 @@ except Exception:
     __igonb_new_defs = []
 
 insyra.Return({"vars": __igonb_vars, "error": __igonb_error, "state": __igonb_state, "defs": __igonb_new_defs}, None)
-`, string(codeLiteral), defsPlaceholder, statePlaceholder, injected)
+`, string(codeLiteral), stateFileLiteral, defsFileLiteral, bindingsFileLiteral)
 
 	return wrapper, nil
 }
 
-func (e *Executor) executePythonWrapper(wrapper string, bindings []pythonBinding, defsJSON string, state string) (pythonRunPayload, string, error) {
+func (e *Executor) executePythonWrapper(wrapperFile string) (pythonRunPayload, string, error) {
 	var payload pythonRunPayload
 	if e == nil || e.goInterp == nil {
 		return payload, "", fmt.Errorf("executor not initialized")
@@ -535,20 +637,11 @@ func (e *Executor) executePythonWrapper(wrapper string, bindings []pythonBinding
 		}
 	}
 
-	codeLiteral := strconv.Quote(wrapper)
-	argList := ""
-	if len(bindings) > 0 {
-		args := make([]string, len(bindings))
-		for i, binding := range bindings {
-			args[i] = binding.argExpr
-		}
-		args = append(args, strconv.Quote(defsJSON), strconv.Quote(state))
-		argList = ", " + strings.Join(args, ", ")
-	} else {
-		argList = ", " + strings.Join([]string{strconv.Quote(defsJSON), strconv.Quote(state)}, ", ")
-	}
+	// Use RunFileContext to execute Python file - no arguments needed since all data is in files
+	// This avoids Windows command line length limit
+	wrapperFileLiteral := strconv.Quote(wrapperFile)
 
-	call := fmt.Sprintf("%s = py.RunCodefContext(%s, &%s, %s%s)", errVar, ctxVar, resultVar, codeLiteral, argList)
+	call := fmt.Sprintf("%s = py.RunFileContext(%s, &%s, %s)", errVar, ctxVar, resultVar, wrapperFileLiteral)
 	output, err := e.runGoSegment(call, false)
 	if err != nil {
 		return payload, output, err
