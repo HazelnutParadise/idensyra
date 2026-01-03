@@ -2712,6 +2712,11 @@ function getParentPath(path) {
   return parts.slice(0, -1).join("/");
 }
 
+function getFirstWorkspaceFile() {
+  const entry = (workspaceFiles || []).find((file) => !file.isDir);
+  return entry ? entry.name : "";
+}
+
 function getTargetFolder() {
   if (isRootFolderSelected) return "";
   if (selectedFolderPath) return selectedFolderPath;
@@ -3918,14 +3923,22 @@ async function deleteFileConfirm(filename) {
 
     await DeleteFile(filename);
     removeFileModel(filename);
-    activeFileName = "";
     await loadWorkspaceFiles();
 
     // If deleted file was active, switch to first available
-    if (workspaceFiles.length > 0) {
+    if (wasActive) {
+      activeFileName = "";
       hideImagePreview();
+      hideLargeFilePreview();
       hideBinaryPreview();
-      await switchToFile(workspaceFiles[0].name, true);
+      hideIgonbNotebook();
+      const nextFile = getFirstWorkspaceFile();
+      if (nextFile) {
+        await switchToFile(nextFile, true);
+      } else {
+        document.getElementById("active-file-label").textContent = "Code Input";
+        updateRunButtonState();
+      }
     }
     if (wasActive) {
       disposeOrphanModel(filename, previousModel);
@@ -3966,6 +3979,7 @@ async function deleteFolderConfirm(folderPath) {
       hideImagePreview();
       hideLargeFilePreview();
       hideBinaryPreview();
+      hideIgonbNotebook();
     }
     scheduleWorkspaceRefresh();
     if (wasActive) {
