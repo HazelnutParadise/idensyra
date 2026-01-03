@@ -923,6 +923,7 @@ function parseIgonbContent(content) {
     const rawCells = Array.isArray(data.cells) ? data.cells : [];
     const cells =
       rawCells.length > 0 ? rawCells : [{ language: "go", source: "" }];
+    const metadata = normalizeIgonbMetadata(data.metadata);
     let maxId = igonbIdCounter;
     const parsedCells = cells.map((cell) => {
       if (typeof cell.id === "string") {
@@ -950,11 +951,50 @@ function parseIgonbContent(content) {
     return {
       version: data.version || 1,
       cells: parsedCells,
+      metadata,
     };
   } catch (err) {
     console.error("Failed to parse igonb:", err);
     return null;
   }
+}
+
+function normalizeIgonbMetadata(rawMetadata) {
+  const now = new Date().toISOString();
+  const metadata =
+    rawMetadata && typeof rawMetadata === "object" ? { ...rawMetadata } : {};
+  if (!metadata.createdAt) {
+    metadata.createdAt = now;
+  }
+  if (!metadata.lastModifiedAt) {
+    metadata.lastModifiedAt = metadata.createdAt;
+  }
+  if (typeof metadata.executionCount !== "number") {
+    metadata.executionCount = 0;
+  }
+  if (!metadata.lastRunAt) {
+    metadata.lastRunAt = "";
+  }
+  return metadata;
+}
+
+function markIgonbModified() {
+  if (!igonbState) return;
+  if (!igonbState.metadata) {
+    igonbState.metadata = normalizeIgonbMetadata(null);
+  }
+  igonbState.metadata.lastModifiedAt = new Date().toISOString();
+}
+
+function recordIgonbRun(count = 1) {
+  if (!igonbState) return;
+  if (!igonbState.metadata) {
+    igonbState.metadata = normalizeIgonbMetadata(null);
+  }
+  const delta = Number.isFinite(count) ? count : 1;
+  igonbState.metadata.executionCount =
+    (Number(igonbState.metadata.executionCount) || 0) + delta;
+  igonbState.metadata.lastRunAt = new Date().toISOString();
 }
 
 function nextIgonbId() {
@@ -1124,6 +1164,7 @@ function createIgonbCellElement(cell, index) {
     cell.waiting = false;
     cell.done = false;
     cell.editing = false;
+    markIgonbModified();
     scheduleIgonbSave();
     renderIgonbCells();
   });
@@ -1318,6 +1359,7 @@ function moveIgonbCell(fromIndex, insertIndex) {
   if (targetIndex < 0) targetIndex = 0;
   if (targetIndex > cells.length) targetIndex = cells.length;
   cells.splice(targetIndex, 0, moved);
+  markIgonbModified();
   scheduleIgonbSave();
   renderIgonbCells();
 }
@@ -1345,6 +1387,7 @@ function addIgonbCell(language) {
   }
 
   igonbSelectedId = newCell.id;
+  markIgonbModified();
   scheduleIgonbSave();
   renderIgonbCells();
 }
@@ -1364,6 +1407,7 @@ function deleteIgonbCell(index) {
     const nextCell = igonbState.cells[index] || igonbState.cells[index - 1];
     igonbSelectedId = nextCell ? nextCell.id : null;
   }
+  markIgonbModified();
   scheduleIgonbSave();
   renderIgonbCells();
 }
@@ -1440,6 +1484,7 @@ function getIgonbContent() {
       output: cell.output || "",
       error: cell.error || "",
     })),
+    metadata: igonbState ? igonbState.metadata : undefined,
   };
   return JSON.stringify(payload, null, 2);
 }
@@ -1447,6 +1492,7 @@ function getIgonbContent() {
 async function runIgonbCell(index) {
   if (!igonbState || igonbIsExecuting) return;
   try {
+    recordIgonbRun();
     scheduleIgonbSave();
     const target = igonbState.cells[index];
     if (target) {
@@ -1466,6 +1512,7 @@ async function runIgonbCell(index) {
 async function runIgonbCellWithAbove(index) {
   if (!igonbState || igonbIsExecuting) return;
   try {
+    recordIgonbRun();
     scheduleIgonbSave();
     const target = igonbState.cells[index];
     if (target) {
@@ -1486,6 +1533,7 @@ async function runIgonbCellDown(index) {
   const indices = getIgonbRunnableIndicesFrom(index);
   if (indices.length === 0) return;
   try {
+    recordIgonbRun();
     scheduleIgonbSave();
     const target = igonbState.cells[index];
     if (target) {
@@ -1532,6 +1580,7 @@ function ensureIgonbMarkdownPreview() {
 async function runIgonbAll() {
   if (!igonbState || igonbIsExecuting) return;
   try {
+    recordIgonbRun();
     scheduleIgonbSave();
     ensureIgonbMarkdownPreview();
     setIgonbRunning(-1);
@@ -1710,6 +1759,7 @@ function initIgonbEditors() {
     editorInstance.onDidChangeModelContent(() => {
       cell.source = model.getValue();
       cell.done = false;
+      markIgonbModified();
       scheduleIgonbSave();
       if (cell.language === "markdown") {
         updateMarkdownPreview(container, cell.source);
