@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [NEXT]
 
-## [0.2.0] - (In Development)
+## [0.2.0] - 2026-01-04
 
 ### New Features
 

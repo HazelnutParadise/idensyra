@@ -20,6 +20,8 @@
 
 ### igonb Notebook（v0.2.0 新增）
 
+![igonb Notebook screenshot](igonb_screenshot.png)
+
 - `.igonb` 格式：類似 Jupyter 的互動式筆記本
 - 多語言 Cell：支援 Go、Python、Markdown
 - 靈活執行：單一 Cell 執行、與上方 Cell 一起執行、向下執行全部
