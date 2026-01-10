@@ -79,18 +79,25 @@ func (e *Executor) runPythonCell(code string) (string, error) {
 		defsJSONStr = "[]"
 	}
 
-	// Serialize bindings and build wrapper code. insyra will handle large payloads internally.
+	// Serialize bindings and prepare wrapper template and args. Use py.RunCodefContext to pass args.
 	bindingsData, err := serializeBindingsToJSON(bindings)
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize bindings: %w", err)
 	}
 
-	wrapper, err := buildPythonWrapper(code, state, defsJSONStr, string(bindingsData))
+	// Build wrapper template (contains %s placeholders)
+	wrapperTemplate, err := buildPythonWrapper()
 	if err != nil {
 		return "", err
 	}
 
-	payload, output, err := e.executePythonWrapper(wrapper)
+	// Prepare quoted arguments for substitution
+	codeArg := strconv.Quote(code)
+	stateArg := strconv.Quote(state)
+	defsArg := strconv.Quote(defsJSONStr)
+	bindingsArg := strconv.Quote(string(bindingsData))
+
+	payload, output, err := e.executePythonWrapper(wrapperTemplate, codeArg, stateArg, defsArg, bindingsArg)
 	if err != nil {
 		return output, err
 	}
@@ -277,17 +284,9 @@ func (e *Executor) goNameExists(name string) bool {
 	return err == nil
 }
 
-func buildPythonWrapper(code string, stateB64 string, defsJSON string, bindingsJSON string) (string, error) {
-	codeLiteral, err := json.Marshal(code)
-	if err != nil {
-		return "", err
-	}
+func buildPythonWrapper() (string, error) {
 
-	stateLiteral := strconv.Quote(stateB64)
-	defsLiteral := strconv.Quote(defsJSON)
-	bindingsLiteral := strconv.Quote(bindingsJSON)
-
-	wrapper := fmt.Sprintf(`
+	wrapper := `
 import ast, traceback, types, base64, json, pickle, sys, io
 
 # Force UTF-8 encoding for stdout/stderr on Windows
@@ -297,11 +296,11 @@ if sys.platform == 'win32':
 	if hasattr(sys.stderr, 'reconfigure'):
 		sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-__igonb_code = %s
-__igonb_state_b64 = %s
-__igonb_defs_json = %s
+__igonb_code = $v1
+__igonb_state_b64 = $v2
+__igonb_defs_json = $v3
 try:
-	__igonb_injected = json.loads(%s)
+	__igonb_injected = json.loads($v4)
 except Exception:
 	__igonb_injected = {}
 __igonb_globals = globals()
@@ -553,12 +552,13 @@ except Exception:
 	__igonb_new_defs = []
 
 insyra.Return({"vars": __igonb_vars, "error": __igonb_error, "state": __igonb_state, "defs": __igonb_new_defs}, None)
-`, string(codeLiteral), stateLiteral, defsLiteral, bindingsLiteral)
+`
 
+	// wrapper is a template that expects 4 %s replacements: code, state_b64, defs_json, bindings_json
 	return wrapper, nil
 }
 
-func (e *Executor) executePythonWrapper(wrapperCode string) (pythonRunPayload, string, error) {
+func (e *Executor) executePythonWrapper(wrapperTemplate string, codeArg string, stateArg string, defsArg string, bindingsArg string) (pythonRunPayload, string, error) {
 	var payload pythonRunPayload
 	if e == nil || e.goInterp == nil {
 		return payload, "", fmt.Errorf("executor not initialized")
@@ -590,10 +590,11 @@ func (e *Executor) executePythonWrapper(wrapperCode string) (pythonRunPayload, s
 		}
 	}
 
-	// Use RunCodeContext to execute Python code string. insyra will handle temp-file concerns.
-	wrapperCodeLiteral := strconv.Quote(wrapperCode)
+	// Use RunCodefContext to execute Python template with args; insyra will handle Go->Python conversions.
+	wrapperTemplateLiteral := strconv.Quote(wrapperTemplate)
 
-	call := fmt.Sprintf("%s = py.RunCodeContext(%s, &%s, %s)", errVar, ctxVar, resultVar, wrapperCodeLiteral)
+	// args are already quoted literals (codeArg, stateArg, defsArg, bindingsArg)
+	call := fmt.Sprintf("%s = py.RunCodefContext(%s, &%s, %s, %s, %s, %s, %s)", errVar, ctxVar, resultVar, wrapperTemplateLiteral, codeArg, stateArg, defsArg, bindingsArg)
 	output, err := e.runGoSegment(call, false)
 	if err != nil {
 		return payload, output, err
