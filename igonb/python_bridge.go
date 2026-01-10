@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"go/token"
 	"math"
-	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strconv"
@@ -81,46 +79,18 @@ func (e *Executor) runPythonCell(code string) (string, error) {
 		defsJSONStr = "[]"
 	}
 
-	// Write large data to temp files to avoid Windows command line length limit
-	tempDir := os.TempDir()
-	runID := e.nextPythonRunID()
-
-	stateFile := filepath.Join(tempDir, fmt.Sprintf("igonb_state_%d.txt", runID))
-	defsFile := filepath.Join(tempDir, fmt.Sprintf("igonb_defs_%d.json", runID))
-	bindingsFile := filepath.Join(tempDir, fmt.Sprintf("igonb_bindings_%d.json", runID))
-	wrapperFile := filepath.Join(tempDir, fmt.Sprintf("igonb_wrapper_%d.py", runID))
-
-	if err := os.WriteFile(stateFile, []byte(state), 0600); err != nil {
-		return "", fmt.Errorf("failed to write state file: %w", err)
-	}
-	defer os.Remove(stateFile)
-
-	if err := os.WriteFile(defsFile, []byte(defsJSONStr), 0600); err != nil {
-		return "", fmt.Errorf("failed to write defs file: %w", err)
-	}
-	defer os.Remove(defsFile)
-
-	// Serialize bindings to JSON file to avoid command line length limit
+	// Serialize bindings and build wrapper code. insyra will handle large payloads internally.
 	bindingsData, err := serializeBindingsToJSON(bindings)
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize bindings: %w", err)
 	}
-	if err := os.WriteFile(bindingsFile, bindingsData, 0600); err != nil {
-		return "", fmt.Errorf("failed to write bindings file: %w", err)
-	}
-	defer os.Remove(bindingsFile)
 
-	wrapper, err := buildPythonWrapper(code, stateFile, defsFile, bindingsFile)
+	wrapper, err := buildPythonWrapper(code, state, defsJSONStr, string(bindingsData))
 	if err != nil {
 		return "", err
 	}
 
-	if err := os.WriteFile(wrapperFile, []byte(wrapper), 0600); err != nil {
-		return "", fmt.Errorf("failed to write wrapper file: %w", err)
-	}
-	defer os.Remove(wrapperFile)
-
-	payload, output, err := e.executePythonWrapper(wrapperFile)
+	payload, output, err := e.executePythonWrapper(wrapper)
 	if err != nil {
 		return output, err
 	}
@@ -307,305 +277,288 @@ func (e *Executor) goNameExists(name string) bool {
 	return err == nil
 }
 
-func buildPythonWrapper(code string, stateFile string, defsFile string, bindingsFile string) (string, error) {
+func buildPythonWrapper(code string, stateB64 string, defsJSON string, bindingsJSON string) (string, error) {
 	codeLiteral, err := json.Marshal(code)
 	if err != nil {
 		return "", err
 	}
 
-	// Use actual file paths instead of placeholders
-	stateFileLiteral := strconv.Quote(filepath.ToSlash(stateFile))
-	defsFileLiteral := strconv.Quote(filepath.ToSlash(defsFile))
-	bindingsFileLiteral := strconv.Quote(filepath.ToSlash(bindingsFile))
+	stateLiteral := strconv.Quote(stateB64)
+	defsLiteral := strconv.Quote(defsJSON)
+	bindingsLiteral := strconv.Quote(bindingsJSON)
 
 	wrapper := fmt.Sprintf(`
 import ast, traceback, types, base64, json, pickle, sys, io
 
 # Force UTF-8 encoding for stdout/stderr on Windows
 if sys.platform == 'win32':
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    if hasattr(sys.stderr, 'reconfigure'):
-        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+	if hasattr(sys.stdout, 'reconfigure'):
+		sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+	if hasattr(sys.stderr, 'reconfigure'):
+		sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 __igonb_code = %s
-__igonb_state_file = %s
-__igonb_defs_file = %s
-__igonb_bindings_file = %s
-
-# Read state, defs, and bindings from temp files to avoid command line length limit
-def __igonb_read_file(path):
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            return f.read()
-    except Exception:
-        return ""
-
-def __igonb_read_json_file(path):
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-__igonb_state_b64 = __igonb_read_file(__igonb_state_file)
-__igonb_defs_json = __igonb_read_file(__igonb_defs_file)
+__igonb_state_b64 = %s
+__igonb_defs_json = %s
+try:
+	__igonb_injected = json.loads(%s)
+except Exception:
+	__igonb_injected = {}
 __igonb_globals = globals()
-__igonb_injected = __igonb_read_json_file(__igonb_bindings_file)
 __igonb_reserved = {
-    "insyra",
-    "insyra_return",
-    "pickle",
-    "base64",
-    "np",
-    "pd",
-    "pl",
-    "plt",
-    "sns",
-    "scipy",
-    "sklearn",
-    "sm",
-    "go",
-    "spacy",
-    "bs4",
-    "requests",
-    "json",
+	"insyra",
+	"insyra_return",
+	"pickle",
+	"base64",
+	"np",
+	"pd",
+	"pl",
+	"plt",
+	"sns",
+	"scipy",
+	"sklearn",
+	"sm",
+	"go",
+	"spacy",
+	"bs4",
+	"requests",
+	"json",
 }
 
 def __igonb_exec(code, globs):
-    tree = ast.parse(code, mode="exec")
-    if tree.body and isinstance(tree.body[-1], ast.Expr):
-        last = tree.body.pop()
-        if tree.body:
-            module = ast.Module(body=tree.body, type_ignores=[])
-            exec(compile(module, "<igonb>", "exec"), globs)
-        expr = ast.Expression(last.value)
-        return eval(compile(expr, "<igonb>", "eval"), globs)
-    exec(code, globs)
-    return None
+	tree = ast.parse(code, mode="exec")
+	if tree.body and isinstance(tree.body[-1], ast.Expr):
+		last = tree.body.pop()
+		if tree.body:
+			module = ast.Module(body=tree.body, type_ignores=[])
+			exec(compile(module, "<igonb>", "exec"), globs)
+		expr = ast.Expression(last.value)
+		return eval(compile(expr, "<igonb>", "eval"), globs)
+	exec(code, globs)
+	return None
 
 def __igonb_collect_defs(code):
-    try:
-        tree = ast.parse(code, mode="exec")
-    except Exception:
-        return []
-    defs = []
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            try:
-                src = ast.get_source_segment(code, node)
-            except Exception:
-                src = None
-            if src:
-                defs.append({"name": node.name, "source": src})
-    return defs
+	try:
+		tree = ast.parse(code, mode="exec")
+	except Exception:
+		return []
+	defs = []
+	for node in tree.body:
+		if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+			try:
+				src = ast.get_source_segment(code, node)
+			except Exception:
+				src = None
+			if src:
+				defs.append({"name": node.name, "source": src})
+	return defs
 
 def __igonb_load_state(state_b64, globs):
-    if not state_b64:
-        return
-    try:
-        data = base64.b64decode(state_b64.encode("utf-8"))
-        state = pickle.loads(data)
-    except Exception:
-        return
-    if isinstance(state, dict):
-        for key, value in state.items():
-            if key.startswith("_") or key in __igonb_reserved:
-                continue
-            globs[key] = value
+	if not state_b64:
+		return
+	try:
+		data = base64.b64decode(state_b64.encode("utf-8"))
+		state = pickle.loads(data)
+	except Exception:
+		return
+	if isinstance(state, dict):
+		for key, value in state.items():
+			if key.startswith("_") or key in __igonb_reserved:
+				continue
+			globs[key] = value
 
 def __igonb_dump_state(globs):
-    state = {}
-    for key, value in globs.items():
-        if key.startswith("_") or key in __igonb_reserved:
-            continue
-        if isinstance(value, (types.ModuleType, types.FunctionType, type)):
-            continue
-        try:
-            pickle.dumps(value)
-        except Exception:
-            continue
-        state[key] = value
-    try:
-        data = pickle.dumps(state)
-        return base64.b64encode(data).decode("utf-8")
-    except Exception:
-        return ""
+	state = {}
+	for key, value in globs.items():
+		if key.startswith("_") or key in __igonb_reserved:
+			continue
+		if isinstance(value, (types.ModuleType, types.FunctionType, type)):
+			continue
+		try:
+			pickle.dumps(value)
+		except Exception:
+			continue
+		state[key] = value
+	try:
+		data = pickle.dumps(state)
+		return base64.b64encode(data).decode("utf-8")
+	except Exception:
+		return ""
 
 def __igonb_restore_value(value):
-    if isinstance(value, dict):
-        vtype = value.get("__igonb_type__")
-        if vtype == "datalist":
-            try:
-                import pandas as pd
-                data = value.get("data", [])
-                name = value.get("name", None)
-                if name == "":
-                    name = None
-                return pd.Series(data, name=name)
-            except Exception:
-                return value.get("data", [])
-        if vtype == "datatable":
-            try:
-                import pandas as pd
-                data = value.get("data", [])
-                df = pd.DataFrame(data)
-                cols = value.get("columns", [])
-                if isinstance(cols, list) and any(str(c).strip() != "" for c in cols):
-                    df.columns = cols
-                rows = value.get("index", [])
-                if isinstance(rows, list) and any(str(r).strip() != "" for r in rows):
-                    df.index = rows
-                return df
-            except Exception:
-                return value.get("data", [])
-        if vtype == "pyobject" and value.get("pickle"):
-            try:
-                data = base64.b64decode(value["pickle"].encode("utf-8"))
-                return pickle.loads(data)
-            except Exception:
-                return value
-        if vtype == "pyrepr":
-            return value.get("repr", "")
-    return value
+	if isinstance(value, dict):
+		vtype = value.get("__igonb_type__")
+		if vtype == "datalist":
+			try:
+				import pandas as pd
+				data = value.get("data", [])
+				name = value.get("name", None)
+				if name == "":
+					name = None
+				return pd.Series(data, name=name)
+			except Exception:
+				return value.get("data", [])
+		if vtype == "datatable":
+			try:
+				import pandas as pd
+				data = value.get("data", [])
+				df = pd.DataFrame(data)
+				cols = value.get("columns", [])
+				if isinstance(cols, list) and any(str(c).strip() != "" for c in cols):
+					df.columns = cols
+				rows = value.get("index", [])
+				if isinstance(rows, list) and any(str(r).strip() != "" for r in rows):
+					df.index = rows
+				return df
+			except Exception:
+				return value.get("data", [])
+		if vtype == "pyobject" and value.get("pickle"):
+			try:
+				data = base64.b64decode(value["pickle"].encode("utf-8"))
+				return pickle.loads(data)
+			except Exception:
+				return value
+		if vtype == "pyrepr":
+			return value.get("repr", "")
+	return value
 
 def __igonb_sanitize_for_json(value):
-    import math
-    if isinstance(value, float):
-        if math.isnan(value):
-            return None
-        if math.isinf(value):
-            return None
-    if isinstance(value, list):
-        return [__igonb_sanitize_for_json(v) for v in value]
-    if isinstance(value, dict):
-        return {k: __igonb_sanitize_for_json(v) for k, v in value.items()}
-    return value
+	import math
+	if isinstance(value, float):
+		if math.isnan(value):
+			return None
+		if math.isinf(value):
+			return None
+	if isinstance(value, list):
+		return [__igonb_sanitize_for_json(v) for v in value]
+	if isinstance(value, dict):
+		return {k: __igonb_sanitize_for_json(v) for k, v in value.items()}
+	return value
 
 def __igonb_export_value(value):
-    try:
-        import pandas as pd
-        if isinstance(value, pd.Series):
-            data = value.where(pd.notnull(value), None).tolist()
-            return True, {
-                "__igonb_type__": "datalist",
-                "data": __igonb_sanitize_for_json(data),
-                "name": value.name if value.name is not None else "",
-            }
-        if isinstance(value, pd.DataFrame):
-            df_clean = value.where(pd.notnull(value), None)
-            data = df_clean.to_numpy().tolist()
-            return True, {
-                "__igonb_type__": "datatable",
-                "data": __igonb_sanitize_for_json(data),
-                "columns": list(value.columns),
-                "index": list(value.index),
-            }
-    except Exception:
-        pass
-    try:
-        import numpy as np
-        if isinstance(value, np.ndarray):
-            return True, __igonb_sanitize_for_json(value.tolist())
-        if isinstance(value, np.generic):
-            item = value.item()
-            return True, __igonb_sanitize_for_json(item)
-    except Exception:
-        pass
-    if value is None:
-        return True, None
-    if isinstance(value, (str, int, float, bool)):
-        return True, value
-    try:
-        import json
-        if isinstance(value, (list, tuple)):
-            json.dumps(value)
-            return True, list(value)
-        if isinstance(value, dict):
-            json.dumps(value)
-            return True, value
-    except Exception:
-        pass
-    try:
-        data = pickle.dumps(value)
-        return True, {
-            "__igonb_type__": "pyobject",
-            "pickle": base64.b64encode(data).decode("utf-8"),
-            "repr": repr(value),
-            "pytype": type(value).__name__,
-        }
-    except Exception:
-        pass
-    try:
-        return True, {
-            "__igonb_type__": "pyrepr",
-            "repr": repr(value),
-            "pytype": type(value).__name__,
-        }
-    except Exception:
-        return False, None
+	try:
+		import pandas as pd
+		if isinstance(value, pd.Series):
+			data = value.where(pd.notnull(value), None).tolist()
+			return True, {
+				"__igonb_type__": "datalist",
+				"data": __igonb_sanitize_for_json(data),
+				"name": value.name if value.name is not None else "",
+			}
+		if isinstance(value, pd.DataFrame):
+			df_clean = value.where(pd.notnull(value), None)
+			data = df_clean.to_numpy().tolist()
+			return True, {
+				"__igonb_type__": "datatable",
+				"data": __igonb_sanitize_for_json(data),
+				"columns": list(value.columns),
+				"index": list(value.index),
+			}
+	except Exception:
+		pass
+	try:
+		import numpy as np
+		if isinstance(value, np.ndarray):
+			return True, __igonb_sanitize_for_json(value.tolist())
+		if isinstance(value, np.generic):
+			item = value.item()
+			return True, __igonb_sanitize_for_json(item)
+	except Exception:
+		pass
+	if value is None:
+		return True, None
+	if isinstance(value, (str, int, float, bool)):
+		return True, value
+	try:
+		import json
+		if isinstance(value, (list, tuple)):
+			json.dumps(value)
+			return True, list(value)
+		if isinstance(value, dict):
+			json.dumps(value)
+			return True, value
+	except Exception:
+		pass
+	try:
+		data = pickle.dumps(value)
+		return True, {
+			"__igonb_type__": "pyobject",
+			"pickle": base64.b64encode(data).decode("utf-8"),
+			"repr": repr(value),
+			"pytype": type(value).__name__,
+		}
+	except Exception:
+		pass
+	try:
+		return True, {
+			"__igonb_type__": "pyrepr",
+			"repr": repr(value),
+			"pytype": type(value).__name__,
+		}
+	except Exception:
+		return False, None
 
 def __igonb_export(globs):
-    exported = {}
-    for key, value in globs.items():
-        if key.startswith("_") or key in __igonb_reserved:
-            continue
-        if isinstance(value, (types.ModuleType, types.FunctionType)):
-            continue
-        ok, converted = __igonb_export_value(value)
-        if ok:
-            exported[key] = converted
-    return exported
+	exported = {}
+	for key, value in globs.items():
+		if key.startswith("_") or key in __igonb_reserved:
+			continue
+		if isinstance(value, (types.ModuleType, types.FunctionType)):
+			continue
+		ok, converted = __igonb_export_value(value)
+		if ok:
+			exported[key] = converted
+	return exported
 
 __igonb_error = ""
 __igonb_state = ""
 __igonb_new_defs = []
 try:
-    __igonb_defs = []
-    if __igonb_defs_json:
-        try:
-            __igonb_defs = json.loads(__igonb_defs_json)
-        except Exception:
-            __igonb_defs = []
-    for _def in __igonb_defs:
-        if isinstance(_def, dict) and _def.get("source"):
-            try:
-                exec(_def["source"], __igonb_globals)
-            except Exception:
-                pass
-    __igonb_load_state(__igonb_state_b64, __igonb_globals)
-    for _k, _v in __igonb_injected.items():
-        __igonb_globals[_k] = __igonb_restore_value(_v)
-    _value = __igonb_exec(__igonb_code, __igonb_globals)
-    if _value is not None:
-        print(_value)
+	__igonb_defs = []
+	if __igonb_defs_json:
+		try:
+			__igonb_defs = json.loads(__igonb_defs_json)
+		except Exception:
+			__igonb_defs = []
+	for _def in __igonb_defs:
+		if isinstance(_def, dict) and _def.get("source"):
+			try:
+				exec(_def["source"], __igonb_globals)
+			except Exception:
+				pass
+	__igonb_load_state(__igonb_state_b64, __igonb_globals)
+	for _k, _v in __igonb_injected.items():
+		__igonb_globals[_k] = __igonb_restore_value(_v)
+	_value = __igonb_exec(__igonb_code, __igonb_globals)
+	if _value is not None:
+		print(_value)
 except Exception:
-    __igonb_error = traceback.format_exc()
+	__igonb_error = traceback.format_exc()
 
 try:
-    __igonb_vars = __igonb_export(__igonb_globals)
+	__igonb_vars = __igonb_export(__igonb_globals)
 except Exception:
-    if not __igonb_error:
-        __igonb_error = traceback.format_exc()
-    __igonb_vars = {}
+	if not __igonb_error:
+		__igonb_error = traceback.format_exc()
+	__igonb_vars = {}
 
 try:
-    __igonb_state = __igonb_dump_state(__igonb_globals)
+	__igonb_state = __igonb_dump_state(__igonb_globals)
 except Exception:
-    __igonb_state = ""
+	__igonb_state = ""
 
 try:
-    __igonb_new_defs = __igonb_collect_defs(__igonb_code)
+	__igonb_new_defs = __igonb_collect_defs(__igonb_code)
 except Exception:
-    __igonb_new_defs = []
+	__igonb_new_defs = []
 
 insyra.Return({"vars": __igonb_vars, "error": __igonb_error, "state": __igonb_state, "defs": __igonb_new_defs}, None)
-`, string(codeLiteral), stateFileLiteral, defsFileLiteral, bindingsFileLiteral)
+`, string(codeLiteral), stateLiteral, defsLiteral, bindingsLiteral)
 
 	return wrapper, nil
 }
 
-func (e *Executor) executePythonWrapper(wrapperFile string) (pythonRunPayload, string, error) {
+func (e *Executor) executePythonWrapper(wrapperCode string) (pythonRunPayload, string, error) {
 	var payload pythonRunPayload
 	if e == nil || e.goInterp == nil {
 		return payload, "", fmt.Errorf("executor not initialized")
@@ -637,11 +590,10 @@ func (e *Executor) executePythonWrapper(wrapperFile string) (pythonRunPayload, s
 		}
 	}
 
-	// Use RunFileContext to execute Python file - no arguments needed since all data is in files
-	// This avoids Windows command line length limit
-	wrapperFileLiteral := strconv.Quote(wrapperFile)
+	// Use RunCodeContext to execute Python code string. insyra will handle temp-file concerns.
+	wrapperCodeLiteral := strconv.Quote(wrapperCode)
 
-	call := fmt.Sprintf("%s = py.RunFileContext(%s, &%s, %s)", errVar, ctxVar, resultVar, wrapperFileLiteral)
+	call := fmt.Sprintf("%s = py.RunCodeContext(%s, &%s, %s)", errVar, ctxVar, resultVar, wrapperCodeLiteral)
 	output, err := e.runGoSegment(call, false)
 	if err != nil {
 		return payload, output, err
