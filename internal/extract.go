@@ -6,6 +6,7 @@
 //go:generate $GOPATH/bin/yaegi extract github.com/HazelnutParadise/insyra/parallel
 //go:generate $GOPATH/bin/yaegi extract github.com/HazelnutParadise/insyra/plot
 //go:generate $GOPATH/bin/yaegi extract github.com/HazelnutParadise/insyra/gplot
+//go:generate $GOPATH/bin/yaegi extract github.com/HazelnutParadise/insyra/lp
 //go:generate $GOPATH/bin/yaegi extract github.com/HazelnutParadise/insyra/lpgen
 //go:generate $GOPATH/bin/yaegi extract github.com/HazelnutParadise/insyra/csvxl
 //go:generate $GOPATH/bin/yaegi extract github.com/HazelnutParadise/insyra/parquet

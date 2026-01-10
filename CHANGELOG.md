@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [NEXT]
 
+- Update Insyra to latest version(v0.2.13)
+- Add lp package support
+
 ## [0.2.0] - 2026-01-04
 
 ### New Features

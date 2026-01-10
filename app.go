@@ -31,13 +31,13 @@ var defaultCode = `import (
 	"github.com/HazelnutParadise/insyra/parallel"
 	"github.com/HazelnutParadise/insyra/plot"
 	"github.com/HazelnutParadise/insyra/gplot"
+	"github.com/HazelnutParadise/insyra/lp"
 	"github.com/HazelnutParadise/insyra/lpgen"
 	"github.com/HazelnutParadise/insyra/csvxl"
 	"github.com/HazelnutParadise/insyra/parquet"
 	"github.com/HazelnutParadise/insyra/mkt"
 	"github.com/HazelnutParadise/insyra/py"
 
-	// No lp package support
 	// No other third party package support
 )
 

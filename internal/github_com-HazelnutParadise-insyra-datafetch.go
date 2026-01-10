@@ -10,11 +10,18 @@ import (
 func init() {
 	Symbols["github.com/HazelnutParadise/insyra/datafetch/datafetch"] = map[string]reflect.Value{
 		// function, constant and variable definitions
+		"ErrInvalidSymbol":    reflect.ValueOf(&datafetch.ErrInvalidSymbol).Elem(),
+		"ErrRateLimited":      reflect.ValueOf(&datafetch.ErrRateLimited).Elem(),
+		"ErrTimeout":          reflect.ValueOf(&datafetch.ErrTimeout).Elem(),
 		"GoogleMapsStores":    reflect.ValueOf(datafetch.GoogleMapsStores),
 		"SortByHighestRating": reflect.ValueOf(datafetch.SortByHighestRating),
 		"SortByLowestRating":  reflect.ValueOf(datafetch.SortByLowestRating),
 		"SortByNewest":        reflect.ValueOf(datafetch.SortByNewest),
 		"SortByRelevance":     reflect.ValueOf(datafetch.SortByRelevance),
+		"YFPeriodAnnual":      reflect.ValueOf(datafetch.YFPeriodAnnual),
+		"YFPeriodQuarterly":   reflect.ValueOf(datafetch.YFPeriodQuarterly),
+		"YFPeriodYearly":      reflect.ValueOf(datafetch.YFPeriodYearly),
+		"YFinance":            reflect.ValueOf(datafetch.YFinance),
 
 		// type definitions
 		"GoogleMapsStoreData":                   reflect.ValueOf((*datafetch.GoogleMapsStoreData)(nil)),
@@ -22,5 +29,10 @@ func init() {
 		"GoogleMapsStoreReviewSortBy":           reflect.ValueOf((*datafetch.GoogleMapsStoreReviewSortBy)(nil)),
 		"GoogleMapsStoreReviews":                reflect.ValueOf((*datafetch.GoogleMapsStoreReviews)(nil)),
 		"GoogleMapsStoreReviewsFetchingOptions": reflect.ValueOf((*datafetch.GoogleMapsStoreReviewsFetchingOptions)(nil)),
+		"YFFinancialStatementTables":            reflect.ValueOf((*datafetch.YFFinancialStatementTables)(nil)),
+		"YFHistoryParams":                       reflect.ValueOf((*datafetch.YFHistoryParams)(nil)),
+		"YFOptionChainTables":                   reflect.ValueOf((*datafetch.YFOptionChainTables)(nil)),
+		"YFPeriod":                              reflect.ValueOf((*datafetch.YFPeriod)(nil)),
+		"YFinanceConfig":                        reflect.ValueOf((*datafetch.YFinanceConfig)(nil)),
 	}
 }

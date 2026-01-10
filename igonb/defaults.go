@@ -12,6 +12,7 @@ var DefaultGoImports = []string{
 	"github.com/HazelnutParadise/insyra/parallel",
 	"github.com/HazelnutParadise/insyra/plot",
 	"github.com/HazelnutParadise/insyra/gplot",
+	"github.com/HazelnutParadise/insyra/lp",
 	"github.com/HazelnutParadise/insyra/lpgen",
 	"github.com/HazelnutParadise/insyra/csvxl",
 	"github.com/HazelnutParadise/insyra/parquet",
