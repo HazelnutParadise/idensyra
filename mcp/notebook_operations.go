@@ -290,6 +290,11 @@ func (no *NotebookOperations) ExecuteCellAndAfter(ctx context.Context, path stri
 		}, fmt.Errorf("invalid cell index")
 	}
 
+	// Switch to the notebook being executed (before starting execution)
+	if no.setActiveFileFunc != nil {
+		_ = no.setActiveFileFunc(path)
+	}
+
 	var outputs []string
 	for i := startIndex; i < len(notebook.Cells); i++ {
 		cell := notebook.Cells[i]
@@ -299,11 +304,6 @@ func (no *NotebookOperations) ExecuteCellAndAfter(ctx context.Context, path stri
 		} else {
 			outputs = append(outputs, fmt.Sprintf("Cell %d output:\n%s", i, output))
 		}
-	}
-
-	// Switch to the notebook being executed
-	if no.setActiveFileFunc != nil {
-		_ = no.setActiveFileFunc(path)
 	}
 
 	return &ToolResponse{
@@ -344,6 +344,11 @@ func (no *NotebookOperations) ExecuteBeforeAndCell(ctx context.Context, path str
 		}, fmt.Errorf("invalid cell index")
 	}
 
+	// Switch to the notebook being executed (before starting execution)
+	if no.setActiveFileFunc != nil {
+		_ = no.setActiveFileFunc(path)
+	}
+
 	var outputs []string
 	for i := 0; i <= endIndex; i++ {
 		cell := notebook.Cells[i]
@@ -353,11 +358,6 @@ func (no *NotebookOperations) ExecuteBeforeAndCell(ctx context.Context, path str
 		} else {
 			outputs = append(outputs, fmt.Sprintf("Cell %d output:\n%s", i, output))
 		}
-	}
-
-	// Switch to the notebook being executed
-	if no.setActiveFileFunc != nil {
-		_ = no.setActiveFileFunc(path)
 	}
 
 	return &ToolResponse{
@@ -391,6 +391,11 @@ func (no *NotebookOperations) ExecuteAllCells(ctx context.Context, path string) 
 		}, err
 	}
 
+	// Switch to the notebook being executed (before starting execution)
+	if no.setActiveFileFunc != nil {
+		_ = no.setActiveFileFunc(path)
+	}
+
 	var outputs []string
 	for i, cell := range notebook.Cells {
 		output, err := no.executeCellFunc(cell.Language, cell.Source)
@@ -399,11 +404,6 @@ func (no *NotebookOperations) ExecuteAllCells(ctx context.Context, path string) 
 		} else {
 			outputs = append(outputs, fmt.Sprintf("Cell %d output:\n%s", i, output))
 		}
-	}
-
-	// Switch to the notebook being executed
-	if no.setActiveFileFunc != nil {
-		_ = no.setActiveFileFunc(path)
 	}
 
 	return &ToolResponse{
