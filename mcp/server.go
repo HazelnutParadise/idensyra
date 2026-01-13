@@ -28,12 +28,13 @@ func NewServer(
 	openWorkspaceFunc func(path string) error,
 	saveWorkspaceFunc func(path string) error,
 	saveChangesFunc func() error,
+	setActiveFileFunc func(path string) error,
 ) *Server {
 	return &Server{
 		config:              config,
-		fileOps:             NewFileOperations(config, workspaceRoot, confirmFunc),
-		codeExec:            NewCodeExecution(config, workspaceRoot, confirmFunc, executeGoFunc, executePyFunc),
-		notebookOps:         NewNotebookOperations(config, workspaceRoot, confirmFunc, executeCellFunc),
+		fileOps:             NewFileOperations(config, workspaceRoot, confirmFunc, setActiveFileFunc),
+		codeExec:            NewCodeExecution(config, workspaceRoot, confirmFunc, executeGoFunc, executePyFunc, setActiveFileFunc),
+		notebookOps:         NewNotebookOperations(config, workspaceRoot, confirmFunc, executeCellFunc, setActiveFileFunc),
 		workspaceManagement: NewWorkspaceManagement(config, confirmFunc, openWorkspaceFunc, saveWorkspaceFunc, saveChangesFunc),
 	}
 }

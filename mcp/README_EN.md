@@ -5,27 +5,37 @@ The Idensyra MCP Server provides a Model Context Protocol (MCP) interface that a
 ## Features
 
 ### File Operations
-- `read_file` - Read file contents
-- `write_file` - Write or overwrite a file
-- `create_file` - Create a new file
+- `read_file` - Read file contents (automatically switches to the file)
+- `write_file` - Write or overwrite a file (automatically switches to the file)
+- `create_file` - Create a new file (automatically switches to the file)
 - `delete_file` - Delete a file
 - `rename_file` - Rename or move a file
 - `list_files` - List files in a directory
 
 ### Code Execution
-- `execute_go_file` - Execute a Go file (using Yaegi interpreter)
+- `execute_go_file` - Execute a Go file (using Yaegi interpreter, automatically switches to the file)
 - `execute_go_code` - Execute Go code directly
-- `execute_python_file` - Execute a Python file
+- `execute_python_file` - Execute a Python file (automatically switches to the file)
 - `execute_python_code` - Execute Python code directly
 
 ### Notebook Operations (igonb/ipynb)
-- `modify_cell` - Modify a specific cell
-- `insert_cell` - Insert a cell at a specified position
-- `execute_cell` - Execute a specific cell
-- `execute_cell_and_after` - Execute a cell and all subsequent cells
-- `execute_before_and_cell` - Execute all cells before and including a specific cell
-- `execute_all_cells` - Execute all cells
+- `modify_cell` - Modify a specific cell (automatically switches to the notebook)
+- `insert_cell` - Insert a cell at a specified position (automatically switches to the notebook)
+- `execute_cell` - Execute a specific cell (automatically switches to the notebook)
+- `execute_cell_and_after` - Execute a cell and all subsequent cells (automatically switches to the notebook)
+- `execute_before_and_cell` - Execute all cells before and including a specific cell (automatically switches to the notebook)
+- `execute_all_cells` - Execute all cells (automatically switches to the notebook)
 - `convert_ipynb_to_igonb` - Convert ipynb to igonb format
+
+### Automatic File Switching
+When an AI agent performs the following operations, the interface automatically switches to the corresponding file:
+- Reading a file
+- Editing a file
+- Creating a file
+- Executing a file (Go or Python)
+- Modifying or executing notebook cells
+
+This allows users to see in real-time which file the AI agent is working on, providing better visual feedback and context awareness.
 
 ### Workspace Management
 - `open_workspace` - Open a workspace directory

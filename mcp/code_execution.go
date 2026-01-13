@@ -12,11 +12,12 @@ import (
 
 // CodeExecution provides code execution tools for MCP
 type CodeExecution struct {
-	config        *Config
-	workspaceRoot string
-	confirmFunc   func(operation, details string) bool
-	executeGoFunc func(code string, colorBG string) string
-	executePyFunc func(filePath string) (string, error)
+	config           *Config
+	workspaceRoot    string
+	confirmFunc      func(operation, details string) bool
+	executeGoFunc    func(code string, colorBG string) string
+	executePyFunc    func(filePath string) (string, error)
+	setActiveFileFunc func(path string) error
 }
 
 // NewCodeExecution creates a new CodeExecution instance
@@ -26,13 +27,15 @@ func NewCodeExecution(
 	confirmFunc func(operation, details string) bool,
 	executeGoFunc func(code string, colorBG string) string,
 	executePyFunc func(filePath string) (string, error),
+	setActiveFileFunc func(path string) error,
 ) *CodeExecution {
 	return &CodeExecution{
-		config:        config,
-		workspaceRoot: workspaceRoot,
-		confirmFunc:   confirmFunc,
-		executeGoFunc: executeGoFunc,
-		executePyFunc: executePyFunc,
+		config:           config,
+		workspaceRoot:    workspaceRoot,
+		confirmFunc:      confirmFunc,
+		executeGoFunc:    executeGoFunc,
+		executePyFunc:    executePyFunc,
+		setActiveFileFunc: setActiveFileFunc,
 	}
 }
 
@@ -86,6 +89,11 @@ func (ce *CodeExecution) ExecuteGoFile(ctx context.Context, path string) (*ToolR
 	}
 
 	result := ce.executeGoFunc(code, "dark")
+
+	// Switch to the file being executed
+	if ce.setActiveFileFunc != nil {
+		_ = ce.setActiveFileFunc(path)
+	}
 
 	return &ToolResponse{
 		Content: []ContentBlock{{Type: "text", Text: result}},
@@ -161,6 +169,10 @@ func (ce *CodeExecution) ExecutePythonFile(ctx context.Context, path string) (*T
 				IsError: true,
 			}, err
 		}
+		// Switch to the file being executed
+		if ce.setActiveFileFunc != nil {
+			_ = ce.setActiveFileFunc(path)
+		}
 		return &ToolResponse{
 			Content: []ContentBlock{{Type: "text", Text: result}},
 		}, nil
@@ -176,6 +188,11 @@ func (ce *CodeExecution) ExecutePythonFile(ctx context.Context, path string) (*T
 			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Error executing Python: %v\n%s", err, string(output))}},
 			IsError: true,
 		}, err
+	}
+
+	// Switch to the file being executed
+	if ce.setActiveFileFunc != nil {
+		_ = ce.setActiveFileFunc(path)
 	}
 
 	return &ToolResponse{

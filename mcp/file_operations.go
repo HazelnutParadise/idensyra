@@ -9,17 +9,19 @@ import (
 
 // FileOperations provides file manipulation tools for MCP
 type FileOperations struct {
-	config        *Config
-	workspaceRoot string
-	confirmFunc   func(operation, details string) bool
+	config           *Config
+	workspaceRoot    string
+	confirmFunc      func(operation, details string) bool
+	setActiveFileFunc func(path string) error
 }
 
 // NewFileOperations creates a new FileOperations instance
-func NewFileOperations(config *Config, workspaceRoot string, confirmFunc func(operation, details string) bool) *FileOperations {
+func NewFileOperations(config *Config, workspaceRoot string, confirmFunc func(operation, details string) bool, setActiveFileFunc func(path string) error) *FileOperations {
 	return &FileOperations{
-		config:        config,
-		workspaceRoot: workspaceRoot,
-		confirmFunc:   confirmFunc,
+		config:           config,
+		workspaceRoot:    workspaceRoot,
+		confirmFunc:      confirmFunc,
+		setActiveFileFunc: setActiveFileFunc,
 	}
 }
 
@@ -33,6 +35,11 @@ func (fo *FileOperations) ReadFile(ctx context.Context, path string) (*ToolRespo
 			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Error reading file: %v", err)}},
 			IsError: true,
 		}, err
+	}
+
+	// Switch to the file being read
+	if fo.setActiveFileFunc != nil {
+		_ = fo.setActiveFileFunc(path)
 	}
 
 	return &ToolResponse{
@@ -73,6 +80,11 @@ func (fo *FileOperations) WriteFile(ctx context.Context, path string, content st
 			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Error writing file: %v", err)}},
 			IsError: true,
 		}, err
+	}
+
+	// Switch to the file being edited
+	if fo.setActiveFileFunc != nil {
+		_ = fo.setActiveFileFunc(path)
 	}
 
 	return &ToolResponse{
@@ -121,6 +133,11 @@ func (fo *FileOperations) CreateFile(ctx context.Context, path string, content s
 			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Error creating file: %v", err)}},
 			IsError: true,
 		}, err
+	}
+
+	// Switch to the newly created file
+	if fo.setActiveFileFunc != nil {
+		_ = fo.setActiveFileFunc(path)
 	}
 
 	return &ToolResponse{

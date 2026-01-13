@@ -5,27 +5,37 @@ Idensyra MCP Server 提供了一個模型上下文協議 (Model Context Protocol
 ## 功能
 
 ### 文件操作
-- `read_file` - 讀取文件內容
-- `write_file` - 寫入或覆蓋文件
-- `create_file` - 創建新文件
+- `read_file` - 讀取文件內容（自動切換到該文件）
+- `write_file` - 寫入或覆蓋文件（自動切換到該文件）
+- `create_file` - 創建新文件（自動切換到該文件）
 - `delete_file` - 刪除文件
 - `rename_file` - 重命名或移動文件
 - `list_files` - 列出目錄中的文件
 
 ### 代碼執行
-- `execute_go_file` - 執行 Go 文件（使用 Yaegi 解釋器）
+- `execute_go_file` - 執行 Go 文件（使用 Yaegi 解釋器，自動切換到該文件）
 - `execute_go_code` - 直接執行 Go 代碼
-- `execute_python_file` - 執行 Python 文件
+- `execute_python_file` - 執行 Python 文件（自動切換到該文件）
 - `execute_python_code` - 直接執行 Python 代碼
 
 ### Notebook 操作 (igonb/ipynb)
-- `modify_cell` - 修改特定儲存格
-- `insert_cell` - 在指定位置插入儲存格
-- `execute_cell` - 執行特定儲存格
-- `execute_cell_and_after` - 執行某格及其之後的所有儲存格
-- `execute_before_and_cell` - 執行某格之前及該儲存格
-- `execute_all_cells` - 執行所有儲存格
+- `modify_cell` - 修改特定儲存格（自動切換到該 notebook）
+- `insert_cell` - 在指定位置插入儲存格（自動切換到該 notebook）
+- `execute_cell` - 執行特定儲存格（自動切換到該 notebook）
+- `execute_cell_and_after` - 執行某格及其之後的所有儲存格（自動切換到該 notebook）
+- `execute_before_and_cell` - 執行某格之前及該儲存格（自動切換到該 notebook）
+- `execute_all_cells` - 執行所有儲存格（自動切換到該 notebook）
 - `convert_ipynb_to_igonb` - 將 ipynb 轉換為 igonb 格式
+
+### 自動切換文件
+當 AI 代理執行以下操作時，介面會自動切換到對應的文件：
+- 讀取文件
+- 編輯文件
+- 創建文件
+- 執行文件（Go 或 Python）
+- 修改或執行 notebook 儲存格
+
+這讓用戶可以即時看到 AI 代理正在操作的文件，提供更好的視覺反饋和上下文感知。
 
 ### 工作區管理
 - `open_workspace` - 打開工作區目錄

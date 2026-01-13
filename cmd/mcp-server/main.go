@@ -92,6 +92,12 @@ func main() {
 		return nil
 	}
 
+	setActiveFileFunc := func(path string) error {
+		log.Printf("Setting active file: %s", path)
+		// In CLI mode, this just logs. In GUI mode, this would call the actual SetActiveFile function
+		return nil
+	}
+
 	// Create MCP server
 	server := mcp.NewServer(
 		config,
@@ -103,6 +109,7 @@ func main() {
 		openWorkspaceFunc,
 		saveWorkspaceFunc,
 		saveChangesFunc,
+		setActiveFileFunc,
 	)
 
 	log.Printf("MCP Server started. Workspace: %s", absWorkspace)

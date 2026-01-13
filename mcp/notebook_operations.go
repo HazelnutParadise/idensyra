@@ -11,10 +11,11 @@ import (
 
 // NotebookOperations provides notebook manipulation tools for MCP
 type NotebookOperations struct {
-	config        *Config
-	workspaceRoot string
-	confirmFunc   func(operation, details string) bool
-	executeCellFunc func(language, code string) (string, error)
+	config           *Config
+	workspaceRoot    string
+	confirmFunc      func(operation, details string) bool
+	executeCellFunc  func(language, code string) (string, error)
+	setActiveFileFunc func(path string) error
 }
 
 // NewNotebookOperations creates a new NotebookOperations instance
@@ -23,12 +24,14 @@ func NewNotebookOperations(
 	workspaceRoot string,
 	confirmFunc func(operation, details string) bool,
 	executeCellFunc func(language, code string) (string, error),
+	setActiveFileFunc func(path string) error,
 ) *NotebookOperations {
 	return &NotebookOperations{
-		config:        config,
-		workspaceRoot: workspaceRoot,
-		confirmFunc:   confirmFunc,
-		executeCellFunc: executeCellFunc,
+		config:           config,
+		workspaceRoot:    workspaceRoot,
+		confirmFunc:      confirmFunc,
+		executeCellFunc:  executeCellFunc,
+		setActiveFileFunc: setActiveFileFunc,
 	}
 }
 
@@ -126,6 +129,11 @@ func (no *NotebookOperations) ModifyCell(ctx context.Context, path string, cellI
 		}, err
 	}
 
+	// Switch to the notebook being modified
+	if no.setActiveFileFunc != nil {
+		_ = no.setActiveFileFunc(path)
+	}
+
 	return &ToolResponse{
 		Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Cell %d modified successfully", cellIndex)}},
 	}, nil
@@ -177,6 +185,11 @@ func (no *NotebookOperations) InsertCell(ctx context.Context, path string, posit
 			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Error writing notebook: %v", err)}},
 			IsError: true,
 		}, err
+	}
+
+	// Switch to the notebook being modified
+	if no.setActiveFileFunc != nil {
+		_ = no.setActiveFileFunc(path)
 	}
 
 	return &ToolResponse{
@@ -234,6 +247,11 @@ func (no *NotebookOperations) ExecuteCell(ctx context.Context, path string, cell
 		}, err
 	}
 
+	// Switch to the notebook being executed
+	if no.setActiveFileFunc != nil {
+		_ = no.setActiveFileFunc(path)
+	}
+
 	return &ToolResponse{
 		Content: []ContentBlock{{Type: "text", Text: output}},
 	}, nil
@@ -281,6 +299,11 @@ func (no *NotebookOperations) ExecuteCellAndAfter(ctx context.Context, path stri
 		} else {
 			outputs = append(outputs, fmt.Sprintf("Cell %d output:\n%s", i, output))
 		}
+	}
+
+	// Switch to the notebook being executed
+	if no.setActiveFileFunc != nil {
+		_ = no.setActiveFileFunc(path)
 	}
 
 	return &ToolResponse{
@@ -332,6 +355,11 @@ func (no *NotebookOperations) ExecuteBeforeAndCell(ctx context.Context, path str
 		}
 	}
 
+	// Switch to the notebook being executed
+	if no.setActiveFileFunc != nil {
+		_ = no.setActiveFileFunc(path)
+	}
+
 	return &ToolResponse{
 		Content: []ContentBlock{{Type: "text", Text: strings.Join(outputs, "\n\n")}},
 	}, nil
@@ -371,6 +399,11 @@ func (no *NotebookOperations) ExecuteAllCells(ctx context.Context, path string) 
 		} else {
 			outputs = append(outputs, fmt.Sprintf("Cell %d output:\n%s", i, output))
 		}
+	}
+
+	// Switch to the notebook being executed
+	if no.setActiveFileFunc != nil {
+		_ = no.setActiveFileFunc(path)
 	}
 
 	return &ToolResponse{
