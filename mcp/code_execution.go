@@ -65,8 +65,17 @@ func (ce *CodeExecution) ExecuteGoFile(ctx context.Context, path string) (*ToolR
 	}
 
 	code := string(content)
-	// Strip package main and func main() wrapper if present
-	code = strings.TrimPrefix(code, "package main\n")
+	// Strip package main and import statements if present
+	// This allows executing file content that has package declaration
+	code = strings.TrimSpace(code)
+	if strings.HasPrefix(code, "package main") {
+		// Remove "package main" line
+		lines := strings.Split(code, "\n")
+		if len(lines) > 0 {
+			code = strings.Join(lines[1:], "\n")
+			code = strings.TrimSpace(code)
+		}
+	}
 	
 	// Execute using the provided Go execution function
 	if ce.executeGoFunc == nil {

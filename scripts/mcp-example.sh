@@ -16,6 +16,8 @@ echo
 echo "Creating test workspace..."
 mkdir -p /tmp/example-workspace
 cat > /tmp/example-workspace/hello.go << 'EOF'
+package main
+
 import "fmt"
 
 func main() {

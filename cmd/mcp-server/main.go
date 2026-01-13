@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/HazelnutParadise/idensyra/internal"
 	"github.com/HazelnutParadise/idensyra/mcp"
@@ -62,7 +63,13 @@ func main() {
 		case "go":
 			return executeGoCode(code, "dark"), nil
 		case "python":
-			return executePythonFile(code)
+			// For Python, we need to create a temp file since executePythonFile expects a file path
+			tmpFile := filepath.Join(absWorkspace, fmt.Sprintf(".tmp_py_%d.py", time.Now().UnixNano()))
+			defer os.Remove(tmpFile)
+			if err := os.WriteFile(tmpFile, []byte(code), 0644); err != nil {
+				return "", fmt.Errorf("failed to create temp file: %v", err)
+			}
+			return executePythonFile(tmpFile)
 		case "markdown":
 			return "Markdown cell (no execution)", nil
 		default:

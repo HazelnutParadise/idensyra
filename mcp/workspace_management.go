@@ -222,7 +222,7 @@ func (wm *WorkspaceManagement) CreateWorkspaceDirectory(ctx context.Context, rel
 	}
 
 	fullPath := filepath.Join(wm.currentWorkspace, relativePath)
-	
+
 	if err := os.MkdirAll(fullPath, 0755); err != nil {
 		return &ToolResponse{
 			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Error creating directory: %v", err)}},
