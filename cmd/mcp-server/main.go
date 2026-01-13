@@ -1,0 +1,175 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+
+	"github.com/HazelnutParadise/idensyra/internal"
+	"github.com/HazelnutParadise/idensyra/mcp"
+	"github.com/traefik/yaegi/interp"
+	"github.com/traefik/yaegi/stdlib"
+)
+
+var preCode = `package main
+`
+
+func main() {
+	var (
+		workspaceRoot = flag.String("workspace", ".", "Workspace root directory")
+		configFile    = flag.String("config", "", "Configuration file path")
+	)
+	flag.Parse()
+
+	// Get absolute workspace path
+	absWorkspace, err := filepath.Abs(*workspaceRoot)
+	if err != nil {
+		log.Fatalf("Failed to get absolute workspace path: %v", err)
+	}
+
+	// Load configuration
+	config := mcp.DefaultConfig()
+	if *configFile != "" {
+		// TODO: Load config from file if needed
+		log.Printf("Using default configuration")
+	}
+
+	// Create confirmation function (auto-approve for CLI mode)
+	confirmFunc := func(operation, details string) bool {
+		// In CLI mode, we auto-approve all operations
+		// In GUI mode, this would show a dialog
+		log.Printf("Operation: %s - %s (auto-approved)", operation, details)
+		return true
+	}
+
+	// Create execution functions
+	executeGoFunc := func(code string, colorBG string) string {
+		return executeGoCode(code, colorBG)
+	}
+
+	executePyFunc := func(filePath string) (string, error) {
+		return executePythonFile(filePath)
+	}
+
+	executeCellFunc := func(language, code string) (string, error) {
+		switch language {
+		case "go":
+			return executeGoCode(code, "dark"), nil
+		case "python":
+			return executePythonFile(code)
+		case "markdown":
+			return "Markdown cell (no execution)", nil
+		default:
+			return "", fmt.Errorf("unsupported language: %s", language)
+		}
+	}
+
+	openWorkspaceFunc := func(path string) error {
+		log.Printf("Opening workspace: %s", path)
+		return nil
+	}
+
+	saveWorkspaceFunc := func(path string) error {
+		log.Printf("Saving workspace to: %s", path)
+		return nil
+	}
+
+	saveChangesFunc := func() error {
+		log.Printf("Saving changes")
+		return nil
+	}
+
+	// Create MCP server
+	server := mcp.NewServer(
+		config,
+		absWorkspace,
+		confirmFunc,
+		executeGoFunc,
+		executePyFunc,
+		executeCellFunc,
+		openWorkspaceFunc,
+		saveWorkspaceFunc,
+		saveChangesFunc,
+	)
+
+	log.Printf("MCP Server started. Workspace: %s", absWorkspace)
+	log.Printf("Available tools: %d", len(server.ListTools()))
+
+	// Serve on stdin/stdout
+	ctx := context.Background()
+	if err := server.Serve(ctx, os.Stdin, os.Stdout); err != nil {
+		log.Fatalf("Server error: %v", err)
+	}
+}
+
+// executeGoCode executes Go code using yaegi interpreter
+func executeGoCode(code string, colorBG string) string {
+	var buf bytes.Buffer
+
+	i := interp.New(interp.Options{
+		Stdout: &buf,
+		Stderr: &buf,
+	})
+	i.Use(stdlib.Symbols)
+	i.Use(internal.Symbols)
+
+	oldStdout := os.Stdout
+	oldStderr := os.Stderr
+	r, w, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		return fmt.Sprintf("Failed to execute code: %v", pipeErr)
+	}
+	os.Stdout = w
+	os.Stderr = w
+
+	outputChan := make(chan string, 1)
+	go func() {
+		var outputBuf bytes.Buffer
+		io.Copy(&outputBuf, r)
+		outputChan <- outputBuf.String()
+	}()
+
+	execErr := func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				if rErr, ok := r.(error); ok {
+					err = rErr
+				} else {
+					err = fmt.Errorf("%v", r)
+				}
+			}
+		}()
+		_, err = i.Eval(code)
+		return err
+	}()
+
+	w.Close()
+	os.Stdout = oldStdout
+	os.Stderr = oldStderr
+
+	output := <-outputChan
+	result := buf.String() + output
+
+	if execErr != nil {
+		result += fmt.Sprintf("\nFailed to execute code: %v", execErr)
+	}
+
+	return result
+}
+
+// executePythonFile executes a Python file
+func executePythonFile(filePath string) (string, error) {
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "python3", filePath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(output), err
+	}
+	return string(output), nil
+}
