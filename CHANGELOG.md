@@ -4,7 +4,32 @@ All notable changes to this project will be documented in this file.
 
 ## [NEXT]
 
-- Update Insyra to latest version(v0.2.13)
+### New Features
+
+#### MCP Server Interface
+
+- **Model Context Protocol (MCP) Server**: New standalone server that provides AI agents with programmatic access to Idensyra workspaces
+  - **File Operations**: Read, write, create, delete, rename files, and list directories
+  - **Code Execution**: Execute Go files (using Yaegi interpreter) and Python files, or run code directly
+  - **Notebook Operations**: 
+    - Modify and insert cells in igonb/ipynb notebooks
+    - Execute specific cells, ranges, or all cells
+    - Convert ipynb files to igonb format
+  - **Workspace Management**: 
+    - Open workspace directories
+    - Save temporary workspaces to specified paths
+    - Save all unsaved changes
+    - Get workspace information
+  - **Permission System**: 
+    - Configurable permission levels (Always, Ask, Deny)
+    - Granular control over file, execution, notebook, and workspace operations
+    - Default "Ask" permission for security
+  - **Claude Desktop Integration**: Ready-to-use configuration examples
+  - **Documentation**: Comprehensive guides in Chinese and English with usage examples
+
+### Improvements
+
+- Update Insyra to latest version (v0.2.13)
 - Add lp package support
 
 ## [0.2.0] - 2026-01-04
