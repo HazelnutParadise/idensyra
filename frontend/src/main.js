@@ -93,6 +93,8 @@ let igonbDragId = null;
 let igonbIsExecuting = false;
 let igonbRunQueue = [];
 const expandedDirs = new Set();
+// Store per-file execution state
+const fileExecutionState = new Map(); // Map<filename, {isExecuting, igonbIsExecuting, igonbRunQueue, cellStates}>
 let selectedFolderPath = "";
 let isRootFolderSelected = false;
 let workspaceLoadToken = 0;
@@ -2938,7 +2940,8 @@ function updateRunButtonState() {
     isRunnableActiveFile() &&
     !isImagePreview &&
     !isLargeFilePreview &&
-    !isBinaryPreview;
+    !isBinaryPreview &&
+    !isExecuting; // Don't enable run button if code is executing
 
   runButton.disabled = !runnable;
   runButton.title = runnable
@@ -3853,12 +3856,78 @@ function createFileItem(entry, depth) {
   return fileItem;
 }
 
+// Save current file's execution state before switching
+function saveFileExecutionState(filename) {
+  if (!filename) return;
+  
+  const state = {
+    isExecuting: isExecuting,
+    igonbIsExecuting: igonbIsExecuting,
+    igonbRunQueue: [...igonbRunQueue],
+    cellStates: null
+  };
+  
+  // Save igonb cell states if this is a notebook
+  if (igonbState && (filename.endsWith('.igonb') || filename.endsWith('.ipynb'))) {
+    state.cellStates = igonbState.cells.map(cell => ({
+      running: cell.running,
+      waiting: cell.waiting,
+      done: cell.done
+    }));
+  }
+  
+  fileExecutionState.set(filename, state);
+}
+
+// Restore execution state when switching to a file
+function restoreFileExecutionState(filename) {
+  if (!filename) return;
+  
+  const state = fileExecutionState.get(filename);
+  if (!state) {
+    // No saved state, reset to defaults
+    isExecuting = false;
+    igonbIsExecuting = false;
+    igonbRunQueue = [];
+    return;
+  }
+  
+  // Restore execution state
+  isExecuting = state.isExecuting;
+  igonbIsExecuting = state.igonbIsExecuting;
+  igonbRunQueue = [...state.igonbRunQueue];
+  
+  // Restore igonb cell states if applicable
+  if (state.cellStates && igonbState && (filename.endsWith('.igonb') || filename.endsWith('.ipynb'))) {
+    state.cellStates.forEach((cellState, idx) => {
+      if (idx < igonbState.cells.length) {
+        igonbState.cells[idx].running = cellState.running;
+        igonbState.cells[idx].waiting = cellState.waiting;
+        igonbState.cells[idx].done = cellState.done;
+      }
+    });
+    // Update UI to reflect running/waiting states
+    igonbState.cells.forEach(cell => {
+      updateIgonbCellRunningUI(cell);
+    });
+    updateIgonbRunControls();
+  }
+  
+  // Update run button state
+  updateRunButtonState();
+}
+
 async function switchToFile(filename, force = false) {
   if (!force && filename === activeFileName) return;
 
   try {
     const previousFileName = activeFileName;
     const previousModel = editor.getModel();
+
+    // Save execution state of current file before switching
+    if (activeFileName) {
+      saveFileExecutionState(activeFileName);
+    }
 
     // Save current file content (only if not in image preview mode)
     if (
@@ -3905,6 +3974,7 @@ async function switchToFile(filename, force = false) {
       showLargeFilePreview(filename, selectedFile.size || 0);
       clearPreviewIfNeeded();
       updateRunButtonState();
+      restoreFileExecutionState(filename);
       await setActivePromise;
       scheduleWorkspaceRefresh();
       return;
@@ -3922,6 +3992,7 @@ async function switchToFile(filename, force = false) {
       applyTextFileContent(filename, cachedContent, true);
       disposeOrphanModel(previousFileName, previousModel);
       updateRunButtonState();
+      restoreFileExecutionState(filename);
       await setActivePromise;
       scheduleWorkspaceRefresh();
       return;
@@ -3971,6 +4042,8 @@ async function switchToFile(filename, force = false) {
     }
 
     updateRunButtonState();
+    // Restore execution state for the new file
+    restoreFileExecutionState(filename);
     await setActivePromise;
     // Refresh file tree without blocking UI
     scheduleWorkspaceRefresh();
