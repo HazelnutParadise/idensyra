@@ -140,6 +140,16 @@ wails build
 
 構建完成後，可執行文件位於 `build/bin/` 目錄。
 
+### 構建 MCP Server
+
+如果您想使用 MCP Server 功能，可以單獨構建：
+
+```bash
+go build -o idensyra-mcp-server ./cmd/mcp-server/
+```
+
+詳細使用說明請參考 [mcp/README.md](mcp/README.md)。
+
 ## 使用方法
 
 ### 基本操作

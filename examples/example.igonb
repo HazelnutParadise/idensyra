@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "cells": [
+    {
+      "language": "go",
+      "source": "import \"fmt\"\n\nfunc main() {\n    fmt.Println(\"Hello from Go cell\")\n}"
+    },
+    {
+      "language": "python",
+      "source": "print('Hello from Python cell')"
+    },
+    {
+      "language": "markdown",
+      "source": "# Example Notebook\n\nThis is an example igonb notebook file."
+    }
+  ]
+}
