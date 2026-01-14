@@ -289,6 +289,7 @@ func (m *MCPServer) registerFileTools(workspace string) {
 					"description": "Path to the directory relative to workspace root (empty for root)",
 				},
 			},
+			"required": []string{},
 		},
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := ""
@@ -556,7 +557,10 @@ func (m *MCPServer) registerWorkspaceTools(workspace string) {
 		Name:        "save_all_files",
 		Description: "Save all unsaved changes in the workspace",
 		InputSchema: map[string]interface{}{
-			"type": "object",
+			"type":                 "object",
+			"properties":           map[string]interface{}{},
+			"required":             []string{},
+			"additionalProperties": true,
 		},
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		if err := m.app.SaveAllFiles(); err != nil {
@@ -575,7 +579,10 @@ func (m *MCPServer) registerWorkspaceTools(workspace string) {
 		Name:        "get_workspace_info",
 		Description: "Get information about the current workspace",
 		InputSchema: map[string]interface{}{
-			"type": "object",
+			"type":                 "object",
+			"properties":           map[string]interface{}{},
+			"required":             []string{},
+			"additionalProperties": true,
 		},
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		info := fmt.Sprintf("Workspace root: %s", workspace)

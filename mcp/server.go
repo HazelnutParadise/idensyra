@@ -142,7 +142,7 @@ func (s *Server) HandleRequest(ctx context.Context, req *ToolRequest) (*ToolResp
 
 // ListTools returns a list of available tools
 func (s *Server) ListTools() []ToolInfo {
-	return []ToolInfo{
+	tools := []ToolInfo{
 		// File operations
 		{
 			Name:        "read_file",
@@ -210,6 +210,7 @@ func (s *Server) ListTools() []ToolInfo {
 				"properties": map[string]interface{}{
 					"dir_path": map[string]interface{}{"type": "string", "description": "Directory path (empty for root)"},
 				},
+				"required": []string{},
 			},
 		},
 
@@ -375,16 +376,20 @@ func (s *Server) ListTools() []ToolInfo {
 			Name:        "save_changes",
 			Description: "Save all unsaved changes in the current workspace",
 			InputSchema: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
+				"type":                 "object",
+				"properties":           map[string]interface{}{},
+				"required":             []string{},
+				"additionalProperties": true,
 			},
 		},
 		{
 			Name:        "get_workspace_info",
 			Description: "Get information about the current workspace",
 			InputSchema: map[string]interface{}{
-				"type":       "object",
-				"properties": map[string]interface{}{},
+				"type":                 "object",
+				"properties":           map[string]interface{}{},
+				"required":             []string{},
+				"additionalProperties": true,
 			},
 		},
 		{
@@ -411,6 +416,34 @@ func (s *Server) ListTools() []ToolInfo {
 			},
 		},
 	}
+
+	// Ensure every tool has a complete inputSchema
+	for i := range tools {
+		if tools[i].InputSchema == nil {
+			tools[i].InputSchema = map[string]interface{}{"type": "object", "properties": map[string]interface{}{}, "required": []string{}}
+			continue
+		}
+		if _, ok := tools[i].InputSchema["type"]; !ok {
+			tools[i].InputSchema["type"] = "object"
+		}
+		if _, ok := tools[i].InputSchema["properties"]; !ok {
+			tools[i].InputSchema["properties"] = map[string]interface{}{}
+		}
+		if _, ok := tools[i].InputSchema["required"]; !ok {
+			tools[i].InputSchema["required"] = []string{}
+		}
+
+		// If properties is empty, ensure additionalProperties is present so validators accept the schema
+		if props, ok := tools[i].InputSchema["properties"].(map[string]interface{}); ok {
+			if len(props) == 0 {
+				if _, ok := tools[i].InputSchema["additionalProperties"]; !ok {
+					tools[i].InputSchema["additionalProperties"] = true
+				}
+			}
+		}
+	}
+
+	return tools
 }
 
 // ToolInfo represents information about a tool
