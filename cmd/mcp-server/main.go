@@ -125,6 +125,62 @@ func main() {
 		return nil
 	}
 
+	// Provide file backend functions (CLI implementations)
+	readFileFunc := func(path string) (string, error) {
+		full := filepath.Join(absWorkspace, filepath.FromSlash(path))
+		b, err := os.ReadFile(full)
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	}
+	writeFileFunc := func(path string, content string) error {
+		full := filepath.Join(absWorkspace, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			return err
+		}
+		return os.WriteFile(full, []byte(content), 0644)
+	}
+	createFileFunc := func(path string, content string) error {
+		full := filepath.Join(absWorkspace, filepath.FromSlash(path))
+		if _, err := os.Stat(full); err == nil {
+			return fmt.Errorf("file already exists")
+		}
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			return err
+		}
+		return os.WriteFile(full, []byte(content), 0644)
+	}
+	deleteFileFunc := func(path string) error {
+		full := filepath.Join(absWorkspace, filepath.FromSlash(path))
+		return os.Remove(full)
+	}
+	renameFileFunc := func(oldPath, newPath string) error {
+		oldFull := filepath.Join(absWorkspace, filepath.FromSlash(oldPath))
+		newFull := filepath.Join(absWorkspace, filepath.FromSlash(newPath))
+		if err := os.MkdirAll(filepath.Dir(newFull), 0755); err != nil {
+			return err
+		}
+		return os.Rename(oldFull, newFull)
+	}
+	listFilesFunc := func(dir string) (string, error) {
+		full := filepath.Join(absWorkspace, filepath.FromSlash(dir))
+		entries, err := os.ReadDir(full)
+		if err != nil {
+			return "", err
+		}
+		var result string
+		for _, entry := range entries {
+			if entry.IsDir() {
+				result += fmt.Sprintf("[DIR]  %s\n", entry.Name())
+			} else {
+				info, _ := entry.Info()
+				result += fmt.Sprintf("[FILE] %s (%d bytes)\n", entry.Name(), info.Size())
+			}
+		}
+		return result, nil
+	}
+
 	// Create MCP server
 	server := mcp.NewServer(
 		config,
@@ -138,6 +194,12 @@ func main() {
 		saveChangesFunc,
 		setActiveFileFunc,
 		importFileFunc,
+		readFileFunc,
+		writeFileFunc,
+		createFileFunc,
+		deleteFileFunc,
+		renameFileFunc,
+		listFilesFunc,
 	)
 
 	log.Printf("MCP Server started. Workspace: %s", absWorkspace)

@@ -30,10 +30,18 @@ func NewServer(
 	saveChangesFunc func() error,
 	setActiveFileFunc func(path string) error,
 	importFileFunc func(sourcePath, targetDir string) error,
+	// Optional file backend callbacks (if provided, they will be used instead of direct FS access)
+	readFileFunc func(path string) (string, error),
+	writeFileFunc func(path string, content string) error,
+	createFileFunc func(path string, content string) error,
+	deleteFileFunc func(path string) error,
+	renameFileFunc func(oldPath, newPath string) error,
+	listFilesFunc func(dirPath string) (string, error),
 ) *Server {
 	return &Server{
-		config:              config,
-		fileOps:             NewFileOperations(config, workspaceRoot, confirmFunc, setActiveFileFunc),
+		config: config,
+		fileOps: NewFileOperations(config, workspaceRoot, confirmFunc, setActiveFileFunc,
+			readFileFunc, writeFileFunc, createFileFunc, deleteFileFunc, renameFileFunc, listFilesFunc),
 		codeExec:            NewCodeExecution(config, workspaceRoot, confirmFunc, executeGoFunc, executePyFunc, setActiveFileFunc),
 		notebookOps:         NewNotebookOperations(config, workspaceRoot, confirmFunc, executeCellFunc, setActiveFileFunc),
 		workspaceManagement: NewWorkspaceManagement(config, confirmFunc, openWorkspaceFunc, saveWorkspaceFunc, saveChangesFunc, importFileFunc),
@@ -146,7 +154,8 @@ func (s *Server) ListTools() []ToolInfo {
 		// File operations
 		{
 			Name:        "read_file",
-			Description: "Read the content of a file",
+			Description: "Operates on Idensyra workspace - Read the content of a file",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -157,7 +166,8 @@ func (s *Server) ListTools() []ToolInfo {
 		},
 		{
 			Name:        "write_file",
-			Description: "Write content to a file (creates or overwrites)",
+			Description: "Operates on Idensyra workspace - Write content to a file (creates or overwrites)",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -169,7 +179,8 @@ func (s *Server) ListTools() []ToolInfo {
 		},
 		{
 			Name:        "create_file",
-			Description: "Create a new file (fails if file already exists)",
+			Description: "Operates on Idensyra workspace - Create a new file (fails if file already exists)",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -181,7 +192,8 @@ func (s *Server) ListTools() []ToolInfo {
 		},
 		{
 			Name:        "delete_file",
-			Description: "Delete a file",
+			Description: "Operates on Idensyra workspace - Delete a file",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -192,7 +204,8 @@ func (s *Server) ListTools() []ToolInfo {
 		},
 		{
 			Name:        "rename_file",
-			Description: "Rename or move a file",
+			Description: "Operates on Idensyra workspace - Rename or move a file",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -204,7 +217,8 @@ func (s *Server) ListTools() []ToolInfo {
 		},
 		{
 			Name:        "list_files",
-			Description: "List files in a directory",
+			Description: "Operates on Idensyra workspace - List files in a directory",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -217,7 +231,8 @@ func (s *Server) ListTools() []ToolInfo {
 		// Code execution
 		{
 			Name:        "execute_go_file",
-			Description: "Execute a Go file using the Yaegi interpreter",
+			Description: "Operates on Idensyra workspace - Execute a Go file using the Yaegi interpreter",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -228,7 +243,8 @@ func (s *Server) ListTools() []ToolInfo {
 		},
 		{
 			Name:        "execute_go_code",
-			Description: "Execute Go code directly",
+			Description: "Operates on Idensyra workspace - Execute Go code directly",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -239,7 +255,8 @@ func (s *Server) ListTools() []ToolInfo {
 		},
 		{
 			Name:        "execute_python_file",
-			Description: "Execute a Python file",
+			Description: "Operates on Idensyra workspace - Execute a Python file",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -250,7 +267,8 @@ func (s *Server) ListTools() []ToolInfo {
 		},
 		{
 			Name:        "execute_python_code",
-			Description: "Execute Python code directly",
+			Description: "Operates on Idensyra workspace - Execute Python code directly",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -264,6 +282,7 @@ func (s *Server) ListTools() []ToolInfo {
 		{
 			Name:        "modify_cell",
 			Description: "Modify a specific cell in a notebook",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -278,6 +297,7 @@ func (s *Server) ListTools() []ToolInfo {
 		{
 			Name:        "insert_cell",
 			Description: "Insert a new cell at a specific position in a notebook",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -292,6 +312,7 @@ func (s *Server) ListTools() []ToolInfo {
 		{
 			Name:        "execute_cell",
 			Description: "Execute a specific cell in a notebook",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -304,6 +325,7 @@ func (s *Server) ListTools() []ToolInfo {
 		{
 			Name:        "execute_cell_and_after",
 			Description: "Execute a cell and all subsequent cells",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -316,6 +338,7 @@ func (s *Server) ListTools() []ToolInfo {
 		{
 			Name:        "execute_before_and_cell",
 			Description: "Execute all cells before and including a specific cell",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -328,6 +351,7 @@ func (s *Server) ListTools() []ToolInfo {
 		{
 			Name:        "execute_all_cells",
 			Description: "Execute all cells in a notebook",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -339,6 +363,7 @@ func (s *Server) ListTools() []ToolInfo {
 		{
 			Name:        "convert_ipynb_to_igonb",
 			Description: "Convert an ipynb file to igonb format",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -352,7 +377,8 @@ func (s *Server) ListTools() []ToolInfo {
 		// Workspace management
 		{
 			Name:        "open_workspace",
-			Description: "Open a workspace directory",
+			Description: "Operates on Idensyra workspace - Open a workspace directory",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -363,7 +389,8 @@ func (s *Server) ListTools() []ToolInfo {
 		},
 		{
 			Name:        "save_temp_workspace",
-			Description: "Save the temporary workspace to a specified path",
+			Description: "Operates on Idensyra workspace - Save the temporary workspace to a specified path",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -374,7 +401,8 @@ func (s *Server) ListTools() []ToolInfo {
 		},
 		{
 			Name:        "save_changes",
-			Description: "Save all unsaved changes in the current workspace",
+			Description: "Operates on Idensyra workspace - Save all unsaved changes in the current workspace",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type":                 "object",
 				"properties":           map[string]interface{}{},
@@ -384,7 +412,8 @@ func (s *Server) ListTools() []ToolInfo {
 		},
 		{
 			Name:        "get_workspace_info",
-			Description: "Get information about the current workspace",
+			Description: "Operates on Idensyra workspace - Get information about the current workspace",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type":                 "object",
 				"properties":           map[string]interface{}{},
@@ -394,7 +423,8 @@ func (s *Server) ListTools() []ToolInfo {
 		},
 		{
 			Name:        "create_workspace_directory",
-			Description: "Create a new directory in the workspace",
+			Description: "Operates on Idensyra workspace - Create a new directory in the workspace",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -405,7 +435,8 @@ func (s *Server) ListTools() []ToolInfo {
 		},
 		{
 			Name:        "import_file_to_workspace",
-			Description: "Import a file from the computer into the workspace",
+			Description: "Operates on Idensyra workspace - Import a file from the computer into the workspace",
+			Target:      "idensyra",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -450,6 +481,7 @@ func (s *Server) ListTools() []ToolInfo {
 type ToolInfo struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
+	Target      string                 `json:"target,omitempty"`
 	InputSchema map[string]interface{} `json:"inputSchema"`
 }
 

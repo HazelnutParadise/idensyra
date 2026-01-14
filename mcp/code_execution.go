@@ -12,11 +12,11 @@ import (
 
 // CodeExecution provides code execution tools for MCP
 type CodeExecution struct {
-	config           *Config
-	workspaceRoot    string
-	confirmFunc      func(operation, details string) bool
-	executeGoFunc    func(code string, colorBG string) string
-	executePyFunc    func(filePath string) (string, error)
+	config            *Config
+	workspaceRoot     string
+	confirmFunc       func(operation, details string) bool
+	executeGoFunc     func(code string, colorBG string) string
+	executePyFunc     func(filePath string) (string, error)
 	setActiveFileFunc func(path string) error
 }
 
@@ -30,11 +30,11 @@ func NewCodeExecution(
 	setActiveFileFunc func(path string) error,
 ) *CodeExecution {
 	return &CodeExecution{
-		config:           config,
-		workspaceRoot:    workspaceRoot,
-		confirmFunc:      confirmFunc,
-		executeGoFunc:    executeGoFunc,
-		executePyFunc:    executePyFunc,
+		config:            config,
+		workspaceRoot:     workspaceRoot,
+		confirmFunc:       confirmFunc,
+		executeGoFunc:     executeGoFunc,
+		executePyFunc:     executePyFunc,
 		setActiveFileFunc: setActiveFileFunc,
 	}
 }
@@ -58,7 +58,7 @@ func (ce *CodeExecution) ExecuteGoFile(ctx context.Context, path string) (*ToolR
 	}
 
 	fullPath := filepath.Join(ce.workspaceRoot, path)
-	
+
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
 		return &ToolResponse{
@@ -79,7 +79,7 @@ func (ce *CodeExecution) ExecuteGoFile(ctx context.Context, path string) (*ToolR
 			code = strings.TrimSpace(code)
 		}
 	}
-	
+
 	// Execute using the provided Go execution function
 	if ce.executeGoFunc == nil {
 		return &ToolResponse{
@@ -151,7 +151,7 @@ func (ce *CodeExecution) ExecutePythonFile(ctx context.Context, path string) (*T
 	}
 
 	fullPath := filepath.Join(ce.workspaceRoot, path)
-	
+
 	// Check if file exists
 	if _, err := os.Stat(fullPath); err != nil {
 		return &ToolResponse{
@@ -182,7 +182,7 @@ func (ce *CodeExecution) ExecutePythonFile(ctx context.Context, path string) (*T
 	cmd := exec.CommandContext(ctx, "python3", fullPath)
 	cmd.Dir = ce.workspaceRoot
 	output, err := cmd.CombinedOutput()
-	
+
 	if err != nil {
 		return &ToolResponse{
 			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Error executing Python: %v\n%s", err, string(output))}},
@@ -221,7 +221,7 @@ func (ce *CodeExecution) ExecutePythonCode(ctx context.Context, code string) (*T
 	// Create a temporary file
 	tmpFile := filepath.Join(ce.workspaceRoot, fmt.Sprintf(".tmp_py_%d.py", time.Now().UnixNano()))
 	defer os.Remove(tmpFile)
-	
+
 	if err := os.WriteFile(tmpFile, []byte(code), 0644); err != nil {
 		return &ToolResponse{
 			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Error creating temp file: %v", err)}},
@@ -247,7 +247,7 @@ func (ce *CodeExecution) ExecutePythonCode(ctx context.Context, code string) (*T
 	cmd := exec.CommandContext(ctx, "python3", tmpFile)
 	cmd.Dir = ce.workspaceRoot
 	output, err := cmd.CombinedOutput()
-	
+
 	if err != nil {
 		return &ToolResponse{
 			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Error executing Python: %v\n%s", err, string(output))}},

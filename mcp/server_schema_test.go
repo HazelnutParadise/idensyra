@@ -26,5 +26,8 @@ func TestListToolsHaveCompleteSchemas(t *testing.T) {
 		if _, ok := ti.InputSchema["required"]; !ok {
 			t.Errorf("tool %s schema missing required", ti.Name)
 		}
+		if ti.Target == "" {
+			t.Errorf("tool %s missing target metadata", ti.Name)
+		}
 	}
 }

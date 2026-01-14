@@ -11,10 +11,10 @@ import (
 
 // NotebookOperations provides notebook manipulation tools for MCP
 type NotebookOperations struct {
-	config           *Config
-	workspaceRoot    string
-	confirmFunc      func(operation, details string) bool
-	executeCellFunc  func(language, code string) (string, error)
+	config            *Config
+	workspaceRoot     string
+	confirmFunc       func(operation, details string) bool
+	executeCellFunc   func(language, code string) (string, error)
 	setActiveFileFunc func(path string) error
 }
 
@@ -27,10 +27,10 @@ func NewNotebookOperations(
 	setActiveFileFunc func(path string) error,
 ) *NotebookOperations {
 	return &NotebookOperations{
-		config:           config,
-		workspaceRoot:    workspaceRoot,
-		confirmFunc:      confirmFunc,
-		executeCellFunc:  executeCellFunc,
+		config:            config,
+		workspaceRoot:     workspaceRoot,
+		confirmFunc:       confirmFunc,
+		executeCellFunc:   executeCellFunc,
 		setActiveFileFunc: setActiveFileFunc,
 	}
 }
@@ -44,7 +44,7 @@ type Notebook struct {
 // ReadNotebook reads and parses a notebook file
 func (no *NotebookOperations) ReadNotebook(ctx context.Context, path string) (*Notebook, error) {
 	fullPath := filepath.Join(no.workspaceRoot, path)
-	
+
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
 		return nil, fmt.Errorf("error reading file: %v", err)
@@ -71,7 +71,7 @@ func (no *NotebookOperations) WriteNotebook(ctx context.Context, path string, no
 	}
 
 	fullPath := filepath.Join(no.workspaceRoot, path)
-	
+
 	content, err := json.MarshalIndent(notebook, "", "  ")
 	if err != nil {
 		return fmt.Errorf("error encoding notebook: %v", err)
@@ -231,7 +231,7 @@ func (no *NotebookOperations) ExecuteCell(ctx context.Context, path string, cell
 	}
 
 	cell := notebook.Cells[cellIndex]
-	
+
 	if no.executeCellFunc == nil {
 		return &ToolResponse{
 			Content: []ContentBlock{{Type: "text", Text: "Cell execution function not available"}},
@@ -431,7 +431,7 @@ func (no *NotebookOperations) ConvertIPyNBToIgonb(ctx context.Context, ipynbPath
 
 	fullIPyNBPath := filepath.Join(no.workspaceRoot, ipynbPath)
 	fullIgonbPath := filepath.Join(no.workspaceRoot, igonbPath)
-	
+
 	// Read ipynb file
 	ipynbContent, err := os.ReadFile(fullIPyNBPath)
 	if err != nil {

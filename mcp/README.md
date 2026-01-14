@@ -203,6 +203,8 @@ print("File content:", result["result"])
 
 ### 獨立命令行工具（可選）
 
+**注意：mcp 現在要求由宿主前端提供對應的 backend callbacks；若您需要在 CLI 中運行，請使用 `cmd/mcp-server`，該工具會為本地檔案系統提供對應的 fallback callbacks（本地實作），保持行為與 GUI 一致。**
+
 如果需要獨立的命令行工具，可以編譯：
 
 ```bash

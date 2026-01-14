@@ -26,6 +26,7 @@ All notable changes to this project will be documented in this file.
     - Default "Ask" permission for security
   - **Claude Desktop Integration**: Ready-to-use configuration examples
   - **Documentation**: Comprehensive guides in Chinese and English with usage examples
+  - **Backend callbacks**: MCP tools now require backend callbacks provided by the frontend App for file/workspace operations; the standalone `cmd/mcp-server` supplies local filesystem fallback callbacks for CLI use
 
 ### Improvements
 

@@ -100,7 +100,7 @@ func (m *MCPServer) registerFileTools(workspace string) {
 	// read_file tool
 	sdk.AddTool(m.server, &sdk.Tool{
 		Name:        "read_file",
-		Description: "Read the content of a file in the workspace",
+		Description: "Operates on Idensyra workspace - Read the content of a file in the workspace",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -132,7 +132,7 @@ func (m *MCPServer) registerFileTools(workspace string) {
 	// write_file tool
 	sdk.AddTool(m.server, &sdk.Tool{
 		Name:        "write_file",
-		Description: "Write content to a file in the workspace",
+		Description: "Operates on Idensyra workspace - Write content to a file in the workspace",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -276,7 +276,7 @@ func (m *MCPServer) registerFileTools(workspace string) {
 	// list_files tool
 	sdk.AddTool(m.server, &sdk.Tool{
 		Name:        "list_files",
-		Description: "List files in a directory in the workspace",
+		Description: "Operates on Idensyra workspace - List files in a directory in the workspace",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -577,7 +577,7 @@ func (m *MCPServer) registerWorkspaceTools(workspace string) {
 	// get_workspace_info tool
 	sdk.AddTool(m.server, &sdk.Tool{
 		Name:        "get_workspace_info",
-		Description: "Get information about the current workspace",
+		Description: "Operates on Idensyra workspace - Get information about the current workspace",
 		InputSchema: map[string]interface{}{
 			"type":                 "object",
 			"properties":           map[string]interface{}{},
