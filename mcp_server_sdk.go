@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -112,19 +113,18 @@ func (m *MCPServer) registerFileTools(workspace string) {
 		},
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := args["path"].(string)
-		fullPath := filepath.Join(workspace, path)
 
-		// Switch to this file in UI
-		m.app.SetActiveFile(path)
+		// Switch to this file in UI (ignore error from UI layer)
+		_ = m.app.SetActiveFile(path)
 
-		content, err := os.ReadFile(fullPath)
+		content, err := m.app.GetFileContent(path)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error reading file: %v", err)
 		}
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: string(content)},
+				&sdk.TextContent{Text: content},
 			},
 		}, nil, nil
 	})
@@ -150,14 +150,16 @@ func (m *MCPServer) registerFileTools(workspace string) {
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := args["path"].(string)
 		content := args["content"].(string)
-		fullPath := filepath.Join(workspace, path)
 
-		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
-			return nil, nil, fmt.Errorf("error writing file: %v", err)
+		if err := m.app.UpdateFileContent(path, content); err != nil {
+			return nil, nil, fmt.Errorf("error updating file: %v", err)
+		}
+		if err := m.app.SaveFile(path); err != nil {
+			return nil, nil, fmt.Errorf("error saving file: %v", err)
 		}
 
-		// Switch to this file in UI
-		m.app.SetActiveFile(path)
+		// Switch to this file in UI (ignore error)
+		_ = m.app.SetActiveFile(path)
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
@@ -187,19 +189,21 @@ func (m *MCPServer) registerFileTools(workspace string) {
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := args["path"].(string)
 		content := args["content"].(string)
-		fullPath := filepath.Join(workspace, path)
 
-		// Create parent directories if needed
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-			return nil, nil, fmt.Errorf("error creating directories: %v", err)
-		}
-
-		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+		if err := m.app.CreateNewFile(path); err != nil {
 			return nil, nil, fmt.Errorf("error creating file: %v", err)
 		}
+		if content != "" {
+			if err := m.app.UpdateFileContent(path, content); err != nil {
+				return nil, nil, fmt.Errorf("error updating new file: %v", err)
+			}
+			if err := m.app.SaveFile(path); err != nil {
+				return nil, nil, fmt.Errorf("error saving new file: %v", err)
+			}
+		}
 
-		// Switch to this file in UI
-		m.app.SetActiveFile(path)
+		// Switch to this file in UI (ignore error)
+		_ = m.app.SetActiveFile(path)
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
@@ -224,9 +228,8 @@ func (m *MCPServer) registerFileTools(workspace string) {
 		},
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := args["path"].(string)
-		fullPath := filepath.Join(workspace, path)
 
-		if err := os.Remove(fullPath); err != nil {
+		if err := m.app.DeleteFile(path); err != nil {
 			return nil, nil, fmt.Errorf("error deleting file: %v", err)
 		}
 
@@ -258,15 +261,8 @@ func (m *MCPServer) registerFileTools(workspace string) {
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		oldPath := args["old_path"].(string)
 		newPath := args["new_path"].(string)
-		fullOldPath := filepath.Join(workspace, oldPath)
-		fullNewPath := filepath.Join(workspace, newPath)
 
-		// Create parent directories for new path if needed
-		if err := os.MkdirAll(filepath.Dir(fullNewPath), 0755); err != nil {
-			return nil, nil, fmt.Errorf("error creating directories: %v", err)
-		}
-
-		if err := os.Rename(fullOldPath, fullNewPath); err != nil {
+		if err := m.app.RenameFile(oldPath, newPath); err != nil {
 			return nil, nil, fmt.Errorf("error renaming file: %v", err)
 		}
 
@@ -284,7 +280,7 @@ func (m *MCPServer) registerFileTools(workspace string) {
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"path": map[string]interface{}{
+				"dir_path": map[string]interface{}{
 					"type":        "string",
 					"description": "Path to the directory relative to workspace root (empty for root)",
 				},
@@ -292,25 +288,35 @@ func (m *MCPServer) registerFileTools(workspace string) {
 			"required": []string{},
 		},
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
-		path := ""
-		if p, ok := args["path"].(string); ok {
-			path = p
-		}
-		fullPath := filepath.Join(workspace, path)
-
-		entries, err := os.ReadDir(fullPath)
-		if err != nil {
-			return nil, nil, fmt.Errorf("error listing directory: %v", err)
+		dir := ""
+		if p, ok := args["dir_path"].(string); ok {
+			dir = p
 		}
 
+		files := m.app.GetWorkspaceFiles()
 		var result string
-		for _, entry := range entries {
-			if entry.IsDir() {
-				result += fmt.Sprintf("[DIR]  %s\n", entry.Name())
+		for _, f := range files {
+			if dir == "" {
+				if !strings.Contains(f.Name, "/") {
+					if f.IsDir {
+						result += fmt.Sprintf("[DIR]  %s\n", f.Name)
+					} else {
+						result += fmt.Sprintf("[FILE] %s (%d bytes)\n", f.Name, f.Size)
+					}
+				}
 			} else {
-				info, _ := entry.Info()
-				result += fmt.Sprintf("[FILE] %s (%d bytes)\n", entry.Name(), info.Size())
+				if strings.HasPrefix(f.Name, dir+"/") {
+					rest := strings.TrimPrefix(f.Name, dir+"/")
+					if !strings.Contains(rest, "/") {
+						if f.IsDir {
+							result += fmt.Sprintf("[DIR]  %s\n", rest)
+						} else {
+							result += fmt.Sprintf("[FILE] %s (%d bytes)\n", rest, f.Size)
+						}
+					}
+				}
 			}
+
 		}
 
 		return &sdk.CallToolResult{
@@ -375,17 +381,16 @@ func (m *MCPServer) registerCodeExecutionTools(workspace string) {
 		},
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := args["path"].(string)
-		fullPath := filepath.Join(workspace, path)
 
 		// Switch to this file in UI
-		m.app.SetActiveFile(path)
+		_ = m.app.SetActiveFile(path)
 
-		content, err := os.ReadFile(fullPath)
+		content, err := m.app.GetFileContent(path)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error reading file: %v", err)
 		}
 
-		result := m.app.ExecuteCodeWithColorBG(string(content), "dark")
+		result := m.app.ExecuteCodeWithColorBG(content, "dark")
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
@@ -410,17 +415,16 @@ func (m *MCPServer) registerCodeExecutionTools(workspace string) {
 		},
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := args["path"].(string)
-		fullPath := filepath.Join(workspace, path)
 
 		// Switch to this file in UI
-		m.app.SetActiveFile(path)
+		_ = m.app.SetActiveFile(path)
 
-		content, err := os.ReadFile(fullPath)
+		content, err := m.app.GetFileContent(path)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error reading file: %v", err)
 		}
 
-		result, err := m.app.ExecutePythonFileContent(path, string(content))
+		result, err := m.app.ExecutePythonFileContent(path, content)
 		if err != nil {
 			return nil, nil, fmt.Errorf("execution error: %v\nOutput: %s", err, result)
 		}
@@ -474,12 +478,8 @@ func (m *MCPServer) registerCodeExecutionTools(workspace string) {
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		code := args["code"].(string)
 
-		// Create temp file
+		// Use an in-memory temp name and pass the code directly to App
 		tmpFile := filepath.Join(workspace, fmt.Sprintf(".tmp_mcp_py_%d.py", os.Getpid()))
-		defer os.Remove(tmpFile)
-		if err := os.WriteFile(tmpFile, []byte(code), 0644); err != nil {
-			return nil, nil, fmt.Errorf("error creating temp file: %v", err)
-		}
 
 		result, err := m.app.ExecutePythonFileContent(tmpFile, code)
 		if err != nil {
