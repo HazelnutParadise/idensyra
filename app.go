@@ -50,8 +50,8 @@ func main() {
 
 // App struct
 type App struct {
-	ctx           context.Context
-	mcpHTTPServer *MCPHTTPServer
+	ctx       context.Context
+	mcpServer *MCPServer
 }
 
 // NewApp creates a new App application struct
@@ -65,10 +65,10 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	fmt.Println("Idensyra is starting...")
 
-	// Start MCP HTTP server on port 3000
-	a.mcpHTTPServer = NewMCPHTTPServer(a)
-	if err := a.mcpHTTPServer.Start(3000); err != nil {
-		fmt.Printf("Failed to start MCP HTTP server: %v\n", err)
+	// Start MCP server on port 3000 using official SDK
+	a.mcpServer = NewMCPServer(a)
+	if err := a.mcpServer.Start(3000); err != nil {
+		fmt.Printf("Failed to start MCP server: %v\n", err)
 	}
 
 	// Workspace initialization is done in domReady to ensure frontend is ready
@@ -86,10 +86,10 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 
 // shutdown is called at application termination
 func (a *App) shutdown(ctx context.Context) {
-	// Stop MCP HTTP server
-	if a.mcpHTTPServer != nil {
-		if err := a.mcpHTTPServer.Stop(); err != nil {
-			fmt.Printf("Error stopping MCP HTTP server: %v\n", err)
+	// Stop MCP server
+	if a.mcpServer != nil {
+		if err := a.mcpServer.Stop(); err != nil {
+			fmt.Printf("Error stopping MCP server: %v\n", err)
 		}
 	}
 }
