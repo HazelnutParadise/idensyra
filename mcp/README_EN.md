@@ -70,35 +70,135 @@ Configurable permission items:
 
 ### Built-in HTTP Server (Recommended)
 
-The MCP server is integrated into the main Idensyra application and automatically starts an HTTP server on `localhost:3000` when you launch Idensyra.
+The MCP server is integrated into the main Idensyra application and automatically starts an MCP-compliant HTTP server on `localhost:3000` when you launch Idensyra.
 
 ```bash
 # Just start Idensyra - MCP server starts automatically
 ./idensyra
 ```
 
-#### Unified HTTP API Endpoint
+#### MCP Protocol Endpoint
 
-The MCP server now uses a single endpoint for all requests:
+The server fully complies with the Model Context Protocol (MCP) standard, using JSON-RPC 2.0 format for communication:
 
-- `GET /mcp` - Get service status and list of available tools
-- `POST /mcp` - Execute MCP tool calls
+- `POST /` - MCP protocol endpoint (supports all MCP methods)
+
+#### Supported MCP Methods
+
+1. **initialize** - Initialize MCP connection
+2. **tools/list** - List all available tools
+3. **tools/call** - Execute a specific tool
 
 #### Usage Examples
 
 ```bash
-# Get service status and tool list
-curl http://localhost:3000/mcp
-
-# Read a file
-curl -X POST http://localhost:3000/mcp \
+# Initialize connection
+curl -X POST http://localhost:3000/ \
   -H "Content-Type: application/json" \
-  -d '{"name": "read_file", "arguments": {"path": "main.go"}}'
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2024-11-05",
+      "capabilities": {},
+      "clientInfo": {"name": "test-client", "version": "1.0.0"}
+    }
+  }'
 
-# Import a file to workspace
-curl -X POST http://localhost:3000/mcp \
+# List all tools
+curl -X POST http://localhost:3000/ \
   -H "Content-Type: application/json" \
-  -d '{"name": "import_file_to_workspace", "arguments": {"source_path": "/path/to/file.txt", "target_dir": ""}}'
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/list"
+  }'
+
+# Execute tool - read file
+curl -X POST http://localhost:3000/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {
+      "name": "read_file",
+      "arguments": {"path": "main.go"}
+    }
+  }'
+
+# Import file to workspace
+curl -X POST http://localhost:3000/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 4,
+    "method": "tools/call",
+    "params": {
+      "name": "import_file_to_workspace",
+      "arguments": {
+        "source_path": "/path/to/file.txt",
+        "target_dir": ""
+      }
+    }
+  }'
+```
+
+#### Python Integration Example
+
+```python
+import requests
+import json
+
+class IdensyraMCPClient:
+    def __init__(self, url="http://localhost:3000/"):
+        self.url = url
+        self.request_id = 0
+    
+    def _call(self, method, params=None):
+        self.request_id += 1
+        payload = {
+            "jsonrpc": "2.0",
+            "id": self.request_id,
+            "method": method
+        }
+        if params:
+            payload["params"] = params
+        
+        response = requests.post(self.url, json=payload)
+        return response.json()
+    
+    def initialize(self):
+        return self._call("initialize", {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "python-client", "version": "1.0.0"}
+        })
+    
+    def list_tools(self):
+        return self._call("tools/list")
+    
+    def call_tool(self, name, arguments=None):
+        return self._call("tools/call", {
+            "name": name,
+            "arguments": arguments or {}
+        })
+
+# Usage example
+client = IdensyraMCPClient()
+
+# Initialize
+init_result = client.initialize()
+print("Server:", init_result["result"]["serverInfo"])
+
+# List tools
+tools = client.list_tools()
+print(f"Available tools: {len(tools['result']['tools'])}")
+
+# Read file
+result = client.call_tool("read_file", {"path": "main.go"})
+print("File content:", result["result"])
 ```
 
 ### Standalone CLI Tool (Optional)

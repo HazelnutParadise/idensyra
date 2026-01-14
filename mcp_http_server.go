@@ -13,6 +13,66 @@ import (
 	"github.com/HazelnutParadise/idensyra/mcp"
 )
 
+// JSONRPCRequest represents a JSON-RPC 2.0 request
+type JSONRPCRequest struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      interface{}     `json:"id"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+// JSONRPCResponse represents a JSON-RPC 2.0 response
+type JSONRPCResponse struct {
+	JSONRPC string      `json:"jsonrpc"`
+	ID      interface{} `json:"id"`
+	Result  interface{} `json:"result,omitempty"`
+	Error   *RPCError   `json:"error,omitempty"`
+}
+
+// RPCError represents a JSON-RPC 2.0 error
+type RPCError struct {
+	Code    int         `json:"code"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
+}
+
+// InitializeParams represents parameters for initialize method
+type InitializeParams struct {
+	ProtocolVersion string                 `json:"protocolVersion"`
+	Capabilities    map[string]interface{} `json:"capabilities"`
+	ClientInfo      ClientInfo             `json:"clientInfo"`
+}
+
+// ClientInfo represents client information
+type ClientInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// InitializeResult represents the result of initialize method
+type InitializeResult struct {
+	ProtocolVersion string       `json:"protocolVersion"`
+	Capabilities    Capabilities `json:"capabilities"`
+	ServerInfo      ServerInfo   `json:"serverInfo"`
+}
+
+// Capabilities represents server capabilities
+type Capabilities struct {
+	Tools map[string]interface{} `json:"tools,omitempty"`
+}
+
+// ServerInfo represents server information
+type ServerInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// CallToolParams represents parameters for tools/call method
+type CallToolParams struct {
+	Name      string                 `json:"name"`
+	Arguments map[string]interface{} `json:"arguments,omitempty"`
+}
+
 // MCPHTTPServer wraps the MCP server for HTTP access
 type MCPHTTPServer struct {
 	server     *mcp.Server
@@ -138,8 +198,8 @@ func (m *MCPHTTPServer) Start(port int) error {
 	// Create HTTP handler
 	mux := http.NewServeMux()
 
-	// Single unified endpoint for all MCP operations
-	mux.HandleFunc("/mcp", m.handleMCP)
+	// MCP protocol endpoint
+	mux.HandleFunc("/", m.handleMCPProtocol)
 
 	// Create HTTP server
 	m.httpServer = &http.Server{
@@ -172,37 +232,148 @@ func (m *MCPHTTPServer) Stop() error {
 	return nil
 }
 
-// handleMCP handles all MCP requests through a unified endpoint
-func (m *MCPHTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
+// handleMCPProtocol handles MCP JSON-RPC 2.0 protocol requests
+func (m *MCPHTTPServer) handleMCPProtocol(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Handle GET requests - return available tools and health status
-	if r.Method == http.MethodGet {
-		tools := m.server.ListTools()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status": "ok",
-			"tools":  tools,
+	// Only accept POST requests
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      nil,
+			Error: &RPCError{
+				Code:    -32600,
+				Message: "Invalid Request - only POST is allowed",
+			},
 		})
 		return
 	}
 
-	// Handle POST requests - execute tool calls
-	if r.Method == http.MethodPost {
-		var req mcp.ToolRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
-			return
-		}
-
-		resp, err := m.server.HandleRequest(r.Context(), &req)
-		if err != nil {
-			log.Printf("[MCP] Error handling request: %v", err)
-		}
-
-		json.NewEncoder(w).Encode(resp)
+	// Parse JSON-RPC request
+	var req JSONRPCRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		json.NewEncoder(w).Encode(JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      nil,
+			Error: &RPCError{
+				Code:    -32700,
+				Message: "Parse error",
+				Data:    err.Error(),
+			},
+		})
 		return
 	}
 
-	// Method not allowed
-	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	// Validate JSON-RPC version
+	if req.JSONRPC != "2.0" {
+		json.NewEncoder(w).Encode(JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error: &RPCError{
+				Code:    -32600,
+				Message: "Invalid Request - jsonrpc must be '2.0'",
+			},
+		})
+		return
+	}
+
+	// Handle different MCP methods
+	var response JSONRPCResponse
+	response.JSONRPC = "2.0"
+	response.ID = req.ID
+
+	switch req.Method {
+	case "initialize":
+		response.Result = m.handleInitialize(req.Params)
+
+	case "tools/list":
+		response.Result = m.handleToolsList()
+
+	case "tools/call":
+		result, err := m.handleToolsCall(r.Context(), req.Params)
+		if err != nil {
+			response.Error = &RPCError{
+				Code:    -32603,
+				Message: "Internal error",
+				Data:    err.Error(),
+			}
+		} else {
+			response.Result = result
+		}
+
+	default:
+		response.Error = &RPCError{
+			Code:    -32601,
+			Message: "Method not found",
+			Data:    fmt.Sprintf("Unknown method: %s", req.Method),
+		}
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleInitialize handles the initialize method
+func (m *MCPHTTPServer) handleInitialize(params json.RawMessage) InitializeResult {
+	// Parse params if needed (for now, we don't need specific client capabilities)
+	var initParams InitializeParams
+	if params != nil {
+		json.Unmarshal(params, &initParams)
+	}
+
+	return InitializeResult{
+		ProtocolVersion: "2024-11-05",
+		Capabilities: Capabilities{
+			Tools: map[string]interface{}{},
+		},
+		ServerInfo: ServerInfo{
+			Name:    "idensyra-mcp-server",
+			Version: "1.0.0",
+		},
+	}
+}
+
+// handleToolsList handles the tools/list method
+func (m *MCPHTTPServer) handleToolsList() map[string]interface{} {
+	tools := m.server.ListTools()
+
+	// Convert to MCP tools format
+	mcpTools := make([]map[string]interface{}, len(tools))
+	for i, tool := range tools {
+		mcpTools[i] = map[string]interface{}{
+			"name":        tool.Name,
+			"description": tool.Description,
+			"inputSchema": tool.InputSchema,
+		}
+	}
+
+	return map[string]interface{}{
+		"tools": mcpTools,
+	}
+}
+
+// handleToolsCall handles the tools/call method
+func (m *MCPHTTPServer) handleToolsCall(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var callParams CallToolParams
+	if err := json.Unmarshal(params, &callParams); err != nil {
+		return nil, fmt.Errorf("invalid params: %v", err)
+	}
+
+	// Create tool request
+	toolReq := &mcp.ToolRequest{
+		Name:      callParams.Name,
+		Arguments: callParams.Arguments,
+	}
+
+	// Execute tool
+	resp, err := m.server.HandleRequest(ctx, toolReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert response to MCP format
+	return map[string]interface{}{
+		"content": resp.Content,
+		"isError": resp.IsError,
+	}, nil
 }

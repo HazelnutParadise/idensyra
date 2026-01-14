@@ -70,35 +70,135 @@ MCP 服務器支持三種權限級別：
 
 ### 內建 HTTP 服務器（推薦）
 
-MCP 服務器已整合到 Idensyra 主程式中，啟動 Idensyra 時會自動在 `localhost:3000` 啟動 HTTP 服務器。
+MCP 服務器已整合到 Idensyra 主程式中，啟動 Idensyra 時會自動在 `localhost:3000` 啟動符合 MCP 標準的 HTTP 服務器。
 
 ```bash
 # 直接啟動 Idensyra，MCP 服務器會自動啟動
 ./idensyra
 ```
 
-#### 統一 HTTP API 端點
+#### MCP 協議端點
 
-MCP 服務器現在使用單一端點處理所有請求：
+服務器完全符合 Model Context Protocol (MCP) 標準，使用 JSON-RPC 2.0 格式通信：
 
-- `GET /mcp` - 獲取服務狀態和可用工具列表
-- `POST /mcp` - 執行 MCP 工具調用
+- `POST /` - MCP 協議端點（支持所有 MCP 方法）
+
+#### 支持的 MCP 方法
+
+1. **initialize** - 初始化 MCP 連接
+2. **tools/list** - 列出所有可用工具
+3. **tools/call** - 執行特定工具
 
 #### 使用範例
 
 ```bash
-# 獲取服務狀態和工具列表
-curl http://localhost:3000/mcp
-
-# 讀取文件
-curl -X POST http://localhost:3000/mcp \
+# 初始化連接
+curl -X POST http://localhost:3000/ \
   -H "Content-Type: application/json" \
-  -d '{"name": "read_file", "arguments": {"path": "main.go"}}'
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2024-11-05",
+      "capabilities": {},
+      "clientInfo": {"name": "test-client", "version": "1.0.0"}
+    }
+  }'
+
+# 列出所有工具
+curl -X POST http://localhost:3000/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/list"
+  }'
+
+# 執行工具 - 讀取文件
+curl -X POST http://localhost:3000/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {
+      "name": "read_file",
+      "arguments": {"path": "main.go"}
+    }
+  }'
 
 # 匯入檔案到工作區
-curl -X POST http://localhost:3000/mcp \
+curl -X POST http://localhost:3000/ \
   -H "Content-Type: application/json" \
-  -d '{"name": "import_file_to_workspace", "arguments": {"source_path": "/path/to/file.txt", "target_dir": ""}}'
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 4,
+    "method": "tools/call",
+    "params": {
+      "name": "import_file_to_workspace",
+      "arguments": {
+        "source_path": "/path/to/file.txt",
+        "target_dir": ""
+      }
+    }
+  }'
+```
+
+#### Python 整合範例
+
+```python
+import requests
+import json
+
+class IdensyraMCPClient:
+    def __init__(self, url="http://localhost:3000/"):
+        self.url = url
+        self.request_id = 0
+    
+    def _call(self, method, params=None):
+        self.request_id += 1
+        payload = {
+            "jsonrpc": "2.0",
+            "id": self.request_id,
+            "method": method
+        }
+        if params:
+            payload["params"] = params
+        
+        response = requests.post(self.url, json=payload)
+        return response.json()
+    
+    def initialize(self):
+        return self._call("initialize", {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "python-client", "version": "1.0.0"}
+        })
+    
+    def list_tools(self):
+        return self._call("tools/list")
+    
+    def call_tool(self, name, arguments=None):
+        return self._call("tools/call", {
+            "name": name,
+            "arguments": arguments or {}
+        })
+
+# 使用範例
+client = IdensyraMCPClient()
+
+# 初始化
+init_result = client.initialize()
+print("Server:", init_result["result"]["serverInfo"])
+
+# 列出工具
+tools = client.list_tools()
+print(f"Available tools: {len(tools['result']['tools'])}")
+
+# 讀取文件
+result = client.call_tool("read_file", {"path": "main.go"})
+print("File content:", result["result"])
 ```
 
 ### 獨立命令行工具（可選）
