@@ -65,33 +65,13 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	fmt.Println("Idensyra is starting...")
 
-	// Start MCP server on port 3000 using official SDK
+	// Start MCP server on port 14320 using official SDK
 	a.mcpServer = NewMCPServer(a)
-	if err := a.mcpServer.Start(3000); err != nil {
+	if err := a.mcpServer.Start(14320); err != nil {
 		fmt.Printf("Failed to start MCP server: %v\n", err)
 	}
 
 	// Workspace initialization is done in domReady to ensure frontend is ready
-}
-
-// domReady is called after front-end resources have been loaded
-func (a *App) domReady(ctx context.Context) {
-	// Workspace initialization happens here
-}
-
-// beforeClose is called when the application is about to quit
-func (a *App) beforeClose(ctx context.Context) (prevent bool) {
-	return false
-}
-
-// shutdown is called at application termination
-func (a *App) shutdown(ctx context.Context) {
-	// Stop MCP server
-	if a.mcpServer != nil {
-		if err := a.mcpServer.Stop(); err != nil {
-			fmt.Printf("Error stopping MCP server: %v\n", err)
-		}
-	}
 }
 
 // ExecuteCode executes Go code and returns the result as HTML

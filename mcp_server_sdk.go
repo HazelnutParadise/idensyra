@@ -31,7 +31,7 @@ func (m *MCPServer) Start(port int) error {
 	workspaceRoot := "."
 	if globalWorkspace != nil {
 		globalWorkspace.mu.RLock()
-		workspaceRoot = globalWorkspace.rootPath
+		workspaceRoot = globalWorkspace.workDir
 		globalWorkspace.mu.RUnlock()
 	}
 
@@ -113,10 +113,10 @@ func (m *MCPServer) registerFileTools(workspace string) {
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := args["path"].(string)
 		fullPath := filepath.Join(workspace, path)
-		
+
 		// Switch to this file in UI
 		m.app.SetActiveFile(path)
-		
+
 		content, err := os.ReadFile(fullPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error reading file: %v", err)
@@ -493,7 +493,7 @@ func (m *MCPServer) registerCodeExecutionTools(workspace string) {
 	})
 }
 
-// registerWorkspaceTools registers workspace management tools  
+// registerWorkspaceTools registers workspace management tools
 func (m *MCPServer) registerWorkspaceTools(workspace string) {
 	// open_workspace tool
 	sdk.AddTool(m.server, &sdk.Tool{
@@ -512,7 +512,7 @@ func (m *MCPServer) registerWorkspaceTools(workspace string) {
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := args["path"].(string)
 
-		if err := m.app.OpenWorkspace(path); err != nil {
+		if _, err := m.app.OpenWorkspaceAt(path); err != nil {
 			return nil, nil, fmt.Errorf("error opening workspace: %v", err)
 		}
 
@@ -540,7 +540,7 @@ func (m *MCPServer) registerWorkspaceTools(workspace string) {
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := args["path"].(string)
 
-		if err := m.app.CreateWorkspace(path); err != nil {
+		if _, err := m.app.CreateWorkspaceAt(path); err != nil {
 			return nil, nil, fmt.Errorf("error saving workspace: %v", err)
 		}
 

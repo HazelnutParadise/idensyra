@@ -1208,12 +1208,169 @@ func (a *App) CreateWorkspace() (string, error) {
 				return "", fmt.Errorf("failed to create folder %s: %w", filename, err)
 			}
 		}
-	}
-
-	for filename, file := range globalWorkspace.files {
 		if file.IsDir {
 			continue
 		}
+		fpath := filepath.Join(selectedPath, filepath.FromSlash(filename))
+		if err := os.WriteFile(fpath, []byte(file.Content), 0644); err != nil {
+			return "", fmt.Errorf("failed to write file %s: %w", filename, err)
+		}
+	}
+
+	globalWorkspace.modified = false
+
+	return selectedPath, nil
+}
+
+// OpenWorkspaceAt opens an existing workspace from the given directory path (used by programmatic callers)
+func (a *App) OpenWorkspaceAt(dirPath string) (string, error) {
+	if globalWorkspace == nil {
+		return "", fmt.Errorf("workspace not initialized")
+	}
+
+	// Validate
+	info, err := os.Stat(dirPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to access directory: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("not a directory: %s", dirPath)
+	}
+
+	// Reuse the same scanning logic as the interactive OpenWorkspace
+	entries := make([]workspaceScanEntry, 0)
+	var totalBytes int64
+	totalFiles := 0
+	_ = filepath.WalkDir(dirPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if path == dirPath {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(dirPath, path)
+		if err != nil {
+			return nil
+		}
+		if isHiddenPath(relPath, d.IsDir()) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// continue same scanning as in OpenWorkspace
+		var entry workspaceScanEntry
+		entry.displayName = relPath
+		entry.path = relPath
+		entry.isDir = d.IsDir()
+		if !d.IsDir() {
+			info, err := d.Info()
+			if err == nil {
+				entry.size = info.Size()
+				totalBytes += entry.size
+				totalFiles++
+			}
+		}
+		entries = append(entries, entry)
+		return nil
+	})
+
+	if len(entries) == 0 {
+		return "", fmt.Errorf("no files found in selected directory")
+	}
+
+	// Build workspace files map
+	workspaceFiles := make(map[string]*WorkspaceFile)
+	for _, e := range entries {
+		if e.isDir {
+			workspaceFiles[e.path] = &WorkspaceFile{Name: e.path, IsDir: true}
+			continue
+		}
+		// read file contents
+		full := filepath.Join(dirPath, filepath.FromSlash(e.path))
+		content, err := os.ReadFile(full)
+		if err != nil {
+			return "", fmt.Errorf("failed to read file %s: %w", e.path, err)
+		}
+		workspaceFiles[e.path] = &WorkspaceFile{Name: e.path, IsDir: false, Content: string(content), Size: int64(len(content))}
+	}
+
+	// Replace current workspace
+	globalWorkspace.mu.Lock()
+	defer globalWorkspace.mu.Unlock()
+
+	if globalWorkspace.isTemp {
+		os.RemoveAll(globalWorkspace.workDir)
+	}
+	globalWorkspace.workDir = dirPath
+	globalWorkspace.isTemp = false
+	globalWorkspace.files = make(map[string]*WorkspaceFile)
+	for filename, file := range workspaceFiles {
+		globalWorkspace.files[filename] = file
+	}
+	for name, file := range globalWorkspace.files {
+		if file.IsDir {
+			continue
+		}
+		globalWorkspace.activeFile = name
+		break
+	}
+	globalWorkspace.modified = false
+
+	return dirPath, nil
+}
+
+// CreateWorkspaceAt saves the current workspace files to the provided path (used by programmatic callers)
+func (a *App) CreateWorkspaceAt(selectedPath string) (string, error) {
+	if globalWorkspace == nil {
+		return "", fmt.Errorf("workspace not initialized")
+	}
+
+	// Create directory
+	err := os.MkdirAll(selectedPath, 0755)
+	if err != nil {
+		return "", fmt.Errorf("failed to create workspace directory: %w", err)
+	}
+
+	// Clean up old temp workspace if it was temp
+	globalWorkspace.mu.Lock()
+	defer globalWorkspace.mu.Unlock()
+
+	if globalWorkspace.isTemp {
+		os.RemoveAll(globalWorkspace.workDir)
+	}
+
+	// Set new workspace directory
+	globalWorkspace.workDir = selectedPath
+	globalWorkspace.isTemp = false
+
+	// Save all current files to new workspace
+	for filename, file := range globalWorkspace.files {
+		if file.IsDir {
+			folderPath := filepath.Join(selectedPath, filepath.FromSlash(filename))
+			if err := os.MkdirAll(folderPath, 0755); err != nil {
+				return "", fmt.Errorf("failed to create folder %s: %w", filename, err)
+			}
+			continue
+		}
+		fpath := filepath.Join(selectedPath, filepath.FromSlash(filename))
+		if err := os.WriteFile(fpath, []byte(file.Content), 0644); err != nil {
+			return "", fmt.Errorf("failed to write file %s: %w", filename, err)
+		}
+	}
+
+	// Save all current files to new workspace with handling for large/binary files
+	for filename, file := range globalWorkspace.files {
+		if file.IsDir {
+			folderPath := filepath.Join(selectedPath, filepath.FromSlash(filename))
+			if err := os.MkdirAll(folderPath, 0755); err != nil {
+				return "", fmt.Errorf("failed to create folder %s: %w", filename, err)
+			}
+			continue
+		}
+
 		filePath := filepath.Join(selectedPath, filepath.FromSlash(filename))
 		if file.TooLarge {
 			sourcePath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(filename))
@@ -1239,12 +1396,13 @@ func (a *App) CreateWorkspace() (string, error) {
 				return "", fmt.Errorf("failed to write file %s: %w", filename, err)
 			}
 		}
+
 		file.Modified = false
 		file.IsNew = false
 		file.SavedContent = file.Content
 	}
 
-	updateWorkspaceModifiedLocked()
+	globalWorkspace.modified = false
 
 	return selectedPath, nil
 }
@@ -2370,5 +2528,13 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 func (a *App) shutdown(ctx context.Context) {
 	// Ensure cleanup
 	a.CleanupWorkspace()
+
+	// Stop MCP server if running
+	if a.mcpServer != nil {
+		if err := a.mcpServer.Stop(); err != nil {
+			fmt.Printf("Error stopping MCP server: %v\n", err)
+		}
+	}
+
 	fmt.Println("Idensyra is shutting down...")
 }
