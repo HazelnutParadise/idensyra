@@ -8,16 +8,22 @@ import (
 
 // ExecutePythonFile runs a workspace Python file via py.RunFile and returns HTML output.
 func (a *App) ExecutePythonFile(filename string, content string) string {
+	result, _ := a.ExecutePythonFileContent(filename, content)
+	return result
+}
+
+// ExecutePythonFileContent runs a workspace Python file and returns HTML output with error.
+func (a *App) ExecutePythonFileContent(filename string, content string) (string, error) {
 	if globalWorkspace == nil || !globalWorkspace.initialized {
-		return "workspace not initialized"
+		return "workspace not initialized", fmt.Errorf("workspace not initialized")
 	}
 
 	cleanName, err := cleanRelativePath(filename)
 	if err != nil {
-		return err.Error()
+		return err.Error(), err
 	}
 	if !strings.HasSuffix(strings.ToLower(cleanName), ".py") {
-		return "only .py files can be executed"
+		return "only .py files can be executed", fmt.Errorf("only .py files can be executed")
 	}
 
 	globalWorkspace.mu.RLock()
@@ -26,25 +32,27 @@ func (a *App) ExecutePythonFile(filename string, content string) string {
 	globalWorkspace.mu.RUnlock()
 
 	if !exists {
-		return fmt.Sprintf("file not found: %s", cleanName)
+		msg := fmt.Sprintf("file not found: %s", cleanName)
+		return msg, fmt.Errorf(msg)
 	}
 	if file.IsDir {
-		return fmt.Sprintf("path is a directory: %s", cleanName)
+		msg := fmt.Sprintf("path is a directory: %s", cleanName)
+		return msg, fmt.Errorf(msg)
 	}
 	if file.TooLarge {
-		return "file too large to execute"
+		return "file too large to execute", fmt.Errorf("file too large to execute")
 	}
 	if file.IsBinary {
-		return "binary files cannot be executed"
+		return "binary files cannot be executed", fmt.Errorf("binary files cannot be executed")
 	}
 	if workDir == "" {
-		return "workspace directory not set"
+		return "workspace directory not set", fmt.Errorf("workspace directory not set")
 	}
 
 	// Execute python content directly; insyra will handle temp file concerns internally.
 	fullContent := pythonEncodingSetup + content
 	code := buildPythonFileRunnerFromContent(fullContent)
-	return executeGoCode(code, "dark")
+	return executeGoCode(code, "dark"), nil
 }
 
 // pythonEncodingSetup is prepended to Python files to ensure UTF-8 output on Windows

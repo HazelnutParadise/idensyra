@@ -3885,10 +3885,10 @@ function restoreFileExecutionState(filename) {
   
   const state = fileExecutionState.get(filename);
   if (!state) {
-    // No saved state, reset to defaults
-    isExecuting = false;
-    igonbIsExecuting = false;
-    igonbRunQueue = [];
+    // No saved state for this file - don't change global execution flags
+    // The global isExecuting and igonbIsExecuting flags should be maintained
+    // across file switches until execution completes
+    updateRunButtonState();
     return;
   }
   

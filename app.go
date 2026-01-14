@@ -50,7 +50,8 @@ func main() {
 
 // App struct
 type App struct {
-	ctx context.Context
+	ctx           context.Context
+	mcpHTTPServer *MCPHTTPServer
 }
 
 // NewApp creates a new App application struct
@@ -63,7 +64,34 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	fmt.Println("Idensyra is starting...")
+
+	// Start MCP HTTP server on port 3000
+	a.mcpHTTPServer = NewMCPHTTPServer(a)
+	if err := a.mcpHTTPServer.Start(3000); err != nil {
+		fmt.Printf("Failed to start MCP HTTP server: %v\n", err)
+	}
+
 	// Workspace initialization is done in domReady to ensure frontend is ready
+}
+
+// domReady is called after front-end resources have been loaded
+func (a *App) domReady(ctx context.Context) {
+	// Workspace initialization happens here
+}
+
+// beforeClose is called when the application is about to quit
+func (a *App) beforeClose(ctx context.Context) (prevent bool) {
+	return false
+}
+
+// shutdown is called at application termination
+func (a *App) shutdown(ctx context.Context) {
+	// Stop MCP HTTP server
+	if a.mcpHTTPServer != nil {
+		if err := a.mcpHTTPServer.Stop(); err != nil {
+			fmt.Printf("Error stopping MCP HTTP server: %v\n", err)
+		}
+	}
 }
 
 // ExecuteCode executes Go code and returns the result as HTML
