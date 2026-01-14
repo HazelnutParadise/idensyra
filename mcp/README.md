@@ -67,13 +67,45 @@ MCP 服務器支持三種權限級別：
 
 ## 使用方法
 
-### 編譯 MCP 服務器
+### 內建 HTTP 服務器（推薦）
+
+MCP 服務器已整合到 Idensyra 主程式中，啟動 Idensyra 時會自動在 `localhost:3000` 啟動 HTTP 服務器。
+
+```bash
+# 直接啟動 Idensyra，MCP 服務器會自動啟動
+./idensyra
+```
+
+#### HTTP API 端點
+
+- `POST /mcp/call` - 執行 MCP 工具調用
+- `GET /mcp/tools` - 列出可用工具
+- `GET /mcp/health` - 健康檢查
+
+#### 使用範例
+
+```bash
+# 讀取文件
+curl -X POST http://localhost:3000/mcp/call \
+  -H "Content-Type: application/json" \
+  -d '{"name": "read_file", "arguments": {"path": "main.go"}}'
+
+# 列出所有工具
+curl http://localhost:3000/mcp/tools
+
+# 健康檢查
+curl http://localhost:3000/mcp/health
+```
+
+### 獨立命令行工具（可選）
+
+如果需要獨立的命令行工具，可以編譯：
 
 ```bash
 go build -o mcp-server ./cmd/mcp-server/
 ```
 
-### 運行 MCP 服務器
+### 運行獨立 MCP 服務器
 
 ```bash
 # 使用當前目錄作為工作區
@@ -86,9 +118,24 @@ go build -o mcp-server ./cmd/mcp-server/
 ./mcp-server -config config.json
 ```
 
-### 與 Claude Desktop 集成
+### 與 AI 助手集成
 
-在 Claude Desktop 配置文件中添加：
+由於 MCP 服務器通過 HTTP 提供服務，可以直接從任何支持 HTTP 的 AI 助手訪問：
+
+```python
+# Python 示例
+import requests
+
+response = requests.post('http://localhost:3000/mcp/call', json={
+    "name": "execute_go_code",
+    "arguments": {"code": "fmt.Println(\"Hello!\")"}
+})
+print(response.json())
+```
+
+### 與 Claude Desktop 集成（使用獨立工具）
+
+如果使用獨立命令行工具，在 Claude Desktop 配置文件中添加：
 
 ```json
 {

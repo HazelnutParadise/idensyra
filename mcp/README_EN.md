@@ -67,13 +67,45 @@ Configurable permission items:
 
 ## Usage
 
-### Build the MCP Server
+### Built-in HTTP Server (Recommended)
+
+The MCP server is integrated into the main Idensyra application and automatically starts an HTTP server on `localhost:3000` when you launch Idensyra.
+
+```bash
+# Just start Idensyra - MCP server starts automatically
+./idensyra
+```
+
+#### HTTP API Endpoints
+
+- `POST /mcp/call` - Execute MCP tool calls
+- `GET /mcp/tools` - List available tools
+- `GET /mcp/health` - Health check
+
+#### Usage Examples
+
+```bash
+# Read a file
+curl -X POST http://localhost:3000/mcp/call \
+  -H "Content-Type: application/json" \
+  -d '{"name": "read_file", "arguments": {"path": "main.go"}}'
+
+# List all tools
+curl http://localhost:3000/mcp/tools
+
+# Health check
+curl http://localhost:3000/mcp/health
+```
+
+### Standalone CLI Tool (Optional)
+
+If you need a standalone command-line tool, you can build it:
 
 ```bash
 go build -o mcp-server ./cmd/mcp-server/
 ```
 
-### Run the MCP Server
+### Run Standalone MCP Server
 
 ```bash
 # Use current directory as workspace
@@ -86,9 +118,24 @@ go build -o mcp-server ./cmd/mcp-server/
 ./mcp-server -config config.json
 ```
 
-### Integration with Claude Desktop
+### Integration with AI Assistants
 
-Add to your Claude Desktop configuration file:
+Since the MCP server is available via HTTP, you can access it from any AI assistant that supports HTTP:
+
+```python
+# Python example
+import requests
+
+response = requests.post('http://localhost:3000/mcp/call', json={
+    "name": "execute_go_code",
+    "arguments": {"code": "fmt.Println(\"Hello!\")"}
+})
+print(response.json())
+```
+
+### Integration with Claude Desktop (Using Standalone Tool)
+
+If using the standalone CLI tool, add to your Claude Desktop configuration file:
 
 ```json
 {
