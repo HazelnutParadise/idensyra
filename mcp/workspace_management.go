@@ -9,12 +9,13 @@ import (
 
 // WorkspaceManagement provides workspace management tools for MCP
 type WorkspaceManagement struct {
-	config        *Config
-	confirmFunc   func(operation, details string) bool
-	currentWorkspace string
+	config            *Config
+	confirmFunc       func(operation, details string) bool
+	currentWorkspace  string
 	openWorkspaceFunc func(path string) error
 	saveWorkspaceFunc func(path string) error
 	saveChangesFunc   func() error
+	importFileFunc    func(sourcePath, targetDir string) error
 }
 
 // NewWorkspaceManagement creates a new WorkspaceManagement instance
@@ -24,6 +25,7 @@ func NewWorkspaceManagement(
 	openWorkspaceFunc func(path string) error,
 	saveWorkspaceFunc func(path string) error,
 	saveChangesFunc func() error,
+	importFileFunc func(sourcePath, targetDir string) error,
 ) *WorkspaceManagement {
 	return &WorkspaceManagement{
 		config:            config,
@@ -31,6 +33,7 @@ func NewWorkspaceManagement(
 		openWorkspaceFunc: openWorkspaceFunc,
 		saveWorkspaceFunc: saveWorkspaceFunc,
 		saveChangesFunc:   saveChangesFunc,
+		importFileFunc:    importFileFunc,
 	}
 }
 
@@ -232,5 +235,51 @@ func (wm *WorkspaceManagement) CreateWorkspaceDirectory(ctx context.Context, rel
 
 	return &ToolResponse{
 		Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Directory created successfully: %s", relativePath)}},
+	}, nil
+}
+
+// ImportFileToWorkspace imports an external file into the workspace
+func (wm *WorkspaceManagement) ImportFileToWorkspace(ctx context.Context, sourcePath, targetDir string) (*ToolResponse, error) {
+	if wm.config.WorkspaceModify == PermissionDeny {
+		return &ToolResponse{
+			Content: []ContentBlock{{Type: "text", Text: "Workspace modify permission denied"}},
+			IsError: true,
+		}, fmt.Errorf("permission denied")
+	}
+
+	if wm.config.WorkspaceModify == PermissionAsk && wm.confirmFunc != nil {
+		if !wm.confirmFunc("Import File", fmt.Sprintf("Import file: %s to directory: %s", sourcePath, targetDir)) {
+			return &ToolResponse{
+				Content: []ContentBlock{{Type: "text", Text: "Import file cancelled by user"}},
+				IsError: true,
+			}, fmt.Errorf("cancelled by user")
+		}
+	}
+
+	// Check if source file exists
+	if _, err := os.Stat(sourcePath); err != nil {
+		return &ToolResponse{
+			Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Source file does not exist: %v", err)}},
+			IsError: true,
+		}, err
+	}
+
+	// Use the provided import file function if available
+	if wm.importFileFunc != nil {
+		if err := wm.importFileFunc(sourcePath, targetDir); err != nil {
+			return &ToolResponse{
+				Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("Error importing file: %v", err)}},
+				IsError: true,
+			}, err
+		}
+	} else {
+		return &ToolResponse{
+			Content: []ContentBlock{{Type: "text", Text: "Import file function not available"}},
+			IsError: true,
+		}, fmt.Errorf("import file function not available")
+	}
+
+	return &ToolResponse{
+		Content: []ContentBlock{{Type: "text", Text: fmt.Sprintf("File imported successfully: %s", filepath.Base(sourcePath))}},
 	}, nil
 }

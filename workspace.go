@@ -1446,6 +1446,130 @@ func (a *App) ImportFileToWorkspaceAt(targetDir string) error {
 	return nil
 }
 
+// ImportSpecificFileToWorkspace imports a specific file from sourcePath into the workspace at target folder
+func (a *App) ImportSpecificFileToWorkspace(sourcePath, targetDir string) error {
+	if globalWorkspace == nil {
+		return fmt.Errorf("workspace not initialized")
+	}
+
+	cleanTarget, err := cleanOptionalRelativePath(targetDir)
+	if err != nil {
+		return err
+	}
+
+	// Check if source file exists
+	info, err := os.Stat(sourcePath)
+	if err != nil {
+		return fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	if info.IsDir() {
+		return fmt.Errorf("source path is a directory, not a file")
+	}
+
+	filename := filepath.Base(sourcePath)
+
+	// Read file content
+	var content []byte
+	tooLarge := isFileTooLarge(info.Size())
+	if !tooLarge {
+		content, err = os.ReadFile(sourcePath)
+		if err != nil {
+			return fmt.Errorf("failed to read file: %w", err)
+		}
+	}
+
+	// Get base filename
+	globalWorkspace.mu.Lock()
+	defer globalWorkspace.mu.Unlock()
+
+	finalName := filename
+	if cleanTarget != "" {
+		finalName = cleanTarget + "/" + filename
+	}
+
+	if _, exists := globalWorkspace.files[finalName]; exists {
+		// Generate unique name
+		ext := filepath.Ext(finalName)
+		base := strings.TrimSuffix(finalName, ext)
+		counter := 1
+		for {
+			newName := fmt.Sprintf("%s_%d%s", base, counter, ext)
+			if _, exists := globalWorkspace.files[newName]; !exists {
+				finalName = newName
+				break
+			}
+			counter++
+		}
+	}
+
+	// Convert content to string (base64 for binary files)
+	var contentStr string
+	isBinary := false
+	if !tooLarge {
+		isBinary = shouldTreatAsBinary(finalName, content)
+		if isBinary {
+			contentStr = base64.StdEncoding.EncodeToString(content)
+		} else {
+			contentStr = string(content)
+		}
+	} else {
+		isBinary = isBinaryPreviewFile(finalName)
+	}
+
+	// Always write imported files to disk immediately
+	if globalWorkspace.workDir != "" {
+		targetPath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(finalName))
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+			return fmt.Errorf("failed to create parent directory: %w", err)
+		}
+		if tooLarge {
+			// For large files, copy directly
+			if err := copyFile(sourcePath, targetPath); err != nil {
+				return fmt.Errorf("failed to import large file: %w", err)
+			}
+		} else {
+			// For regular files, write content to disk
+			if err := os.WriteFile(targetPath, content, 0644); err != nil {
+				return fmt.Errorf("failed to write imported file: %w", err)
+			}
+		}
+	}
+
+	globalWorkspace.files[finalName] = &WorkspaceFile{
+		Name:         finalName,
+		Content:      contentStr,
+		Size:         info.Size(),
+		TooLarge:     tooLarge,
+		IsBinary:     isBinary,
+		SavedContent: contentStr, // Already saved to disk
+		IsNew:        false,      // Not new since saved to disk
+		Modified:     false,      // Not modified since saved to disk
+	}
+
+	parentParts := strings.Split(finalName, "/")
+	if len(parentParts) > 1 {
+		for i := 1; i < len(parentParts); i++ {
+			dirPath := strings.Join(parentParts[:i], "/")
+			if _, exists := globalWorkspace.files[dirPath]; !exists {
+				globalWorkspace.files[dirPath] = &WorkspaceFile{
+					Name:         dirPath,
+					Content:      "",
+					Size:         0,
+					TooLarge:     false,
+					IsDir:        true,
+					SavedContent: "",
+					IsNew:        false,
+					Modified:     false,
+				}
+			}
+		}
+	}
+	updateWorkspaceModifiedLocked()
+
+	return nil
+}
+
 func readFileConcurrently(filePath string, onProgress func(readBytes, totalBytes int64)) ([]byte, error) {
 	file, err := os.Open(filePath)
 	if err != nil {

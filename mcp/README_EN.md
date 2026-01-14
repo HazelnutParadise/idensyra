@@ -43,6 +43,7 @@ This allows users to see in real-time which file the AI agent is working on, pro
 - `save_changes` - Save all unsaved changes
 - `get_workspace_info` - Get information about the current workspace
 - `create_workspace_directory` - Create a new directory in the workspace
+- `import_file_to_workspace` - Import a specific file from the computer into the workspace
 
 ## Permission Configuration
 
@@ -76,25 +77,28 @@ The MCP server is integrated into the main Idensyra application and automaticall
 ./idensyra
 ```
 
-#### HTTP API Endpoints
+#### Unified HTTP API Endpoint
 
-- `POST /mcp/call` - Execute MCP tool calls
-- `GET /mcp/tools` - List available tools
-- `GET /mcp/health` - Health check
+The MCP server now uses a single endpoint for all requests:
+
+- `GET /mcp` - Get service status and list of available tools
+- `POST /mcp` - Execute MCP tool calls
 
 #### Usage Examples
 
 ```bash
+# Get service status and tool list
+curl http://localhost:3000/mcp
+
 # Read a file
-curl -X POST http://localhost:3000/mcp/call \
+curl -X POST http://localhost:3000/mcp \
   -H "Content-Type: application/json" \
   -d '{"name": "read_file", "arguments": {"path": "main.go"}}'
 
-# List all tools
-curl http://localhost:3000/mcp/tools
-
-# Health check
-curl http://localhost:3000/mcp/health
+# Import a file to workspace
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"name": "import_file_to_workspace", "arguments": {"source_path": "/path/to/file.txt", "target_dir": ""}}'
 ```
 
 ### Standalone CLI Tool (Optional)

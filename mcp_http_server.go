@@ -115,6 +115,11 @@ func (m *MCPHTTPServer) Start(port int) error {
 		return m.app.SetActiveFile(path)
 	}
 
+	// Import file function that uses the app's method
+	importFileFunc := func(sourcePath, targetDir string) error {
+		return m.app.ImportSpecificFileToWorkspace(sourcePath, targetDir)
+	}
+
 	// Create MCP server
 	m.server = mcp.NewServer(
 		config,
@@ -127,22 +132,14 @@ func (m *MCPHTTPServer) Start(port int) error {
 		saveWorkspaceFunc,
 		saveChangesFunc,
 		setActiveFileFunc,
+		importFileFunc,
 	)
 
 	// Create HTTP handler
 	mux := http.NewServeMux()
 
-	// Handle MCP tool calls
-	mux.HandleFunc("/mcp/call", m.handleToolCall)
-
-	// Handle MCP tool list
-	mux.HandleFunc("/mcp/tools", m.handleListTools)
-
-	// Health check
-	mux.HandleFunc("/mcp/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	})
+	// Single unified endpoint for all MCP operations
+	mux.HandleFunc("/mcp", m.handleMCP)
 
 	// Create HTTP server
 	m.httpServer = &http.Server{
@@ -175,38 +172,37 @@ func (m *MCPHTTPServer) Stop() error {
 	return nil
 }
 
-// handleToolCall handles MCP tool call requests
-func (m *MCPHTTPServer) handleToolCall(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req mcp.ToolRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	resp, err := m.server.HandleRequest(r.Context(), &req)
-	if err != nil {
-		log.Printf("[MCP] Error handling request: %v", err)
-	}
-
+// handleMCP handles all MCP requests through a unified endpoint
+func (m *MCPHTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
-}
 
-// handleListTools returns the list of available tools
-func (m *MCPHTTPServer) handleListTools(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	// Handle GET requests - return available tools and health status
+	if r.Method == http.MethodGet {
+		tools := m.server.ListTools()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "ok",
+			"tools":  tools,
+		})
 		return
 	}
 
-	tools := m.server.ListTools()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"tools": tools,
-	})
+	// Handle POST requests - execute tool calls
+	if r.Method == http.MethodPost {
+		var req mcp.ToolRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		resp, err := m.server.HandleRequest(r.Context(), &req)
+		if err != nil {
+			log.Printf("[MCP] Error handling request: %v", err)
+		}
+
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+
+	// Method not allowed
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }

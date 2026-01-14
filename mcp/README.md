@@ -43,6 +43,7 @@ Idensyra MCP Server 提供了一個模型上下文協議 (Model Context Protocol
 - `save_changes` - 保存所有未保存的更改
 - `get_workspace_info` - 獲取當前工作區信息
 - `create_workspace_directory` - 在工作區中創建新目錄
+- `import_file_to_workspace` - 從電腦匯入特定檔案到工作區
 
 ## 權限配置
 
@@ -76,25 +77,28 @@ MCP 服務器已整合到 Idensyra 主程式中，啟動 Idensyra 時會自動�
 ./idensyra
 ```
 
-#### HTTP API 端點
+#### 統一 HTTP API 端點
 
-- `POST /mcp/call` - 執行 MCP 工具調用
-- `GET /mcp/tools` - 列出可用工具
-- `GET /mcp/health` - 健康檢查
+MCP 服務器現在使用單一端點處理所有請求：
+
+- `GET /mcp` - 獲取服務狀態和可用工具列表
+- `POST /mcp` - 執行 MCP 工具調用
 
 #### 使用範例
 
 ```bash
+# 獲取服務狀態和工具列表
+curl http://localhost:3000/mcp
+
 # 讀取文件
-curl -X POST http://localhost:3000/mcp/call \
+curl -X POST http://localhost:3000/mcp \
   -H "Content-Type: application/json" \
   -d '{"name": "read_file", "arguments": {"path": "main.go"}}'
 
-# 列出所有工具
-curl http://localhost:3000/mcp/tools
-
-# 健康檢查
-curl http://localhost:3000/mcp/health
+# 匯入檔案到工作區
+curl -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"name": "import_file_to_workspace", "arguments": {"source_path": "/path/to/file.txt", "target_dir": ""}}'
 ```
 
 ### 獨立命令行工具（可選）

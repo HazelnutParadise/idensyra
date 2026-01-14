@@ -98,6 +98,33 @@ func main() {
 		return nil
 	}
 
+	importFileFunc := func(sourcePath, targetDir string) error {
+		log.Printf("Importing file: %s to %s", sourcePath, targetDir)
+		// In CLI mode, we just copy the file
+		// Read source file
+		content, err := os.ReadFile(sourcePath)
+		if err != nil {
+			return fmt.Errorf("failed to read source file: %v", err)
+		}
+
+		// Determine target path
+		filename := filepath.Base(sourcePath)
+		targetPath := filepath.Join(absWorkspace, targetDir, filename)
+
+		// Create target directory if needed
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+			return fmt.Errorf("failed to create target directory: %v", err)
+		}
+
+		// Write to target
+		if err := os.WriteFile(targetPath, content, 0644); err != nil {
+			return fmt.Errorf("failed to write target file: %v", err)
+		}
+
+		log.Printf("File imported successfully: %s", filename)
+		return nil
+	}
+
 	// Create MCP server
 	server := mcp.NewServer(
 		config,
@@ -110,6 +137,7 @@ func main() {
 		saveWorkspaceFunc,
 		saveChangesFunc,
 		setActiveFileFunc,
+		importFileFunc,
 	)
 
 	log.Printf("MCP Server started. Workspace: %s", absWorkspace)

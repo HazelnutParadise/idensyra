@@ -29,13 +29,14 @@ func NewServer(
 	saveWorkspaceFunc func(path string) error,
 	saveChangesFunc func() error,
 	setActiveFileFunc func(path string) error,
+	importFileFunc func(sourcePath, targetDir string) error,
 ) *Server {
 	return &Server{
 		config:              config,
 		fileOps:             NewFileOperations(config, workspaceRoot, confirmFunc, setActiveFileFunc),
 		codeExec:            NewCodeExecution(config, workspaceRoot, confirmFunc, executeGoFunc, executePyFunc, setActiveFileFunc),
 		notebookOps:         NewNotebookOperations(config, workspaceRoot, confirmFunc, executeCellFunc, setActiveFileFunc),
-		workspaceManagement: NewWorkspaceManagement(config, confirmFunc, openWorkspaceFunc, saveWorkspaceFunc, saveChangesFunc),
+		workspaceManagement: NewWorkspaceManagement(config, confirmFunc, openWorkspaceFunc, saveWorkspaceFunc, saveChangesFunc, importFileFunc),
 	}
 }
 
@@ -126,6 +127,10 @@ func (s *Server) HandleRequest(ctx context.Context, req *ToolRequest) (*ToolResp
 	case "create_workspace_directory":
 		relativePath, _ := req.Arguments["relative_path"].(string)
 		return s.workspaceManagement.CreateWorkspaceDirectory(ctx, relativePath)
+	case "import_file_to_workspace":
+		sourcePath, _ := req.Arguments["source_path"].(string)
+		targetDir, _ := req.Arguments["target_dir"].(string)
+		return s.workspaceManagement.ImportFileToWorkspace(ctx, sourcePath, targetDir)
 
 	default:
 		return &ToolResponse{
@@ -391,6 +396,18 @@ func (s *Server) ListTools() []ToolInfo {
 					"relative_path": map[string]interface{}{"type": "string", "description": "Relative path for the new directory"},
 				},
 				"required": []string{"relative_path"},
+			},
+		},
+		{
+			Name:        "import_file_to_workspace",
+			Description: "Import a file from the computer into the workspace",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"source_path": map[string]interface{}{"type": "string", "description": "Absolute path to the source file on the computer"},
+					"target_dir":  map[string]interface{}{"type": "string", "description": "Target directory in workspace (relative path, empty string for root)"},
+				},
+				"required": []string{"source_path"},
 			},
 		},
 	}
