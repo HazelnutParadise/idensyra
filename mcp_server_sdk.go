@@ -154,16 +154,15 @@ func (m *MCPServer) registerFileTools(workspace string) {
 		if err := m.app.UpdateFileContent(path, content); err != nil {
 			return nil, nil, fmt.Errorf("error updating file: %v", err)
 		}
-		if err := m.app.SaveFile(path); err != nil {
-			return nil, nil, fmt.Errorf("error saving file: %v", err)
-		}
+
+		// Do not auto-save to disk here; keep file modified in workspace and let frontend decide when to persist.
 
 		// Switch to this file in UI (ignore error)
 		_ = m.app.SetActiveFile(path)
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: fmt.Sprintf("File written successfully: %s", path)},
+				&sdk.TextContent{Text: fmt.Sprintf("File updated in workspace (unsaved): %s", path)},
 			},
 		}, nil, nil
 	})
@@ -197,9 +196,8 @@ func (m *MCPServer) registerFileTools(workspace string) {
 			if err := m.app.UpdateFileContent(path, content); err != nil {
 				return nil, nil, fmt.Errorf("error updating new file: %v", err)
 			}
-			if err := m.app.SaveFile(path); err != nil {
-				return nil, nil, fmt.Errorf("error saving new file: %v", err)
-			}
+			// Do not call SaveFile here; do not require a persistent workspace to create files.
+			// Let the frontend/user explicitly save when appropriate.
 		}
 
 		// Switch to this file in UI (ignore error)

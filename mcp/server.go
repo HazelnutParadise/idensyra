@@ -24,6 +24,7 @@ func NewServer(
 	confirmFunc func(operation, details string) bool,
 	executeGoFunc func(code string, colorBG string) string,
 	executePyFunc func(filePath string) (string, error),
+	executePyContentFunc func(filename string, content string) (string, error),
 	executeCellFunc func(language, code string) (string, error),
 	openWorkspaceFunc func(path string) error,
 	saveWorkspaceFunc func(path string) error,
@@ -42,7 +43,7 @@ func NewServer(
 		config: config,
 		fileOps: NewFileOperations(config, workspaceRoot, confirmFunc, setActiveFileFunc,
 			readFileFunc, writeFileFunc, createFileFunc, deleteFileFunc, renameFileFunc, listFilesFunc),
-		codeExec:            NewCodeExecution(config, workspaceRoot, confirmFunc, executeGoFunc, executePyFunc, setActiveFileFunc),
+		codeExec:            NewCodeExecution(config, workspaceRoot, confirmFunc, executeGoFunc, executePyFunc, executePyContentFunc, readFileFunc, setActiveFileFunc),
 		notebookOps:         NewNotebookOperations(config, workspaceRoot, confirmFunc, executeCellFunc, setActiveFileFunc),
 		workspaceManagement: NewWorkspaceManagement(config, confirmFunc, openWorkspaceFunc, saveWorkspaceFunc, saveChangesFunc, importFileFunc),
 	}

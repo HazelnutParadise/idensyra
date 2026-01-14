@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
 
 	"github.com/HazelnutParadise/idensyra/internal"
 	"github.com/HazelnutParadise/idensyra/mcp"
@@ -58,18 +57,26 @@ func main() {
 		return executePythonFile(filePath)
 	}
 
+	executePyContentFunc := func(filename string, content string) (string, error) {
+		tmp, err := os.CreateTemp("", "mcp_py_*.py")
+		if err != nil {
+			return "", fmt.Errorf("failed to create temp file: %v", err)
+		}
+		defer os.Remove(tmp.Name())
+		if _, err := tmp.WriteString(content); err != nil {
+			tmp.Close()
+			return "", fmt.Errorf("failed to write temp file: %v", err)
+		}
+		tmp.Close()
+		return executePythonFile(tmp.Name())
+	}
+
 	executeCellFunc := func(language, code string) (string, error) {
 		switch language {
 		case "go":
 			return executeGoCode(code, "dark"), nil
 		case "python":
-			// For Python, we need to create a temp file since executePythonFile expects a file path
-			tmpFile := filepath.Join(absWorkspace, fmt.Sprintf(".tmp_py_%d.py", time.Now().UnixNano()))
-			defer os.Remove(tmpFile)
-			if err := os.WriteFile(tmpFile, []byte(code), 0644); err != nil {
-				return "", fmt.Errorf("failed to create temp file: %v", err)
-			}
-			return executePythonFile(tmpFile)
+			return executePyContentFunc(".tmp_cell.py", code)
 		case "markdown":
 			return "Markdown cell (no execution)", nil
 		default:
@@ -188,6 +195,7 @@ func main() {
 		confirmFunc,
 		executeGoFunc,
 		executePyFunc,
+		executePyContentFunc,
 		executeCellFunc,
 		openWorkspaceFunc,
 		saveWorkspaceFunc,
