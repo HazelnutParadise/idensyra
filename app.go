@@ -204,6 +204,14 @@ func (a *App) SaveResult(result string) error {
 	return os.WriteFile(filename, []byte(result), 0644)
 }
 
+// MCPExecutionResult is called by frontend to send back execution results for MCP requests
+func (a *App) MCPExecutionResult(requestId string, result string) error {
+	if a.mcpServer != nil {
+		a.mcpServer.deliverExecutionResult(requestId, result)
+	}
+	return nil
+}
+
 // SaveResultToWorkspace saves execution result to a file in the workspace directory
 func (a *App) SaveResultToWorkspace(result string) (string, error) {
 	if globalWorkspace == nil || !globalWorkspace.initialized {

@@ -2,14 +2,18 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
+	"sync"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // MCPServer wraps the MCP SDK server for HTTP access via SSE
@@ -17,12 +21,65 @@ type MCPServer struct {
 	server     *sdk.Server
 	httpServer *http.Server
 	app        *App
+
+	pendingResults map[string]chan string
+	pendingMu      sync.Mutex
 }
 
 // NewMCPServer creates a new MCP server using the official SDK
 func NewMCPServer(app *App) *MCPServer {
 	return &MCPServer{
-		app: app,
+		app:            app,
+		pendingResults: make(map[string]chan string),
+	}
+}
+
+// waitForExecutionResult waits for a result published by frontend for given requestId
+func (m *MCPServer) waitForExecutionResult(requestId string, timeout time.Duration) (string, error) {
+	m.pendingMu.Lock()
+	ch := make(chan string, 1)
+	m.pendingResults[requestId] = ch
+	m.pendingMu.Unlock()
+
+	select {
+	case res := <-ch:
+		// cleanup
+		m.pendingMu.Lock()
+		delete(m.pendingResults, requestId)
+		m.pendingMu.Unlock()
+		return res, nil
+	case <-time.After(timeout):
+		m.pendingMu.Lock()
+		delete(m.pendingResults, requestId)
+		m.pendingMu.Unlock()
+		return "", fmt.Errorf("timeout waiting for execution result")
+	}
+}
+
+// dispatchUIAction sends an MCP action to the frontend and waits for a response.
+func (m *MCPServer) dispatchUIAction(action string, payload map[string]any, timeout time.Duration) (string, error) {
+	requestId := fmt.Sprintf("req-%d", time.Now().UnixNano())
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	payload["action"] = action
+	payload["request_id"] = requestId
+
+	// Emit asynchronously to avoid blocking the MCP handler if the UI event loop stalls.
+	go runtime.EventsEmit(m.app.ctx, "mcp:ui_action", payload)
+	return m.waitForExecutionResult(requestId, timeout)
+}
+
+// deliverExecutionResult is called by App when frontend finishes executing and posts result
+func (m *MCPServer) deliverExecutionResult(requestId string, result string) {
+	m.pendingMu.Lock()
+	ch, ok := m.pendingResults[requestId]
+	m.pendingMu.Unlock()
+	if ok {
+		select {
+		case ch <- result:
+		default:
+		}
 	}
 }
 
@@ -67,6 +124,7 @@ func (m *MCPServer) Start(port int) error {
 	// Create HTTP server
 	mux := http.NewServeMux()
 	mux.Handle("/", handler)
+	mux.HandleFunc("/mcp/result", m.handleMCPResult)
 
 	m.httpServer = &http.Server{
 		Addr:    fmt.Sprintf("localhost:%d", port),
@@ -95,6 +153,45 @@ func (m *MCPServer) Stop() error {
 	return nil
 }
 
+type mcpResultPayload struct {
+	RequestID string `json:"request_id"`
+	Result    string `json:"result"`
+}
+
+func (m *MCPServer) handleMCPResult(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read body", http.StatusBadRequest)
+		return
+	}
+
+	var payload mcpResultPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if payload.RequestID == "" {
+		http.Error(w, "missing request_id", http.StatusBadRequest)
+		return
+	}
+
+	m.deliverExecutionResult(payload.RequestID, payload.Result)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // registerFileTools registers file operation tools
 func (m *MCPServer) registerFileTools(workspace string) {
 	// read_file tool
@@ -114,12 +211,9 @@ func (m *MCPServer) registerFileTools(workspace string) {
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := args["path"].(string)
 
-		// Switch to this file in UI (ignore error from UI layer)
-		_ = m.app.SetActiveFile(path)
-
-		content, err := m.app.GetFileContent(path)
+		content, err := m.dispatchUIAction("read_file", map[string]any{"path": path}, 30*time.Second)
 		if err != nil {
-			return nil, nil, fmt.Errorf("error reading file: %v", err)
+			return nil, nil, fmt.Errorf("error reading file via UI: %v", err)
 		}
 
 		return &sdk.CallToolResult{
@@ -151,18 +245,14 @@ func (m *MCPServer) registerFileTools(workspace string) {
 		path := args["path"].(string)
 		content := args["content"].(string)
 
-		if err := m.app.UpdateFileContent(path, content); err != nil {
-			return nil, nil, fmt.Errorf("error updating file: %v", err)
+		res, err := m.dispatchUIAction("write_file", map[string]any{"path": path, "content": content}, 30*time.Second)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error updating file via UI: %v", err)
 		}
-
-		// Do not auto-save to disk here; keep file modified in workspace and let frontend decide when to persist.
-
-		// Switch to this file in UI (ignore error)
-		_ = m.app.SetActiveFile(path)
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: fmt.Sprintf("File updated in workspace (unsaved): %s", path)},
+				&sdk.TextContent{Text: res},
 			},
 		}, nil, nil
 	})
@@ -189,23 +279,14 @@ func (m *MCPServer) registerFileTools(workspace string) {
 		path := args["path"].(string)
 		content := args["content"].(string)
 
-		if err := m.app.CreateNewFile(path); err != nil {
-			return nil, nil, fmt.Errorf("error creating file: %v", err)
+		res, err := m.dispatchUIAction("create_file", map[string]any{"path": path, "content": content}, 30*time.Second)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error creating file via UI: %v", err)
 		}
-		if content != "" {
-			if err := m.app.UpdateFileContent(path, content); err != nil {
-				return nil, nil, fmt.Errorf("error updating new file: %v", err)
-			}
-			// Do not call SaveFile here; do not require a persistent workspace to create files.
-			// Let the frontend/user explicitly save when appropriate.
-		}
-
-		// Switch to this file in UI (ignore error)
-		_ = m.app.SetActiveFile(path)
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: fmt.Sprintf("File created successfully: %s", path)},
+				&sdk.TextContent{Text: res},
 			},
 		}, nil, nil
 	})
@@ -227,13 +308,14 @@ func (m *MCPServer) registerFileTools(workspace string) {
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := args["path"].(string)
 
-		if err := m.app.DeleteFile(path); err != nil {
-			return nil, nil, fmt.Errorf("error deleting file: %v", err)
+		res, err := m.dispatchUIAction("delete_file", map[string]any{"path": path}, 30*time.Second)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error deleting file via UI: %v", err)
 		}
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: fmt.Sprintf("File deleted successfully: %s", path)},
+				&sdk.TextContent{Text: res},
 			},
 		}, nil, nil
 	})
@@ -260,13 +342,14 @@ func (m *MCPServer) registerFileTools(workspace string) {
 		oldPath := args["old_path"].(string)
 		newPath := args["new_path"].(string)
 
-		if err := m.app.RenameFile(oldPath, newPath); err != nil {
-			return nil, nil, fmt.Errorf("error renaming file: %v", err)
+		res, err := m.dispatchUIAction("rename_file", map[string]any{"old_path": oldPath, "new_path": newPath}, 30*time.Second)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error renaming file via UI: %v", err)
 		}
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: fmt.Sprintf("File renamed successfully: %s -> %s", oldPath, newPath)},
+				&sdk.TextContent{Text: res},
 			},
 		}, nil, nil
 	})
@@ -291,35 +374,14 @@ func (m *MCPServer) registerFileTools(workspace string) {
 			dir = p
 		}
 
-		files := m.app.GetWorkspaceFiles()
-		var result string
-		for _, f := range files {
-			if dir == "" {
-				if !strings.Contains(f.Name, "/") {
-					if f.IsDir {
-						result += fmt.Sprintf("[DIR]  %s\n", f.Name)
-					} else {
-						result += fmt.Sprintf("[FILE] %s (%d bytes)\n", f.Name, f.Size)
-					}
-				}
-			} else {
-				if strings.HasPrefix(f.Name, dir+"/") {
-					rest := strings.TrimPrefix(f.Name, dir+"/")
-					if !strings.Contains(rest, "/") {
-						if f.IsDir {
-							result += fmt.Sprintf("[DIR]  %s\n", rest)
-						} else {
-							result += fmt.Sprintf("[FILE] %s (%d bytes)\n", rest, f.Size)
-						}
-					}
-				}
-			}
-
+		res, err := m.dispatchUIAction("list_files", map[string]any{"dir_path": dir}, 30*time.Second)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error listing files via UI: %v", err)
 		}
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: result},
+				&sdk.TextContent{Text: res},
 			},
 		}, nil, nil
 	})
@@ -349,13 +411,14 @@ func (m *MCPServer) registerFileTools(workspace string) {
 			targetDir = td
 		}
 
-		if err := m.app.ImportSpecificFileToWorkspace(sourcePath, targetDir); err != nil {
-			return nil, nil, fmt.Errorf("error importing file: %v", err)
+		res, err := m.dispatchUIAction("import_file_to_workspace", map[string]any{"source_path": sourcePath, "target_dir": targetDir}, 60*time.Second)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error importing file via UI: %v", err)
 		}
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: fmt.Sprintf("File imported successfully from %s", sourcePath)},
+				&sdk.TextContent{Text: res},
 			},
 		}, nil, nil
 	})
@@ -380,7 +443,7 @@ func (m *MCPServer) registerCodeExecutionTools(workspace string) {
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := args["path"].(string)
 
-		// Switch to this file in UI
+		// Switch to this file in UI (best-effort)
 		_ = m.app.SetActiveFile(path)
 
 		content, err := m.app.GetFileContent(path)
@@ -388,11 +451,21 @@ func (m *MCPServer) registerCodeExecutionTools(workspace string) {
 			return nil, nil, fmt.Errorf("error reading file: %v", err)
 		}
 
-		result := m.app.ExecuteCodeWithColorBG(content, "dark")
+		// Dispatch to frontend to run as if user pressed the Run button
+		requestId := fmt.Sprintf("req-%d", time.Now().UnixNano())
+		runtime.EventsEmit(m.app.ctx, "mcp:execute_go_file", map[string]any{"request_id": requestId, "path": path, "content": content})
+		res, err := m.waitForExecutionResult(requestId, 30*time.Second)
+		if err != nil {
+			return &sdk.CallToolResult{
+				Content: []sdk.Content{
+					&sdk.TextContent{Text: fmt.Sprintf("Dispatched execute_go_file for %s to the frontend (no result): %v", path, err)},
+				},
+			}, nil, nil
+		}
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: result},
+				&sdk.TextContent{Text: res},
 			},
 		}, nil, nil
 	})
@@ -422,14 +495,21 @@ func (m *MCPServer) registerCodeExecutionTools(workspace string) {
 			return nil, nil, fmt.Errorf("error reading file: %v", err)
 		}
 
-		result, err := m.app.ExecutePythonFileContent(path, content)
+		// Dispatch to frontend to run as if user pressed the Run button
+		requestId := fmt.Sprintf("req-%d", time.Now().UnixNano())
+		runtime.EventsEmit(m.app.ctx, "mcp:execute_python_file", map[string]any{"request_id": requestId, "path": path, "content": content})
+		res, err := m.waitForExecutionResult(requestId, 30*time.Second)
 		if err != nil {
-			return nil, nil, fmt.Errorf("execution error: %v\nOutput: %s", err, result)
+			return &sdk.CallToolResult{
+				Content: []sdk.Content{
+					&sdk.TextContent{Text: fmt.Sprintf("Dispatched execute_python_file for %s to the frontend (no result): %v", path, err)},
+				},
+			}, nil, nil
 		}
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: result},
+				&sdk.TextContent{Text: res},
 			},
 		}, nil, nil
 	})
@@ -450,11 +530,22 @@ func (m *MCPServer) registerCodeExecutionTools(workspace string) {
 		},
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		code := args["code"].(string)
-		result := m.app.ExecuteCodeWithColorBG(code, "dark")
+
+		// Dispatch to frontend to run as if user pressed the Run button
+		requestId := fmt.Sprintf("req-%d", time.Now().UnixNano())
+		runtime.EventsEmit(m.app.ctx, "mcp:execute_go_code", map[string]any{"request_id": requestId, "code": code})
+		res, err := m.waitForExecutionResult(requestId, 30*time.Second)
+		if err != nil {
+			return &sdk.CallToolResult{
+				Content: []sdk.Content{
+					&sdk.TextContent{Text: fmt.Sprintf("Dispatched execute_go_code to frontend (no result): %v", err)},
+				},
+			}, nil, nil
+		}
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: result},
+				&sdk.TextContent{Text: res},
 			},
 		}, nil, nil
 	})
@@ -476,17 +567,22 @@ func (m *MCPServer) registerCodeExecutionTools(workspace string) {
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		code := args["code"].(string)
 
-		// Use an in-memory temp name and pass the code directly to App
+		// Use an in-memory temp name and dispatch to frontend for execution
 		tmpFile := filepath.Join(workspace, fmt.Sprintf(".tmp_mcp_py_%d.py", os.Getpid()))
-
-		result, err := m.app.ExecutePythonFileContent(tmpFile, code)
+		requestId := fmt.Sprintf("req-%d", time.Now().UnixNano())
+		runtime.EventsEmit(m.app.ctx, "mcp:execute_python_code", map[string]any{"request_id": requestId, "tmp_file": tmpFile, "code": code})
+		res, err := m.waitForExecutionResult(requestId, 30*time.Second)
 		if err != nil {
-			return nil, nil, fmt.Errorf("execution error: %v\nOutput: %s", err, result)
+			return &sdk.CallToolResult{
+				Content: []sdk.Content{
+					&sdk.TextContent{Text: fmt.Sprintf("Dispatched execute_python_code to frontend (no result): %v", err)},
+				},
+			}, nil, nil
 		}
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: result},
+				&sdk.TextContent{Text: res},
 			},
 		}, nil, nil
 	})
@@ -511,13 +607,14 @@ func (m *MCPServer) registerWorkspaceTools(workspace string) {
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := args["path"].(string)
 
-		if _, err := m.app.OpenWorkspaceAt(path); err != nil {
-			return nil, nil, fmt.Errorf("error opening workspace: %v", err)
+		res, err := m.dispatchUIAction("open_workspace", map[string]any{"path": path}, 60*time.Second)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error opening workspace via UI: %v", err)
 		}
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: fmt.Sprintf("Workspace opened: %s", path)},
+				&sdk.TextContent{Text: res},
 			},
 		}, nil, nil
 	})
@@ -539,13 +636,14 @@ func (m *MCPServer) registerWorkspaceTools(workspace string) {
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
 		path := args["path"].(string)
 
-		if _, err := m.app.CreateWorkspaceAt(path); err != nil {
-			return nil, nil, fmt.Errorf("error saving workspace: %v", err)
+		res, err := m.dispatchUIAction("save_workspace", map[string]any{"path": path}, 60*time.Second)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error saving workspace via UI: %v", err)
 		}
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: fmt.Sprintf("Workspace saved to: %s", path)},
+				&sdk.TextContent{Text: res},
 			},
 		}, nil, nil
 	})
@@ -561,13 +659,14 @@ func (m *MCPServer) registerWorkspaceTools(workspace string) {
 			"additionalProperties": true,
 		},
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
-		if err := m.app.SaveAllFiles(); err != nil {
-			return nil, nil, fmt.Errorf("error saving files: %v", err)
+		res, err := m.dispatchUIAction("save_all_files", nil, 60*time.Second)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error saving files via UI: %v", err)
 		}
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: "All files saved successfully"},
+				&sdk.TextContent{Text: res},
 			},
 		}, nil, nil
 	})
@@ -583,11 +682,14 @@ func (m *MCPServer) registerWorkspaceTools(workspace string) {
 			"additionalProperties": true,
 		},
 	}, func(ctx context.Context, req *sdk.CallToolRequest, args map[string]interface{}) (*sdk.CallToolResult, any, error) {
-		info := fmt.Sprintf("Workspace root: %s", workspace)
+		res, err := m.dispatchUIAction("get_workspace_info", nil, 30*time.Second)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error getting workspace info via UI: %v", err)
+		}
 
 		return &sdk.CallToolResult{
 			Content: []sdk.Content{
-				&sdk.TextContent{Text: info},
+				&sdk.TextContent{Text: res},
 			},
 		}, nil, nil
 	})

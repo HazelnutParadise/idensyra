@@ -143,6 +143,25 @@ func (a *App) GetWorkspaceFiles() []WorkspaceFile {
 	return files
 }
 
+func snapshotWorkspaceLocked() []WorkspaceFile {
+	files := make([]WorkspaceFile, 0, len(globalWorkspace.files))
+	for _, file := range globalWorkspace.files {
+		files = append(files, *file)
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Name < files[j].Name
+	})
+
+	return files
+}
+
+func (a *App) emitWorkspaceChanged(files []WorkspaceFile, activeFile string) {
+	// No-op: emitting "workspace:changed" from backend can deadlock when the call
+	// originates from the frontend (e.g., MCP-triggered UI actions). The frontend
+	// already refreshes its workspace state explicitly.
+}
+
 func refreshWorkspaceFromDiskLocked() {
 	if globalWorkspace == nil || !globalWorkspace.initialized {
 		return
@@ -314,16 +333,24 @@ func (a *App) SetActiveFile(filename string) error {
 	}
 
 	globalWorkspace.mu.Lock()
-	defer globalWorkspace.mu.Unlock()
 
 	if _, exists := globalWorkspace.files[cleanName]; !exists {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("file not found: %s", cleanName)
 	}
 	if file := globalWorkspace.files[cleanName]; file.IsDir {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("path is a directory: %s", cleanName)
 	}
 
 	globalWorkspace.activeFile = cleanName
+	files := snapshotWorkspaceLocked()
+	activeFile := globalWorkspace.activeFile
+	globalWorkspace.mu.Unlock()
+
+	// Notify frontend that active file changed
+	a.emitWorkspaceChanged(files, activeFile)
+
 	return nil
 }
 
@@ -426,23 +453,27 @@ func (a *App) UpdateFileContent(filename string, content string) error {
 	}
 
 	globalWorkspace.mu.Lock()
-	defer globalWorkspace.mu.Unlock()
 
 	file, exists := globalWorkspace.files[cleanName]
 	if !exists {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("file not found: %s", cleanName)
 	}
 	if file.IsDir {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("path is a directory: %s", cleanName)
 	}
 	if file.IsBinary {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("binary files cannot be edited: %s", cleanName)
 	}
 	if file.TooLarge {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("file too large to edit")
 	}
 
 	if file.Content == content {
+		globalWorkspace.mu.Unlock()
 		return nil
 	}
 
@@ -450,6 +481,12 @@ func (a *App) UpdateFileContent(filename string, content string) error {
 	file.Size = int64(len(content))
 	file.Modified = file.IsNew || file.Content != file.SavedContent
 	updateWorkspaceModifiedLocked()
+
+	// Notify frontend that workspace changed
+	files := snapshotWorkspaceLocked()
+	activeFile := globalWorkspace.activeFile
+	globalWorkspace.mu.Unlock()
+	a.emitWorkspaceChanged(files, activeFile)
 
 	return nil
 }
@@ -466,21 +503,24 @@ func (a *App) SaveFile(filename string) error {
 	}
 
 	globalWorkspace.mu.Lock()
-	defer globalWorkspace.mu.Unlock()
 
 	// If using temp workspace, prompt to open/create workspace
 	if globalWorkspace.isTemp {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("temporary workspace: please open or create a workspace first")
 	}
 
 	file, exists := globalWorkspace.files[cleanName]
 	if !exists {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("file not found: %s", cleanName)
 	}
 	if file.IsDir {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("path is a directory: %s", cleanName)
 	}
 	if file.TooLarge {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("file too large to save")
 	}
 
@@ -489,6 +529,7 @@ func (a *App) SaveFile(filename string) error {
 	if file.IsBinary {
 		decoded, err := base64.StdEncoding.DecodeString(file.Content)
 		if err != nil {
+			globalWorkspace.mu.Unlock()
 			return fmt.Errorf("failed to decode file: %w", err)
 		}
 		fullContent = decoded
@@ -500,10 +541,12 @@ func (a *App) SaveFile(filename string) error {
 
 	filePath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanName))
 	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("failed to create parent directory: %w", err)
 	}
 	err = os.WriteFile(filePath, fullContent, 0644)
 	if err != nil {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("failed to save file: %w", err)
 	}
 
@@ -512,6 +555,12 @@ func (a *App) SaveFile(filename string) error {
 	file.SavedContent = file.Content
 
 	updateWorkspaceModifiedLocked()
+
+	// Notify frontend that workspace changed (file saved)
+	files := snapshotWorkspaceLocked()
+	activeFile := globalWorkspace.activeFile
+	globalWorkspace.mu.Unlock()
+	a.emitWorkspaceChanged(files, activeFile)
 
 	return nil
 }
@@ -637,9 +686,9 @@ func (a *App) CreateNewFile(filename string) error {
 	}
 
 	globalWorkspace.mu.Lock()
-	defer globalWorkspace.mu.Unlock()
 
 	if _, exists := globalWorkspace.files[cleanName]; exists {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("file already exists: %s", cleanName)
 	}
 
@@ -650,6 +699,7 @@ func (a *App) CreateNewFile(filename string) error {
 	} else if strings.HasSuffix(cleanName, ".igonb") {
 		defaultContent, err := igonb.DefaultNotebookJSON()
 		if err != nil {
+			globalWorkspace.mu.Unlock()
 			return fmt.Errorf("failed to create igonb template: %w", err)
 		}
 		content = defaultContent
@@ -662,6 +712,7 @@ func (a *App) CreateNewFile(filename string) error {
 		fullPath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanName))
 		parentDir := filepath.Dir(fullPath)
 		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			globalWorkspace.mu.Unlock()
 			return fmt.Errorf("failed to create parent directory: %w", err)
 		}
 		// Write content to disk (with preCode/endCode for .go files)
@@ -672,6 +723,7 @@ func (a *App) CreateNewFile(filename string) error {
 			fullContent = []byte(content)
 		}
 		if err := os.WriteFile(fullPath, fullContent, 0644); err != nil {
+			globalWorkspace.mu.Unlock()
 			return fmt.Errorf("failed to write new file: %w", err)
 		}
 	}
@@ -709,6 +761,11 @@ func (a *App) CreateNewFile(filename string) error {
 	}
 	updateWorkspaceModifiedLocked()
 
+	files := snapshotWorkspaceLocked()
+	activeFile := globalWorkspace.activeFile
+	globalWorkspace.mu.Unlock()
+	a.emitWorkspaceChanged(files, activeFile)
+
 	return nil
 }
 
@@ -724,18 +781,20 @@ func (a *App) DeleteFile(filename string) error {
 	}
 
 	globalWorkspace.mu.Lock()
-	defer globalWorkspace.mu.Unlock()
 
 	// Don't allow deleting the last file
 	if len(globalWorkspace.files) <= 1 {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("cannot delete the last file in workspace")
 	}
 
 	file, exists := globalWorkspace.files[cleanName]
 	if !exists {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("file not found: %s", cleanName)
 	}
 	if file.IsDir {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("path is a directory: %s", cleanName)
 	}
 
@@ -745,6 +804,7 @@ func (a *App) DeleteFile(filename string) error {
 	if globalWorkspace.workDir != "" {
 		filePath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanName))
 		if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+			globalWorkspace.mu.Unlock()
 			return fmt.Errorf("failed to delete file: %w", err)
 		}
 	}
@@ -758,6 +818,12 @@ func (a *App) DeleteFile(filename string) error {
 	}
 
 	updateWorkspaceModifiedLocked()
+
+	files := snapshotWorkspaceLocked()
+	activeFile := globalWorkspace.activeFile
+	globalWorkspace.mu.Unlock()
+	a.emitWorkspaceChanged(files, activeFile)
+
 	return nil
 }
 
@@ -784,16 +850,18 @@ func (a *App) RenameFile(oldName string, newName string) error {
 	}
 
 	globalWorkspace.mu.Lock()
-	defer globalWorkspace.mu.Unlock()
 
 	file, exists := globalWorkspace.files[cleanOld]
 	if !exists {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("file not found: %s", cleanOld)
 	}
 	if file.IsDir {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("path is a directory: %s", cleanOld)
 	}
 	if _, exists := globalWorkspace.files[cleanNew]; exists {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("file already exists: %s", cleanNew)
 	}
 
@@ -802,9 +870,11 @@ func (a *App) RenameFile(oldName string, newName string) error {
 		newPath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanNew))
 		parentDir := filepath.Dir(newPath)
 		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			globalWorkspace.mu.Unlock()
 			return fmt.Errorf("failed to create parent directory: %w", err)
 		}
 		if err := os.Rename(oldPath, newPath); err != nil && !os.IsNotExist(err) {
+			globalWorkspace.mu.Unlock()
 			return fmt.Errorf("failed to rename file: %w", err)
 		}
 	}
@@ -818,6 +888,13 @@ func (a *App) RenameFile(oldName string, newName string) error {
 	}
 
 	updateWorkspaceModifiedLocked()
+
+	// Notify frontend that workspace changed (rename)
+	files := snapshotWorkspaceLocked()
+	activeFile := globalWorkspace.activeFile
+	globalWorkspace.mu.Unlock()
+	a.emitWorkspaceChanged(files, activeFile)
+
 	return nil
 }
 
@@ -833,15 +910,16 @@ func (a *App) CreateFolder(folderPath string) error {
 	}
 
 	globalWorkspace.mu.Lock()
-	defer globalWorkspace.mu.Unlock()
 
 	if _, exists := globalWorkspace.files[cleanPath]; exists {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("path already exists: %s", cleanPath)
 	}
 
 	if globalWorkspace.workDir != "" {
 		fullPath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanPath))
 		if err := os.MkdirAll(fullPath, 0755); err != nil {
+			globalWorkspace.mu.Unlock()
 			return fmt.Errorf("failed to create folder: %w", err)
 		}
 	}
@@ -877,6 +955,13 @@ func (a *App) CreateFolder(folderPath string) error {
 	}
 
 	updateWorkspaceModifiedLocked()
+
+	// Notify frontend that workspace changed (folder created)
+	files := snapshotWorkspaceLocked()
+	activeFile := globalWorkspace.activeFile
+	globalWorkspace.mu.Unlock()
+	a.emitWorkspaceChanged(files, activeFile)
+
 	return nil
 }
 
@@ -892,10 +977,10 @@ func (a *App) DeleteFolder(folderPath string) error {
 	}
 
 	globalWorkspace.mu.Lock()
-	defer globalWorkspace.mu.Unlock()
 
 	file, exists := globalWorkspace.files[cleanPath]
 	if !exists || !file.IsDir {
+		globalWorkspace.mu.Unlock()
 		return fmt.Errorf("folder not found: %s", cleanPath)
 	}
 
@@ -909,6 +994,7 @@ func (a *App) DeleteFolder(folderPath string) error {
 	if globalWorkspace.workDir != "" {
 		fullPath := filepath.Join(globalWorkspace.workDir, filepath.FromSlash(cleanPath))
 		if err := os.RemoveAll(fullPath); err != nil && !os.IsNotExist(err) {
+			globalWorkspace.mu.Unlock()
 			return fmt.Errorf("failed to delete folder: %w", err)
 		}
 	}
@@ -918,6 +1004,13 @@ func (a *App) DeleteFolder(folderPath string) error {
 	}
 
 	updateWorkspaceModifiedLocked()
+
+	// Notify frontend that workspace changed (folder deleted)
+	files := snapshotWorkspaceLocked()
+	activeFile := globalWorkspace.activeFile
+	globalWorkspace.mu.Unlock()
+	a.emitWorkspaceChanged(files, activeFile)
+
 	return nil
 }
 
@@ -2398,6 +2491,9 @@ func (a *App) domReady(ctx context.Context) {
 
 // beforeClose is called when the application is about to quit
 func (a *App) beforeClose(ctx context.Context) (prevent bool) {
+	if ctx.Err() != nil {
+		return false
+	}
 	if globalWorkspace == nil {
 		return false
 	}
@@ -2432,7 +2528,7 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 
 		if err != nil {
 			fmt.Printf("Dialog error: %v\n", err)
-			return true // Prevent closing on error
+			return false
 		}
 
 		fmt.Printf("Dialog selection: '%s'\n", selection)
@@ -2465,7 +2561,7 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 
 		if err != nil {
 			fmt.Printf("Dialog error: %v\n", err)
-			return true
+			return false
 		}
 
 		normalized := strings.ToLower(strings.TrimSpace(selection))
