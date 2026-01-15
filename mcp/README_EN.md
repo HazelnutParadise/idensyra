@@ -68,138 +68,28 @@ Configurable permission items:
 
 ## Usage
 
-### Built-in HTTP Server (Recommended)
+### Transports and how to connect (Recommended)
 
-The MCP server is integrated into the main Idensyra application and automatically starts an MCP-compliant HTTP server on `localhost:3000` when you launch Idensyra.
+Idensyra supports two primary MCP transports; choose according to your environment:
+
+- **Integrated GUI (recommended)**: When running Idensyra in GUI mode the application uses the official Model Context Protocol SDK and exposes an SSE‑based HTTP handler. Clients should use the official MCP SDK clients (for example the go-sdk) or an SSE-capable client to connect. In Idensyra the MCP server listens on port **14320** by default (e.g. `http://localhost:14320`), though the host application controls the final address and port.
+
+- **Standalone CLI (optional)**: `cmd/mcp-server` is a lightweight standalone implementation intended for local testing / CLI use. It operates directly on the local filesystem and communicates over **stdin/stdout** using JSON ToolRequest/ToolResponse objects. Example (send a single request and receive the response on stdout):
 
 ```bash
-# Just start Idensyra - MCP server starts automatically
-./idensyra
+printf '{"name":"read_file","arguments":{"path":"main.go"}}\n' | ./mcp-server -workspace .
 ```
 
-#### MCP Protocol Endpoint
-
-The server fully complies with the Model Context Protocol (MCP) standard, using JSON-RPC 2.0 format for communication:
-
-- `POST /` - MCP protocol endpoint (supports all MCP methods)
+Note: Some deployments may implement an HTTP wrapper that accepts JSON‑RPC or other HTTP formats; such wrappers are not provided by this project by default. If you are using a custom wrapper, ensure its request/response formats match your client implementation.
 
 #### Supported MCP Methods
 
-1. **initialize** - Initialize MCP connection
-2. **tools/list** - List all available tools
-3. **tools/call** - Execute a specific tool
+MCP defines a set of standard methods (for example `initialize`, `tools/list`, `tools/call`); how you call them depends on the transport (SDK/SSE vs CLI stdin/stdout). For GUI integrations, prefer using the official MCP SDK (see `mcp/mcp_server_sdk.go` for an example of registering tools and the SSE handler in the host app).
 
-#### Usage Examples
+#### Python Integration Guidance
 
-```bash
-# Initialize connection
-curl -X POST http://localhost:3000/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "initialize",
-    "params": {
-      "protocolVersion": "2024-11-05",
-      "capabilities": {},
-      "clientInfo": {"name": "test-client", "version": "1.0.0"}
-    }
-  }'
+For GUI integrations, prefer using the official MCP SDK clients (SSE/HTTP) to call tools and receive events; see the MCP SDK documentation for client examples. For simple CLI usage, see the stdin/stdout example shown above or the subprocess example in the "Integration with AI Assistants" section.
 
-# List all tools
-curl -X POST http://localhost:3000/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 2,
-    "method": "tools/list"
-  }'
-
-# Execute tool - read file
-curl -X POST http://localhost:3000/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 3,
-    "method": "tools/call",
-    "params": {
-      "name": "read_file",
-      "arguments": {"path": "main.go"}
-    }
-  }'
-
-# Import file to workspace
-curl -X POST http://localhost:3000/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 4,
-    "method": "tools/call",
-    "params": {
-      "name": "import_file_to_workspace",
-      "arguments": {
-        "source_path": "/path/to/file.txt",
-        "target_dir": ""
-      }
-    }
-  }'
-```
-
-#### Python Integration Example
-
-```python
-import requests
-import json
-
-class IdensyraMCPClient:
-    def __init__(self, url="http://localhost:3000/"):
-        self.url = url
-        self.request_id = 0
-    
-    def _call(self, method, params=None):
-        self.request_id += 1
-        payload = {
-            "jsonrpc": "2.0",
-            "id": self.request_id,
-            "method": method
-        }
-        if params:
-            payload["params"] = params
-        
-        response = requests.post(self.url, json=payload)
-        return response.json()
-    
-    def initialize(self):
-        return self._call("initialize", {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {"name": "python-client", "version": "1.0.0"}
-        })
-    
-    def list_tools(self):
-        return self._call("tools/list")
-    
-    def call_tool(self, name, arguments=None):
-        return self._call("tools/call", {
-            "name": name,
-            "arguments": arguments or {}
-        })
-
-# Usage example
-client = IdensyraMCPClient()
-
-# Initialize
-init_result = client.initialize()
-print("Server:", init_result["result"]["serverInfo"])
-
-# List tools
-tools = client.list_tools()
-print(f"Available tools: {len(tools['result']['tools'])}")
-
-# Read file
-result = client.call_tool("read_file", {"path": "main.go"})
-print("File content:", result["result"])
-```
 
 ### Standalone CLI Tool (Optional)
 
@@ -224,18 +114,21 @@ go build -o mcp-server ./cmd/mcp-server/
 
 ### Integration with AI Assistants
 
-Since the MCP server is available via HTTP, you can access it from any AI assistant that supports HTTP:
+The exact integration method depends on the transport you use:
+
+- For **standalone CLI** usage, you can invoke the `mcp-server` in stdin mode (one-shot) from a script. Example using Python and subprocess:
 
 ```python
-# Python example
-import requests
+# Example: invoke the standalone mcp-server via stdin (one-shot request)
+import subprocess, json
 
-response = requests.post('http://localhost:3000/mcp/call', json={
-    "name": "execute_go_code",
-    "arguments": {"code": "fmt.Println(\"Hello!\")"}
-})
-print(response.json())
+req = {"name": "execute_go_code", "arguments": {"code": 'fmt.Println("Hello!")'}}
+proc = subprocess.Popen(["./mcp-server", "-workspace", "."], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+stdout, _ = proc.communicate(json.dumps(req) + "\n")
+print("Response:", stdout)
 ```
+
+- For **GUI integrations** (SSE/HTTP), prefer using the official MCP SDK clients (SSE) to call methods and receive events; see the MCP SDK documentation for client examples.
 
 ### Integration with Claude Desktop (Using Standalone Tool)
 
@@ -303,11 +196,15 @@ If using the standalone CLI tool, add to your Claude Desktop configuration file:
 
 ## Security Considerations
 
-1. **Permission Control**: By default, all operations require user confirmation. It's recommended to keep this setting in production environments.
+1. **Permission Control**: By default, all operations require user confirmation (PermissionAsk). It's recommended to keep this setting in production and carefully review permission changes.
 
-2. **Workspace Isolation**: The MCP server can only access files within the specified workspace and cannot access files outside the workspace.
+2. **Workspace Isolation**: The MCP server should only access files within the specified workspace. Many file operations validate relative paths, but notebook and workspace functions should also sanitize paths to avoid directory traversal.
 
-3. **Code Execution**: Be cautious when executing Go and Python code. Ensure the code source is trustworthy.
+3. **Path sanitization**: Implementations should reject absolute paths or path segments containing `..` for relative workspace operations. The standalone CLI provides `safeCleanRelativePath` in `mcp/file_operations.go` as an example.
+
+4. **Import file caution**: `import_file_to_workspace` accepts a source path on the local machine (often absolute). Treat imports carefully, validate sources, and confirm operations with the user.
+
+5. **Code Execution**: Be cautious when executing Go and Python code. Ensure the code source is trustworthy and run in a restricted environment where possible.
 
 ## Development
 
