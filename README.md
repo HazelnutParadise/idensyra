@@ -43,6 +43,18 @@
 - 開啟 `.ipynb` 檔案並預覽
 - 一鍵轉換 `.ipynb` 到 `.igonb` 格式
 
+### MCP Server（v0.2.1 新增）
+
+- 提供 Model Context Protocol (MCP) 服務器接口
+- 允許 AI 代理與 Idensyra 工作區交互
+- 文件操作：讀取、寫入、創建、刪除、重命名文件
+- 代碼執行：執行 `.go` 和 `.py` 文件
+- Notebook 操作：修改、插入、執行儲存格
+- 工作區管理：打開、保存工作區，保存未保存的更改
+- **重要：mcp 現在設計為依賴前端提供 backend callbacks（前端 API）來進行實際的檔案/工作區操作；如果以獨立命令行方式運行，`cmd/mcp-server` 會提供本地檔案系統的 fallback 回呼以維持相容性。**
+- 可配置的權限系統：用戶可決定是否需要確認每個操作
+- 詳見 [mcp/README.md](mcp/README.md)
+
 ### 工作區與檔案
 
 - 啟動即建立臨時工作區，可建立/開啟工作區資料夾以持久保存
@@ -128,6 +140,16 @@ wails build
 ```
 
 構建完成後，可執行文件位於 `build/bin/` 目錄。
+
+### 構建 MCP Server
+
+如果您想使用 MCP Server 功能，可以單獨構建：
+
+```bash
+go build -o idensyra-mcp-server ./cmd/mcp-server/
+```
+
+詳細使用說明請參考 [mcp/README.md](mcp/README.md)。
 
 ## 使用方法
 

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "idensyra": {
+      "command": "/path/to/idensyra-mcp-server",
+      "args": [
+        "-workspace",
+        "/path/to/your/workspace"
+      ],
+      "env": {}
+    }
+  }
+}

@@ -50,7 +50,8 @@ func main() {
 
 // App struct
 type App struct {
-	ctx context.Context
+	ctx       context.Context
+	mcpServer *MCPServer
 }
 
 // NewApp creates a new App application struct
@@ -63,6 +64,13 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	fmt.Println("Idensyra is starting...")
+
+	// Start MCP server on port 14320 using official SDK
+	a.mcpServer = NewMCPServer(a)
+	if err := a.mcpServer.Start(14320); err != nil {
+		fmt.Printf("Failed to start MCP server: %v\n", err)
+	}
+
 	// Workspace initialization is done in domReady to ensure frontend is ready
 }
 
@@ -194,6 +202,14 @@ func (a *App) SaveResult(result string) error {
 	}
 
 	return os.WriteFile(filename, []byte(result), 0644)
+}
+
+// MCPExecutionResult is called by frontend to send back execution results for MCP requests
+func (a *App) MCPExecutionResult(requestId string, result string) error {
+	if a.mcpServer != nil {
+		a.mcpServer.deliverExecutionResult(requestId, result)
+	}
+	return nil
 }
 
 // SaveResultToWorkspace saves execution result to a file in the workspace directory

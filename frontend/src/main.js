@@ -25,10 +25,13 @@ import {
   SaveAllFiles,
   OpenWorkspace,
   CreateWorkspace,
+  CreateWorkspaceAt,
   ImportFileToWorkspace,
+  ImportSpecificFileToWorkspace,
   ExportCurrentFile,
   IsWorkspaceModified,
   GetWorkspaceInfo,
+  OpenWorkspaceAt,
 } from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 
@@ -64,6 +67,7 @@ const AutoSaveTempWorkspace = (...args) =>
 let editor;
 let liveRun = false;
 let isExecuting = false;
+let executingFileName = "";
 let currentCode = "";
 let goSymbols = [];
 let editorFontSize = 14;
@@ -83,7 +87,7 @@ let isLargeFilePreview = false;
 let isBinaryPreview = false;
 let isIgonbView = false;
 let igonbState = null;
-let igonbSaveTimer = null;
+const igonbSaveTimers = new Map();
 let igonbRenderToken = 0;
 let igonbIdCounter = 0;
 const igonbEditors = new Map();
@@ -93,6 +97,8 @@ let igonbDragId = null;
 let igonbIsExecuting = false;
 let igonbRunQueue = [];
 const expandedDirs = new Set();
+// Store per-file execution state
+const fileExecutionState = new Map(); // Map<filename, {isExecuting, igonbIsExecuting, igonbRunQueue, cellStates}>
 let selectedFolderPath = "";
 let isRootFolderSelected = false;
 let workspaceLoadToken = 0;
@@ -113,6 +119,429 @@ let previewUpdateTimer = null;
 const excelSheetSelections = new Map();
 let excelPreviewToken = 0;
 let pythonPackagesLoading = false;
+let mcpHandlersRegistered = false;
+
+function registerMcpHandlers() {
+  if (mcpHandlersRegistered) return;
+  if (!window.runtime || !window.runtime.EventsOnMultiple) {
+    setTimeout(registerMcpHandlers, 100);
+    return;
+  }
+  mcpHandlersRegistered = true;
+
+  const respondToMcp = (requestId, result) => {
+    if (!requestId) return;
+    const text = typeof result === "string" ? result : JSON.stringify(result);
+    // Use HTTP callback to avoid Wails IPC re-entrancy deadlocks.
+    setTimeout(() => {
+      fetch("http://127.0.0.1:14320/mcp/result", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request_id: requestId, result: text }),
+      }).catch(() => {});
+    }, 0);
+  };
+
+  const ensureEditorReady = async (requestId) => {
+    if (editor) return true;
+    respondToMcp(requestId, "Error: UI not ready");
+    return false;
+  };
+
+  // MCP-triggered execution: emulate UI Run behavior exactly
+  EventsOn("mcp:execute_python_file", async (payload) => {
+    const data = Array.isArray(payload) ? payload[0] : payload;
+    if (!data) return;
+    const requestId = data.request_id || null;
+    if (!(await ensureEditorReady(requestId))) return;
+    const path = data.path;
+    const content = data.content || "";
+    try {
+      // Try switching to file (best-effort). If it fails, continue and apply content directly
+      try {
+        await switchToFile(path, true);
+      } catch (e) {
+        // ignore; file might be virtual or not in workspace
+      }
+      // Ensure editor shows provided content exactly
+      applyTextFileContent(path, content, false);
+      // Execute using the same UI flow as Run button
+      const res = await executeCode();
+      respondToMcp(requestId, res);
+    } catch (err) {
+      const errStr = `<div class="error-message">Error: ${err}</div>`;
+      setResultOutput(errStr);
+      respondToMcp(requestId, errStr);
+    }
+  });
+
+  EventsOn("mcp:execute_go_file", async (payload) => {
+    const data = Array.isArray(payload) ? payload[0] : payload;
+    if (!data) return;
+    const requestId = data.request_id || null;
+    if (!(await ensureEditorReady(requestId))) return;
+    const path = data.path;
+    const content = data.content || "";
+    try {
+      try {
+        await switchToFile(path, true);
+      } catch (e) {
+        // ignore
+      }
+      applyTextFileContent(path, content, false);
+      const res = await executeCode();
+      respondToMcp(requestId, res);
+    } catch (err) {
+      const errStr = `<div class="error-message">Error: ${err}</div>`;
+      setResultOutput(errStr);
+      respondToMcp(requestId, errStr);
+    }
+  });
+
+  // Code-only executions (no file) - emulate creating a transient buffer and running it
+  EventsOn("mcp:execute_go_code", async (payload) => {
+    const data = Array.isArray(payload) ? payload[0] : payload;
+    if (!data) return;
+    const requestId = data.request_id || null;
+    if (!(await ensureEditorReady(requestId))) return;
+    const code = data.code || "";
+    const prevActive = activeFileName || null;
+    const tmpName = `.mcp_tmp_${Date.now()}.go`;
+    try {
+      applyTextFileContent(tmpName, code, false);
+      activeFileName = tmpName;
+      const res = await executeCode();
+      respondToMcp(requestId, res);
+    } catch (err) {
+      const errStr = `<div class="error-message">Error: ${err}</div>`;
+      setResultOutput(errStr);
+      respondToMcp(requestId, errStr);
+    } finally {
+      // Restore previous active file if any
+      if (prevActive) {
+        try {
+          await switchToFile(prevActive, true);
+        } catch (e) {
+          // ignore
+        }
+      } else {
+        // Clear transient active file
+        activeFileName = "";
+      }
+    }
+  });
+
+  EventsOn("mcp:execute_python_code", async (payload) => {
+    const data = Array.isArray(payload) ? payload[0] : payload;
+    if (!data) return;
+    const requestId = data.request_id || null;
+    if (!(await ensureEditorReady(requestId))) return;
+    const code = data.code || "";
+    const prevActive = activeFileName || null;
+    const tmpName = `.mcp_tmp_${Date.now()}.py`;
+    try {
+      applyTextFileContent(tmpName, code, false);
+      activeFileName = tmpName;
+      const res = await executeCode();
+      respondToMcp(requestId, res);
+    } catch (err) {
+      const errStr = `<div class="error-message">Error: ${err}</div>`;
+      setResultOutput(errStr);
+      respondToMcp(requestId, errStr);
+    } finally {
+      if (prevActive) {
+        try {
+          await switchToFile(prevActive, true);
+        } catch (e) {
+          // ignore
+        }
+      } else {
+        activeFileName = "";
+      }
+    }
+  });
+
+  EventsOn("mcp:ui_action", async (payload) => {
+    const data = Array.isArray(payload) ? payload[0] : payload;
+    if (!data) return;
+    const action = data.action;
+    const requestId = data.request_id || null;
+    const respond = (result) => respondToMcp(requestId, result);
+
+    try {
+      switch (action) {
+        case "read_file": {
+          const path = data.path;
+          if (!path) throw new Error("missing path");
+          try {
+            await switchToFile(path, true);
+          } catch (e) {
+            // best-effort UI switch; still attempt to read content
+          }
+          const content = await GetFileContent(path);
+          respond(content);
+          break;
+        }
+        case "write_file": {
+          if (!(await ensureEditorReady(requestId))) return;
+          const path = data.path;
+          const content = data.content || "";
+          if (!path) throw new Error("missing path");
+          try {
+            await switchToFile(path, true);
+          } catch (e) {
+            // ignore switch errors; still apply content
+          }
+          applyTextFileContent(path, content, false);
+          await UpdateFileContent(path, content);
+          scheduleWorkspaceRefresh();
+          respond(`File updated in workspace (unsaved): ${path}`);
+          break;
+        }
+        case "create_file": {
+          if (!(await ensureEditorReady(requestId))) return;
+          const path = data.path;
+          const content = data.content || "";
+          if (!path) throw new Error("missing path");
+          await CreateNewFile(path);
+          if (content) {
+            await UpdateFileContent(path, content);
+          }
+          const parentPath = getParentPath(path);
+          if (parentPath) {
+            expandedDirs.add(parentPath);
+          }
+          await loadWorkspaceFiles();
+          showMessage(`File "${path}" created successfully`, "success");
+          await switchToFile(path, true);
+          respond(`File created successfully: ${path}`);
+          break;
+        }
+        case "delete_file": {
+          if (!(await ensureEditorReady(requestId))) return;
+          const path = data.path;
+          if (!path) throw new Error("missing path");
+          await loadWorkspaceFiles();
+          const fileCount = workspaceFiles.filter((file) => !file.isDir).length;
+          if (fileCount <= 1) {
+            throw new Error("cannot delete the last file in workspace");
+          }
+          const wasActive = path === activeFileName;
+          const previousModel = wasActive ? editor.getModel() : null;
+          await DeleteFile(path);
+          removeFileModel(path);
+          await loadWorkspaceFiles();
+          if (wasActive) {
+            activeFileName = "";
+            hideImagePreview();
+            hideLargeFilePreview();
+            hideBinaryPreview();
+            hideIgonbNotebook();
+            const nextFile = getFirstWorkspaceFile();
+            if (nextFile) {
+              await switchToFile(nextFile, true);
+            } else {
+              document.getElementById("active-file-label").textContent =
+                "Code Input";
+              updateRunButtonState();
+            }
+          }
+          if (wasActive) {
+            disposeOrphanModel(path, previousModel);
+          }
+          showMessage(`File "${path}" deleted`, "success");
+          respond(`File deleted successfully: ${path}`);
+          break;
+        }
+        case "rename_file": {
+          if (!(await ensureEditorReady(requestId))) return;
+          const oldPath = data.old_path;
+          const newPath = (data.new_path || "").trim();
+          if (!oldPath || !newPath) throw new Error("missing rename path");
+          if (oldPath === newPath) {
+            respond(`File name unchanged: ${oldPath}`);
+            break;
+          }
+          await loadWorkspaceFiles();
+          if (workspaceFiles.some((file) => file.name === newPath)) {
+            throw new Error(`file "${newPath}" already exists`);
+          }
+          if (oldPath === activeFileName && !isImagePreview) {
+            const currentContent = editor.getValue();
+            await UpdateFileContent(oldPath, currentContent);
+          }
+          await RenameFile(oldPath, newPath);
+          const wasActive = oldPath === activeFileName;
+          renameFileModel(oldPath, newPath);
+          activeFileName = "";
+          await loadWorkspaceFiles();
+          if (wasActive) {
+            hideImagePreview();
+            hideBinaryPreview();
+            await switchToFile(newPath, true);
+          }
+          showMessage(`File renamed to "${newPath}"`, "success");
+          respond(`File renamed successfully: ${oldPath} -> ${newPath}`);
+          break;
+        }
+        case "list_files": {
+          const dir = data.dir_path || "";
+          const files = await GetWorkspaceFiles();
+          let result = "";
+          for (const f of files) {
+            if (!dir) {
+              if (!f.name.includes("/")) {
+                result += f.isDir
+                  ? `[DIR]  ${f.name}\n`
+                  : `[FILE] ${f.name} (${f.size} bytes)\n`;
+              }
+              continue;
+            }
+            if (!f.name.startsWith(`${dir}/`)) continue;
+            const rest = f.name.slice(dir.length + 1);
+            if (rest.includes("/")) continue;
+            result += f.isDir
+              ? `[DIR]  ${rest}\n`
+              : `[FILE] ${rest} (${f.size} bytes)\n`;
+          }
+          respond(result);
+          break;
+        }
+        case "import_file_to_workspace": {
+          if (!(await ensureEditorReady(requestId))) return;
+          const sourcePath = data.source_path;
+          const targetDir = data.target_dir || "";
+          if (!sourcePath) throw new Error("missing source_path");
+          const existingNames = new Set(
+            (workspaceFiles || []).map((file) => file.name),
+          );
+          await ImportSpecificFileToWorkspace(sourcePath, targetDir);
+          await loadWorkspaceFiles();
+          if (workspaceFiles.length > 0) {
+            const newFile = workspaceFiles.find(
+              (file) => !existingNames.has(file.name),
+            );
+            const fallbackFile = workspaceFiles[workspaceFiles.length - 1];
+            const importedFile = newFile || fallbackFile;
+            if (importedFile) {
+              const largeNote = importedFile.tooLarge ? " (large file)" : "";
+              showMessage(
+                `File "${importedFile.name}" imported successfully${largeNote}`,
+                "success",
+              );
+              await switchToFile(importedFile.name, true);
+            }
+          }
+          respond(`File imported successfully from ${sourcePath}`);
+          break;
+        }
+        case "open_workspace": {
+          if (!(await ensureEditorReady(requestId))) return;
+          const path = data.path;
+          const force = Boolean(data.force);
+          if (!path) throw new Error("missing path");
+          const modified = await IsWorkspaceModified();
+          if (modified && !force) {
+            throw new Error(
+              "workspace has unsaved changes; pass force=true to proceed",
+            );
+          }
+          const workspacePath = await OpenWorkspaceAt(path);
+          if (!workspacePath) {
+            throw new Error("failed to open workspace");
+          }
+          clearAllFileModels();
+          await loadWorkspaceFiles();
+          updateWorkspaceIndicator();
+          if (workspaceFiles.length > 0) {
+            const activeFile = await GetActiveFile();
+            activeFileName = activeFile;
+            document.getElementById("active-file-label").textContent = activeFile;
+            selectedFolderPath = getParentPath(activeFile);
+            isRootFolderSelected = false;
+            const activeMeta = workspaceFiles.find(
+              (file) => file.name === activeFile,
+            );
+            if (activeMeta && activeMeta.tooLarge) {
+              showLargeFilePreview(activeFile, activeMeta.size || 0);
+              updateRunButtonState();
+            } else {
+              const content = await GetFileContent(activeFile);
+              if (isImageFile(activeFile)) {
+                hideBinaryPreview();
+                showImagePreview(activeFile, content);
+                showMediaPreview(content, activeFile);
+              } else if (getMediaKind(activeFile)) {
+                const mediaKind = getMediaKind(activeFile);
+                hideImagePreview();
+                hideLargeFilePreview();
+                hideBinaryPreview();
+                showBinaryPreview(activeFile, mediaKind === "pdf" ? "PDF" : "Media");
+                showMediaPreview(content, activeFile);
+              } else if (
+                activeFile.endsWith(".xlsx") ||
+                activeFile.endsWith(".xlsm") ||
+                activeFile.endsWith(".xltx") ||
+                activeFile.endsWith(".xltm")
+              ) {
+                hideImagePreview();
+                hideLargeFilePreview();
+                hideBinaryPreview();
+                showBinaryPreview(activeFile, "Spreadsheet");
+                await showExcelPreview(activeFile);
+              } else if (activeMeta && activeMeta.isBinary) {
+                hideImagePreview();
+                hideLargeFilePreview();
+                hideBinaryPreview();
+                showBinaryPreview(activeFile, "Binary");
+                clearPreviewIfNeeded();
+              } else {
+                hideImagePreview();
+                hideLargeFilePreview();
+                hideBinaryPreview();
+                applyTextFileContent(activeFile, content, false);
+              }
+              updateRunButtonState();
+            }
+          }
+          showMessage(`Workspace opened: ${workspacePath}`, "success");
+          respond(`Workspace opened: ${workspacePath}`);
+          break;
+        }
+        case "save_workspace": {
+          if (!(await ensureEditorReady(requestId))) return;
+          const path = data.path;
+          if (!path) throw new Error("missing path");
+          const workspacePath = await CreateWorkspaceAt(path);
+          if (!workspacePath) {
+            throw new Error("failed to save workspace");
+          }
+          scheduleWorkspaceRefresh();
+          updateWorkspaceIndicator();
+          showMessage(`Workspace created at: ${workspacePath}`, "success");
+          respond(`Workspace saved to: ${workspacePath}`);
+          break;
+        }
+        case "save_all_files": {
+          if (!(await ensureEditorReady(requestId))) return;
+          await saveAllFiles();
+          respond("All files saved successfully");
+          break;
+        }
+        case "get_workspace_info": {
+          const info = await GetWorkspaceInfo();
+          respond(info);
+          break;
+        }
+        default:
+          throw new Error(`unknown action: ${action}`);
+      }
+    } catch (err) {
+      const errStr = `Error: ${err}`;
+      respond(errStr);
+    }
+  });
+}
 
 // Detect system theme preference
 function getSystemTheme() {
@@ -991,9 +1420,12 @@ function hideIgonbNotebook() {
   igonbIsExecuting = false;
   igonbRunQueue = [];
   document.body.classList.remove("igonb-mode", "igonb-dragging");
-  if (igonbSaveTimer) {
-    clearTimeout(igonbSaveTimer);
-    igonbSaveTimer = null;
+  if (activeFileName) {
+    const timer = igonbSaveTimers.get(activeFileName);
+    if (timer) {
+      clearTimeout(timer);
+      igonbSaveTimers.delete(activeFileName);
+    }
   }
   disposeIgonbEditors();
 }
@@ -1606,6 +2038,7 @@ async function stopIgonbExecution() {
     showMessage("Failed to stop execution: " + error, "error");
   } finally {
     finishIgonbRun();
+    setFileIgonbExecutionState(activeFileName, false, []);
     showMessage("Execution stopped", "warning");
   }
 }
@@ -1615,49 +2048,67 @@ function scheduleIgonbSave() {
   if (!activeFileName.endsWith(".igonb") && !activeFileName.endsWith(".ipynb"))
     return;
   if (!igonbState) return;
-  clearTimeout(igonbSaveTimer);
-  igonbSaveTimer = setTimeout(async () => {
-    const payload = getIgonbContent();
-    if (activeFileName.endsWith(".ipynb")) {
-      // For .ipynb files, use special API that converts igonb back to ipynb format
-      await UpdateIPyNBContent(activeFileName, payload);
-    } else {
-      // For .igonb files, save as igonb format
-      await UpdateFileContent(activeFileName, payload);
-    }
-    scheduleWorkspaceRefresh();
-  }, 600);
+  scheduleIgonbSaveForFile(activeFileName, igonbState);
 }
 
-function getIgonbContent() {
+function scheduleIgonbSaveForFile(filename, state) {
+  if (!filename) return;
+  if (!filename.endsWith(".igonb") && !filename.endsWith(".ipynb")) return;
+  if (!state) return;
+  const existingTimer = igonbSaveTimers.get(filename);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+  const timer = setTimeout(async () => {
+    const payload = getIgonbContentFromState(state);
+    if (filename.endsWith(".ipynb")) {
+      // For .ipynb files, use special API that converts igonb back to ipynb format
+      await UpdateIPyNBContent(filename, payload);
+    } else {
+      // For .igonb files, save as igonb format
+      await UpdateFileContent(filename, payload);
+    }
+    scheduleWorkspaceRefresh();
+    igonbSaveTimers.delete(filename);
+  }, 600);
+  igonbSaveTimers.set(filename, timer);
+}
+
+function getIgonbContentFromState(state) {
   const payload = {
-    version: igonbState ? igonbState.version || 1 : 1,
-    cells: (igonbState ? igonbState.cells : []).map((cell) => ({
+    version: state ? state.version || 1 : 1,
+    cells: (state ? state.cells : []).map((cell) => ({
       id: cell.id,
       language: cell.language,
       source: cell.source,
       output: cell.output || "",
       error: cell.error || "",
     })),
-    metadata: igonbState ? igonbState.metadata : undefined,
+    metadata: state ? state.metadata : undefined,
   };
   return JSON.stringify(payload, null, 2);
 }
 
+function getIgonbContent() {
+  return getIgonbContentFromState(igonbState);
+}
+
 async function runIgonbCell(index) {
   if (!igonbState || igonbIsExecuting) return;
+  const runState = igonbState;
+  const runFileName = activeFileName;
   try {
     recordIgonbRun();
     scheduleIgonbSave();
-    const target = igonbState.cells[index];
+    const target = runState.cells[index];
     if (target) {
       setIgonbSelectedId(target.id);
     }
     setIgonbRunningIndices([index]);
-    const content = getIgonbContent();
+    const content = getIgonbContentFromState(runState);
     const encodedIndex = -index - 2;
     const results = await ExecuteIgonbCells(content, encodedIndex);
-    applyIgonbResults(results);
+    applyIgonbResults(results, runState, runFileName);
   } catch (error) {
     finishIgonbRun();
     showMessage("Failed to execute cell: " + error, "error");
@@ -1666,17 +2117,19 @@ async function runIgonbCell(index) {
 
 async function runIgonbCellWithAbove(index) {
   if (!igonbState || igonbIsExecuting) return;
+  const runState = igonbState;
+  const runFileName = activeFileName;
   try {
     recordIgonbRun();
     scheduleIgonbSave();
-    const target = igonbState.cells[index];
+    const target = runState.cells[index];
     if (target) {
       setIgonbSelectedId(target.id);
     }
     setIgonbRunning(index);
-    const content = getIgonbContent();
+    const content = getIgonbContentFromState(runState);
     const results = await ExecuteIgonbCells(content, index);
-    applyIgonbResults(results);
+    applyIgonbResults(results, runState, runFileName);
   } catch (error) {
     finishIgonbRun();
     showMessage("Failed to execute cell: " + error, "error");
@@ -1687,26 +2140,29 @@ async function runIgonbCellDown(index) {
   if (!igonbState || igonbIsExecuting) return;
   const indices = getIgonbRunnableIndicesFrom(index);
   if (indices.length === 0) return;
+  const runState = igonbState;
+  const runFileName = activeFileName;
   try {
     recordIgonbRun();
     scheduleIgonbSave();
-    const target = igonbState.cells[index];
+    const target = runState.cells[index];
     if (target) {
       setIgonbSelectedId(target.id);
     }
     setIgonbRunningIndices(indices);
-    const content = getIgonbContent();
+    const content = getIgonbContentFromState(runState);
     let hadError = false;
     for (const idx of indices) {
       const encodedIndex = -idx - 2;
       const results = await ExecuteIgonbCells(content, encodedIndex);
-      if (applyIgonbResultsWithoutFinish(results)) {
+      if (applyIgonbResultsWithoutFinish(results, runState, runFileName)) {
         hadError = true;
         break;
       }
     }
     if (hadError) {
       finishIgonbRun();
+      setFileIgonbExecutionState(runFileName, false, []);
       showMessage("Notebook execution stopped due to an error", "error");
     } else if (igonbIsExecuting) {
       finishIgonbRun();
@@ -1734,63 +2190,79 @@ function ensureIgonbMarkdownPreview() {
 
 async function runIgonbAll() {
   if (!igonbState || igonbIsExecuting) return;
+  const runState = igonbState;
+  const runFileName = activeFileName;
   try {
     recordIgonbRun();
     scheduleIgonbSave();
     ensureIgonbMarkdownPreview();
     setIgonbRunning(-1);
-    const content = getIgonbContent();
+    const content = getIgonbContentFromState(runState);
     const results = await ExecuteIgonbCells(content, -1);
-    applyIgonbResults(results);
+    applyIgonbResults(results, runState, runFileName);
   } catch (error) {
     finishIgonbRun();
     showMessage("Failed to execute notebook: " + error, "error");
   }
 }
 
-function applyIgonbResult(result) {
-  if (!result || !igonbState) return;
+function applyIgonbResult(result, state = igonbState, filename = activeFileName) {
+  if (!result || !state) return;
   const idx = result.index;
-  if (idx < 0 || idx >= igonbState.cells.length) return;
-  const cell = igonbState.cells[idx];
+  if (idx < 0 || idx >= state.cells.length) return;
+  const cell = state.cells[idx];
   cell.output = result.output || "";
   cell.error = result.error || "";
   cell.running = false;
   cell.waiting = false;
   cell.done = true;
-  updateIgonbCellOutput(cell);
-  scheduleIgonbSave();
-  if (cell.language === "markdown") {
-    updateIgonbCellRunningUI(cell);
+  const shouldUpdateUI =
+    isIgonbView && filename === activeFileName && state === igonbState;
+  if (shouldUpdateUI) {
+    updateIgonbCellOutput(cell);
+    if (cell.language === "markdown") {
+      updateIgonbCellRunningUI(cell);
+    }
   }
-  if (igonbIsExecuting) {
+  scheduleIgonbSaveForFile(filename, state);
+  if (shouldUpdateUI && igonbIsExecuting) {
     advanceIgonbRunQueue(idx);
   }
+  updateFileExecutionCellStates(filename, state);
 }
 
-function applyIgonbResults(results) {
-  if (!Array.isArray(results) || !igonbState) return;
+function applyIgonbResults(
+  results,
+  state = igonbState,
+  filename = activeFileName,
+) {
+  if (!Array.isArray(results) || !state) return;
   let hadError = false;
   results.forEach((result) => {
     if (result && result.error) {
       hadError = true;
     }
-    applyIgonbResult(result);
+    applyIgonbResult(result, state, filename);
   });
   finishIgonbRun();
+  setFileIgonbExecutionState(filename, false, []);
   if (hadError) {
     showMessage("Notebook execution stopped due to an error", "error");
   }
 }
 
-function applyIgonbResultsWithoutFinish(results) {
-  if (!Array.isArray(results) || !igonbState) return false;
+function applyIgonbResultsWithoutFinish(
+  results,
+  state = igonbState,
+  filename = activeFileName,
+) {
+  if (!Array.isArray(results) || !state) return false;
   let hadError = false;
   results.forEach((result) => {
     if (result && result.error) {
       hadError = true;
     }
-    applyIgonbResult(result);
+    applyIgonbResult(result, state, filename);
   });
   return hadError;
 }
@@ -1987,6 +2459,7 @@ function setIgonbRunningIndices(indices) {
   if (!igonbState) return;
   igonbRunQueue = Array.isArray(indices) ? [...indices] : [];
   igonbIsExecuting = true;
+  setFileIgonbExecutionState(activeFileName, true, igonbRunQueue);
 
   igonbState.cells.forEach((cell) => {
     cell.running = false;
@@ -2348,16 +2821,19 @@ function debounceExecute() {
 
 // Execute code
 async function executeCode() {
-  if (isExecuting) return;
+  if (isExecuting) return "";
   if (!isRunnableActiveFile()) {
     showMessage(
       "Run is only available for .go, .py, and .igonb files",
       "warning",
     );
-    return;
+    return "";
   }
 
+  const runFileName = activeFileName;
   isExecuting = true;
+  executingFileName = runFileName;
+  setFileExecutingState(runFileName, true);
   const runButton = document.getElementById("run-btn");
   const resultOutput = document.getElementById("result-output");
   const resultLabel = document.querySelector(".result-label");
@@ -2378,10 +2854,9 @@ async function executeCode() {
   try {
     if (activeFileName.endsWith(".igonb")) {
       await runIgonbAll();
-      setResultOutput(
-        '<div style="color: #888;">Notebook output is shown inline.</div>',
-      );
-      return;
+      const msg = '<div style="color: #888;">Notebook output is shown inline.</div>';
+      setResultOutput(msg);
+      return msg;
     }
 
     const code = editor.getValue();
@@ -2396,16 +2871,22 @@ async function executeCode() {
         "Run is only available for .go, .py, and .igonb files",
         "warning",
       );
-      return;
+      return "";
     }
 
     setResultOutput(result);
+    return result;
   } catch (error) {
-    setResultOutput(`<div class="error-message">Error: ${error}</div>`);
+    const errStr = `<div class="error-message">Error: ${error}</div>`;
+    setResultOutput(errStr);
+    return errStr;
   } finally {
     isExecuting = false;
-    runButton.disabled = false;
+    const finishedFileName = executingFileName || runFileName;
+    setFileExecutingState(finishedFileName, false);
+    executingFileName = "";
     runButton.innerHTML = '<i class="fas fa-play"></i> Run';
+    updateRunButtonState();
     scheduleWorkspaceRefresh();
   }
 }
@@ -2856,9 +3337,8 @@ function formatBytes(bytes) {
     value /= 1024;
     unitIndex += 1;
   }
-  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${
-    units[unitIndex]
-  }`;
+  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]
+    }`;
 }
 
 function getParentPath(path) {
@@ -2938,7 +3418,8 @@ function updateRunButtonState() {
     isRunnableActiveFile() &&
     !isImagePreview &&
     !isLargeFilePreview &&
-    !isBinaryPreview;
+    !isBinaryPreview &&
+    !isExecuting; // Don't enable run button if code is executing
 
   runButton.disabled = !runnable;
   runButton.title = runnable
@@ -3735,16 +4216,14 @@ function createFileItem(entry, depth) {
   fileItem.innerHTML = `
       <i class="fas ${iconClass}"></i>
       <span class="file-name">${entry.name}</span>
-      ${
-        entry.meta && entry.meta.tooLarge
-          ? '<span class="large-indicator" title="Large file">L</span>'
-          : ""
-      }
-      ${
-        entry.meta && entry.meta.modified
-          ? '<span class="modified-indicator">*</span>'
-          : ""
-      }
+      ${entry.meta && entry.meta.tooLarge
+      ? '<span class="large-indicator" title="Large file">L</span>'
+      : ""
+    }
+      ${entry.meta && entry.meta.modified
+      ? '<span class="modified-indicator">*</span>'
+      : ""
+    }
       <div class="file-actions">
         <button class="file-action-btn" title="Actions" type="button">
           <i class="fas fa-ellipsis-h"></i>
@@ -3853,12 +4332,126 @@ function createFileItem(entry, depth) {
   return fileItem;
 }
 
+// Save current file's execution state before switching
+function saveFileExecutionState(filename) {
+  if (!filename) return;
+
+  const state = {
+    isExecuting: isExecuting,
+    igonbIsExecuting: igonbIsExecuting,
+    igonbRunQueue: [...igonbRunQueue],
+    cellStates: null
+  };
+
+  // Save igonb cell states if this is a notebook
+  if (igonbState && (filename.endsWith('.igonb') || filename.endsWith('.ipynb'))) {
+    state.cellStates = igonbState.cells.map(cell => ({
+      running: cell.running,
+      waiting: cell.waiting,
+      done: cell.done
+    }));
+  }
+
+  fileExecutionState.set(filename, state);
+}
+
+function setFileExecutingState(filename, executing) {
+  if (!filename) return;
+  const existing = fileExecutionState.get(filename) || {
+    isExecuting: false,
+    igonbIsExecuting: false,
+    igonbRunQueue: [],
+    cellStates: null,
+  };
+  existing.isExecuting = executing;
+  fileExecutionState.set(filename, existing);
+}
+
+function updateFileExecutionCellStates(filename, state) {
+  if (!filename || !state) return;
+  if (!filename.endsWith(".igonb") && !filename.endsWith(".ipynb")) return;
+  const existing = fileExecutionState.get(filename) || {
+    isExecuting: false,
+    igonbIsExecuting: false,
+    igonbRunQueue: [],
+    cellStates: null,
+  };
+  existing.cellStates = state.cells.map((cell) => ({
+    running: cell.running,
+    waiting: cell.waiting,
+    done: cell.done,
+  }));
+  fileExecutionState.set(filename, existing);
+}
+
+function setFileIgonbExecutionState(filename, executing, runQueue = []) {
+  if (!filename) return;
+  if (!filename.endsWith(".igonb") && !filename.endsWith(".ipynb")) return;
+  const existing = fileExecutionState.get(filename) || {
+    isExecuting: false,
+    igonbIsExecuting: false,
+    igonbRunQueue: [],
+    cellStates: null,
+  };
+  existing.igonbIsExecuting = executing;
+  existing.igonbRunQueue = Array.isArray(runQueue) ? [...runQueue] : [];
+  fileExecutionState.set(filename, existing);
+}
+
+// Restore execution state when switching to a file
+function restoreFileExecutionState(filename) {
+  if (!filename) return;
+
+  const state = fileExecutionState.get(filename);
+  if (!state) {
+    // No saved state for this file - don't change global execution flags
+    // The global isExecuting and igonbIsExecuting flags should be maintained
+    // across file switches until execution completes
+    updateRunButtonState();
+    return;
+  }
+
+  const executingElsewhere =
+    executingFileName && executingFileName !== filename;
+
+  // Restore execution state only when there is no active execution elsewhere.
+  if (!executingElsewhere) {
+    isExecuting = state.isExecuting;
+  }
+  igonbIsExecuting = state.igonbIsExecuting;
+  igonbRunQueue = [...state.igonbRunQueue];
+
+  // Restore igonb cell states if applicable
+  if (state.cellStates && igonbState && (filename.endsWith('.igonb') || filename.endsWith('.ipynb'))) {
+    state.cellStates.forEach((cellState, idx) => {
+      if (idx < igonbState.cells.length) {
+        igonbState.cells[idx].running = cellState.running;
+        igonbState.cells[idx].waiting = cellState.waiting;
+        igonbState.cells[idx].done = cellState.done;
+      }
+    });
+    // Update UI to reflect running/waiting states
+    igonbState.cells.forEach(cell => {
+      updateIgonbCellRunningUI(cell);
+    });
+    updateIgonbRunControls();
+  }
+
+  // Update run button state
+  updateRunButtonState();
+}
+
 async function switchToFile(filename, force = false) {
   if (!force && filename === activeFileName) return;
 
   try {
     const previousFileName = activeFileName;
     const previousModel = editor.getModel();
+
+    // Save execution state of current file before switching
+    if (activeFileName) {
+      saveFileExecutionState(activeFileName);
+    }
 
     // Save current file content (only if not in image preview mode)
     if (
@@ -3905,6 +4498,7 @@ async function switchToFile(filename, force = false) {
       showLargeFilePreview(filename, selectedFile.size || 0);
       clearPreviewIfNeeded();
       updateRunButtonState();
+      restoreFileExecutionState(filename);
       await setActivePromise;
       scheduleWorkspaceRefresh();
       return;
@@ -3922,6 +4516,7 @@ async function switchToFile(filename, force = false) {
       applyTextFileContent(filename, cachedContent, true);
       disposeOrphanModel(previousFileName, previousModel);
       updateRunButtonState();
+      restoreFileExecutionState(filename);
       await setActivePromise;
       scheduleWorkspaceRefresh();
       return;
@@ -3971,6 +4566,8 @@ async function switchToFile(filename, force = false) {
     }
 
     updateRunButtonState();
+    // Restore execution state for the new file
+    restoreFileExecutionState(filename);
     await setActivePromise;
     // Refresh file tree without blocking UI
     scheduleWorkspaceRefresh();
@@ -4369,7 +4966,7 @@ async function exportCurrentFile() {
     ) {
       const currentContent =
         isIgonbView &&
-        (activeFileName.endsWith(".igonb") || activeFileName.endsWith(".ipynb"))
+          (activeFileName.endsWith(".igonb") || activeFileName.endsWith(".ipynb"))
           ? getIgonbContent()
           : editor.getValue();
       await UpdateFileContent(activeFileName, currentContent);
@@ -4616,6 +5213,7 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+registerMcpHandlers();
 
 // Initialize app
 async function initApp() {
@@ -5038,54 +5636,53 @@ async function initApp() {
           selectedFolderPath = getParentPath(activeFileName);
           isRootFolderSelected = false;
           updateRunButtonState();
-          return;
-        }
-
-        const content = await GetFileContent(activeFileName);
-
-        // Check if this is an image file
-        if (isImageFile(activeFileName)) {
-          hideBinaryPreview();
-          showImagePreview(activeFileName, content);
-          showMediaPreview(content, activeFileName);
-        } else if (getMediaKind(activeFileName)) {
-          const mediaKind = getMediaKind(activeFileName);
-          hideImagePreview();
-          hideLargeFilePreview();
-          hideBinaryPreview();
-          showBinaryPreview(
-            activeFileName,
-            mediaKind === "pdf" ? "PDF" : "Media",
-          );
-          showMediaPreview(content, activeFileName);
-        } else if (
-          activeFileName.endsWith(".xlsx") ||
-          activeFileName.endsWith(".xlsm") ||
-          activeFileName.endsWith(".xltx") ||
-          activeFileName.endsWith(".xltm")
-        ) {
-          hideImagePreview();
-          hideLargeFilePreview();
-          hideBinaryPreview();
-          showBinaryPreview(activeFileName, "Spreadsheet");
-          await showExcelPreview(activeFileName);
-        } else if (activeMeta && activeMeta.isBinary) {
-          hideImagePreview();
-          hideLargeFilePreview();
-          hideBinaryPreview();
-          showBinaryPreview(activeFileName, "Binary");
-          clearPreviewIfNeeded();
         } else {
-          hideImagePreview();
-          hideLargeFilePreview();
-          hideBinaryPreview();
-          document.getElementById("active-file-label").textContent =
-            activeFileName;
-          selectedFolderPath = getParentPath(activeFileName);
-          isRootFolderSelected = false;
-          applyTextFileContent(activeFileName, content, false);
+          const content = await GetFileContent(activeFileName);
+
+          // Check if this is an image file
+          if (isImageFile(activeFileName)) {
+            hideBinaryPreview();
+            showImagePreview(activeFileName, content);
+            showMediaPreview(content, activeFileName);
+          } else if (getMediaKind(activeFileName)) {
+            const mediaKind = getMediaKind(activeFileName);
+            hideImagePreview();
+            hideLargeFilePreview();
+            hideBinaryPreview();
+            showBinaryPreview(
+              activeFileName,
+              mediaKind === "pdf" ? "PDF" : "Media",
+            );
+            showMediaPreview(content, activeFileName);
+          } else if (
+            activeFileName.endsWith(".xlsx") ||
+            activeFileName.endsWith(".xlsm") ||
+            activeFileName.endsWith(".xltx") ||
+            activeFileName.endsWith(".xltm")
+          ) {
+            hideImagePreview();
+            hideLargeFilePreview();
+            hideBinaryPreview();
+            showBinaryPreview(activeFileName, "Spreadsheet");
+            await showExcelPreview(activeFileName);
+          } else if (activeMeta && activeMeta.isBinary) {
+            hideImagePreview();
+            hideLargeFilePreview();
+            hideBinaryPreview();
+            showBinaryPreview(activeFileName, "Binary");
+            clearPreviewIfNeeded();
+          } else {
+            hideImagePreview();
+            hideLargeFilePreview();
+            hideBinaryPreview();
+            document.getElementById("active-file-label").textContent =
+              activeFileName;
+            selectedFolderPath = getParentPath(activeFileName);
+            isRootFolderSelected = false;
+            applyTextFileContent(activeFileName, content, false);
+          }
+          updateRunButtonState();
         }
-        updateRunButtonState();
       } catch (error) {
         console.error("Failed to load initial file:", error);
       }

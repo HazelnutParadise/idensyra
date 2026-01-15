@@ -4,6 +4,7 @@ go 1.25
 
 require (
 	github.com/HazelnutParadise/insyra v0.2.13
+	github.com/modelcontextprotocol/go-sdk v1.2.0
 	github.com/traefik/yaegi v0.16.1
 	github.com/wailsapp/wails/v2 v2.11.0
 	github.com/xuri/excelize/v2 v2.10.0
@@ -53,6 +54,7 @@ require (
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/google/flatbuffers v25.12.19+incompatible // indirect
 	github.com/google/gopacket v1.1.19 // indirect
+	github.com/google/jsonschema-go v0.3.0 // indirect
 	github.com/google/pprof v0.0.0-20260106004452-d7df1bf2cac7 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
@@ -96,12 +98,14 @@ require (
 	github.com/wnjoon/go-yfinance v1.0.0 // indirect
 	github.com/xuri/efp v0.0.1 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.uber.org/mock v0.6.0 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93 // indirect
 	golang.org/x/image v0.34.0 // indirect
 	golang.org/x/mod v0.32.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
+	golang.org/x/oauth2 v0.32.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260109210033-bd525da824e2 // indirect
