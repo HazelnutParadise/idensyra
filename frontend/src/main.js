@@ -138,7 +138,7 @@ function registerMcpHandlers() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ request_id: requestId, result: text }),
-      }).catch(() => {});
+      }).catch(() => { });
     }, 0);
   };
 
@@ -3276,11 +3276,8 @@ function initPythonPackageModal() {
   const modal = document.getElementById("python-packages-modal");
   if (!modal) return;
 
-  modal.addEventListener("click", (event) => {
-    if (event.target === modal) {
-      closePythonPackageManager();
-    }
-  });
+  // Clicking outside the modal no longer closes it.
+  // Modal can be closed via the close button or programmatically.
 
   const closeBtn = document.getElementById("python-packages-close");
   if (closeBtn) {
