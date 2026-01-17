@@ -212,6 +212,22 @@ func convertValueForPythonJSON(value any) any {
 		return nil
 	}
 
+	if dl, ok := value.(insyra.IDataList); ok && dl != nil {
+		return map[string]any{
+			"__igonb_type__": "datalist",
+			"data":           dl.Data(),
+			"name":           dl.GetName(),
+		}
+	}
+	if dt, ok := value.(insyra.IDataTable); ok && dt != nil {
+		return map[string]any{
+			"__igonb_type__": "datatable",
+			"data":           dt.To2DSlice(),
+			"columns":        dt.ColNames(),
+			"index":          dt.RowNames(),
+		}
+	}
+
 	rv := reflect.ValueOf(value)
 	if !rv.IsValid() {
 		return nil
@@ -227,7 +243,7 @@ func convertValueForPythonJSON(value any) any {
 	}
 
 	// Handle IDataList
-	if isInsyraIDataListType(rv.Type()) || isIsrDlType(rv.Type()) {
+	if isInsyraDataListType(rv.Type()) || isInsyraIDataListType(rv.Type()) || isIsrDlType(rv.Type()) {
 		if dl, ok := value.(interface {
 			Data() []any
 			GetName() string
@@ -238,10 +254,22 @@ func convertValueForPythonJSON(value any) any {
 				"name":           dl.GetName(),
 			}
 		}
+		if rv.CanAddr() {
+			if dl, ok := rv.Addr().Interface().(interface {
+				Data() []any
+				GetName() string
+			}); ok {
+				return map[string]any{
+					"__igonb_type__": "datalist",
+					"data":           dl.Data(),
+					"name":           dl.GetName(),
+				}
+			}
+		}
 	}
 
 	// Handle IDataTable
-	if isInsyraIDataTableType(rv.Type()) || isIsrDtType(rv.Type()) {
+	if isInsyraDataTableType(rv.Type()) || isInsyraIDataTableType(rv.Type()) || isIsrDtType(rv.Type()) {
 		if dt, ok := value.(interface {
 			To2DSlice() [][]any
 			ColNames() []string
@@ -252,6 +280,20 @@ func convertValueForPythonJSON(value any) any {
 				"data":           dt.To2DSlice(),
 				"columns":        dt.ColNames(),
 				"index":          dt.RowNames(),
+			}
+		}
+		if rv.CanAddr() {
+			if dt, ok := rv.Addr().Interface().(interface {
+				To2DSlice() [][]any
+				ColNames() []string
+				RowNames() []string
+			}); ok {
+				return map[string]any{
+					"__igonb_type__": "datatable",
+					"data":           dt.To2DSlice(),
+					"columns":        dt.ColNames(),
+					"index":          dt.RowNames(),
+				}
 			}
 		}
 	}
@@ -343,6 +385,19 @@ def __igonb_collect_defs(code):
 		return []
 	defs = []
 	for node in tree.body:
+		if isinstance(node, (ast.Import, ast.ImportFrom)):
+			try:
+				src = ast.get_source_segment(code, node)
+			except Exception:
+				src = None
+			if src:
+				try:
+					import hashlib
+					name = "import:" + hashlib.sha1(src.encode("utf-8")).hexdigest()
+				except Exception:
+					name = "import:" + str(len(defs))
+				defs.append({"name": name, "source": src})
+			continue
 		if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
 			try:
 				src = ast.get_source_segment(code, node)
